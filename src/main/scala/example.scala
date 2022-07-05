@@ -3,75 +3,62 @@ package example
 import dsl.*
 import checker.*
 
-def min(expr: Expr) =
-  let(commutative)(
+def min(expr: Term) =
+  let(
     "min",
-    abs(commutative)(
-      List(pattern("Z"), pattern("Z")) -> ctor("Z"),
-      List(pattern("S", bind("a")), pattern("Z")) -> ctor("Z"),
-      List(pattern("Z"), pattern("S", bind("b"))) -> ctor("Z"),
-      List(pattern("S", bind("a")), pattern("S", bind("b"))) -> ctor("S", app(id("min"), id("a"), id("b")))),
+    abs(comm)("a", "b")(cases("Pair", "a", "b")(
+      ("Pair", "a", "Z") -> "Z",
+      ("Pair", "Z", "a") -> "Z",
+      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(comm)("min", "a", "b")))),
     expr)
 
-def max(expr: Expr) =
-  let(commutative)(
+def max(expr: Term) =
+  let(
     "max",
-    abs(commutative)(
-      List(pattern("Z"), pattern("Z")) -> ctor("Z"),
-      List(pattern("S", bind("a")), pattern("Z")) -> ctor("S", id("a")),
-      List(pattern("Z"), pattern("S", bind("b"))) -> ctor("S", id("b")),
-      List(pattern("S", bind("a")), pattern("S", bind("b"))) -> ctor("S", app(id("max"), id("a"), id("b")))),
+    abs(comm)("a", "b")(cases("Pair", "a", "b")(
+      ("Pair", "a", "Z") -> "a",
+      ("Pair", "Z", "a") -> "a",
+      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(comm)("max", "a", "b")))),
     expr)
 
-def map(expr: Expr) =
-  let(commutative)(
-    "f",
-    ctor("Z"),
-    let(commutative)(
-      "map",
-      abs(commutative)(
-        List(pattern("nil"), pattern("nil")) -> ctor("nil"),
-        List(pattern("nil"), pattern("cons", bind("y"), bind("ys"))) -> ctor("nil"),
-        List(pattern("cons", bind("x"), bind("xs")), pattern("nil")) -> ctor("nil"),
-        List(pattern("cons", bind("x"), bind("xs")), pattern("cons", bind("y"), bind("ys"))) ->
-          ctor("cons", app(id("f"), id("x"), id("y")), app(id("map"), id("xs"), id("ys")))),
-      expr))
-
-def othermap(expr: Expr) =
-  let(commutative)(
-    "f",
-    ctor("Z"),
-    let()(
-      "g",
-      ctor("Z"),
-      let(commutative)(
-        "othermap",
-        abs(commutative)(
-          List(pattern("nil"), pattern("nil")) -> ctor("nil"),
-          List(pattern("nil"), pattern("cons", bind("y"), bind("ys"))) -> ctor("cons", app(id("g"), id("y")), app(id("othermap"), ctor("nil"), id("ys"))),
-          List(pattern("cons", bind("x"), bind("xs")), pattern("nil")) -> ctor("cons", app(id("g"), id("x")), app(id("othermap"), id("xs"), ctor("nil"))),
-          List(pattern("cons", bind("x"), bind("xs")), pattern("cons", bind("y"), bind("ys"))) ->
-            ctor("cons", app(id("f"), id("x"), id("y")), app(id("othermap"), id("xs"), id("ys")))),
-        expr)))
+def map(expr: Term) =
+  let(
+    "map",
+    abs(comm)("a", "b")(cases("Pair", "a", "b")(
+      ("Pair", ("Cons", "x", "xs"), ("Cons", "y", "ys")) -> ("Cons", app(comm)("f", "x", "y"), app(comm)("map", "xs", "ys")),
+      ("_") -> "Nil")),
+    expr)
 
 
 @main def example =
-  val program = othermap(ctor("Z"))
+  val program = alpharename(map(term("Z")))
 
   println()
-  println("ORIGINAL:")
+  println("PROGRAM:")
   println(program.show)
 
-  println()
-  println("ORIGINAL NORMALIZED:")
-  println(normalize(program).show)
+  val ast.Let(Symbol(name), fun: ast.Abs, _) = program
 
   println()
-  println("SWAPPED:")
-  println(swap(program).show)
+  println(s"INPUTSPACE for $name:")
+  val space = inputspace(fun)
+  println(space.map(_.show).mkString(", "))
 
   println()
-  println("SWAPPED NORMALIZED:")
-  println(normalize(swap(program)).show)
+  println(s"INPUTS for COMMUTATIVITY CHECK for $name:")
+  val inputs = commutativity.inputs(space)
+  println(inputs.map(_.map(_.show).mkString("❬", ", ", "❭")).mkString(", "))
 
-  check(program)
+  inputs map { inputs =>
+    println()
+    println(s"COMMUTATIVITY NORMAL with ${inputs.map(_.show).mkString("❬", ", ", "❭")} for $name:")
+    println(commutativity.normalize(fun, inputs).show)
+
+    println()
+    println(s"COMMUTATIVITY NORMAL with ${inputs.reverse.map(_.show).mkString("❬", ", ", "❭")} (reversed) for $name:")
+    println(commutativity.normalize(fun, inputs.reverse).show)
+  }
+
+  println()
+  println(s"COMMUTATIVITY CHECK for $name:")
+  println(commutativity.check(fun))

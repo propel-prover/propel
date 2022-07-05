@@ -3,150 +3,262 @@ package checker
 import ast.*
 import dsl.show
 import ordering.given
+import scala.collection.mutable
 
 
 def fail(message: String) = throw RuntimeException(message)
 
 
-def unify(case0: Case, case1: Case): Option[Map[Ident.Term, Ident.Term]] = (case0, case1) match
-  case (Case.Pattern(name0, args0), Case.Pattern(name1, args1)) =>
-    if name0 == name1 && args0.size == args1.size then
-      if args0.nonEmpty then
-        args0 zip args1 map unify reduce {
-          case (Some(subst0), Some(subst1)) => Some(subst0 ++ subst1)
-          case _ => None
+def subscript(i: Int) =
+  def subscript(i: Int) = i.toString map { c => (c.toInt - '0' + '₀').toChar }
+  if i < 0 then "₋" + subscript(-i) else subscript(i)
+
+
+def alpharename(expr: Term): Term =
+  val used = mutable.Set.empty[String]
+
+  def freshName(base: String, index: Int): String =
+    val name = base + subscript(index)
+    if used.contains(name) then freshName(base, index + 1) else name
+
+  def renameCase(pattern: Case): (Case, Map[String, String]) = pattern match
+    case Pattern(ident, args) =>
+      val (renamedArgs, substs) = args.map(renameCase).unzip
+      (Pattern(ident, renamedArgs), substs.foldLeft(Map.empty) { _ ++ _ })
+    case Bind(ident) =>
+      val fresh = freshName(ident.name, 1)
+      used += fresh
+      (Bind(Symbol(fresh)), Map(ident.name -> fresh))
+
+  def renameTerm(expr: Term, subst: Map[String, String], applicator: Boolean = false): Term = expr match
+    case Abs(properties, args, expr) =>
+      val (renamedArgs, additionalSubst) = (args map { arg =>
+        val fresh = freshName(arg.name, 1)
+        used += fresh
+        (Symbol(fresh), arg.name -> fresh)
+      }).unzip
+      Abs(properties, renamedArgs, renameTerm(expr, subst ++ additionalSubst))
+    case App(properties, expr, args) =>
+      App(properties, renameTerm(expr, subst, applicator = true), args map { renameTerm(_, subst) })
+    case Ident(ident) =>
+      subst.get(ident.name) match
+        case Some(name) => Ident(Symbol(name))
+        case _ if applicator => expr 
+        case _ => fail(s"Unbound identifier: ${ident.name}")
+    case Let(ident, bound, expr) =>
+      val fresh = freshName(ident.name, 1)
+      used += fresh
+      Let(Symbol(fresh), renameTerm(bound, subst + (ident.name -> fresh)), renameTerm(expr, subst + (ident.name -> fresh)))
+    case Cases(scrutinee, cases) =>
+      val renamedScrutinee = renameTerm(scrutinee, subst)
+      val renamedCases = cases map { (pattern, expr) =>
+        val (renamedPattern, additionalSubst) = renameCase(pattern)
+        renamedPattern -> renameTerm(expr, subst ++ additionalSubst)
+      }
+      Cases(renamedScrutinee, renamedCases)
+
+  renameTerm(expr, Map.empty)
+
+
+enum Unification:
+  case Full(substs: Map[Symbol, Term])
+  case Irrefutable(substs: Map[Symbol, Term], residuals: Set[Case])
+  case Distinct
+
+def unify(pattern: Case, expr: Term): Unification =
+  def unify(pattern: Case, expr: Term): Option[(Map[Symbol, Term], Set[Case])] = pattern -> expr match
+    case Pattern(patternIdent, patternArgs) -> App(_, Ident(exprIdent), exprArgs)
+        if patternIdent == exprIdent && patternArgs.size == exprArgs.size =>
+      if patternArgs.nonEmpty then
+        patternArgs zip exprArgs map unify reduce {
+          case (Some(substs0, residuals0), Some(substs1, residuals1)) =>
+            Some(substs0 ++ substs1, residuals0 ++ residuals1)
+          case _ =>
+            None
         }
       else
-        Some(Map.empty)
-    else
+        Some(Map.empty, Set.empty)
+    case Bind(ident) -> expr =>
+      Some(Map(ident -> expr), Set.empty)
+    case pattern -> Ident(_) =>
+      Some(Map.empty, Set(pattern))
+    case _ =>
       None
-  case (Case.Bind(name0), Case.Bind(name1)) =>
-    Some(Map(name0 -> name1, name1 -> name0))
-  case _ =>
-    None
+
+  unify(pattern, expr) match
+    case Some(substs, residuals) if residuals.isEmpty => Unification.Full(substs)
+    case Some(substs, residuals) => Unification.Irrefutable(substs, residuals)
+    case _ => Unification.Distinct
 
 
-def computeSwaps(cases: List[(List[Case], Term)]): List[(Term, Map[Ident.Term, Ident.Term])] =
-  type Swaps = Map[Ident.Term, Ident.Term]
-  type Cases = List[(Case, Case, Term, Option[Swaps])]
-
-  def computeSwapsCases(baseCase0: Case, baseCase1: Case, baseExpr: Term, cases: Cases): (Term, Swaps, Cases) = cases match
-    case (head @ (case0, case1, expr, swaps)) :: tail =>
-      val unification = swaps match
-        case None => unify(baseCase0, case1) flatMap { swaps => unify(case0, baseCase1) map { _ ++ swaps } }
-        case _ => None
-      unification match
-        case some @ Some(swaps) =>
-          (expr, swaps, (case0, case1, baseExpr, some) :: tail)
-        case None =>
-          val (expr, swaps, cases) = computeSwapsCases(baseCase0, baseCase1, baseExpr, tail)
-          (expr, swaps, head :: cases)
-    case _ =>
-      fail(s"Could not unify case: ${show(baseCase0)}")
-
-  def computeSwaps(cases: Cases): List[(Term, Swaps)] = cases match
-    case (baseCase0, baseCase1, baseExpr, None) :: _ =>
-      val (expr, swaps, _ :: tail) = computeSwapsCases(baseCase0, baseCase1, baseExpr, cases)
-      expr -> swaps :: computeSwaps(tail)
-    case (_, _, expr, Some(swaps)) :: tail =>
-      expr -> swaps :: computeSwaps(tail)
-    case _ =>
-      List.empty
-
-  computeSwaps(cases map {
-    case List(case0, case1) -> expr => (case0, case1, expr, None)
-    case cases -> _ => fail(s"Two arguments expected but found pattern: ${show(cases)}")
-  })
+def replaceBinds(pattern: Case, subst: Case): Case = pattern match
+  case Pattern(ident, args) =>
+    Pattern(ident, args map { replaceBinds(_, subst) })
+  case Bind(_) =>
+    subst
 
 
-def swap(expr: Term, swaps: Map[Ident.Term, Ident.Term] = Map.empty): Term = expr match
-  case Term.Abs(properties, cases) =>
-    val swapped =
-      if properties.contains(Property.Commutative) then
-        cases zip computeSwaps(cases) map { case ((cases, _), (expr, exprswaps)) =>
-          cases -> swap(expr, swaps ++ exprswaps)
+def enmuerateBinds(imputs: List[List[Case]]): List[List[Case]] =
+  var index = 0
+
+  def enmuerateBinds(pattern: Case): Case = pattern match
+    case Pattern(ident, args) =>
+      Pattern(ident, args map enmuerateBinds)
+    case Bind(_) =>
+      index += 1
+      Bind(Symbol("□" + subscript(index)))
+
+  imputs.map { cases =>
+    index = 0
+    cases map enmuerateBinds
+  }
+
+
+def inputspace(fun: Abs): Set[Case] =
+  val result = mutable.Set.empty[Case]
+
+  def inputspace(expr: Term, space: Set[Case]): Unit = expr match
+    case Abs(_, args, expr) =>
+      inputspace(expr, space)
+    case App(_, expr, args) =>
+      inputspace(expr, space)
+      args foreach { inputspace(_, space) }
+    case Ident(_) =>
+      result ++= space
+    case Let(_, bound, expr) =>
+      inputspace(bound, space)
+      inputspace(expr, space)
+    case Cases(scrutinee, cases) =>
+      inputspace(scrutinee, space)
+      cases foreach { (pattern, expr) =>
+        unify(pattern, scrutinee) match {
+          case Unification.Irrefutable(_, residuals) =>
+            val generalized = residuals map { replaceBinds(_, Bind(Symbol("□"))) }
+            val additonals = space flatMap { pattern => generalized map { replaceBinds(pattern, _) } }
+            inputspace(expr, space ++ additonals)
+          case _ =>
         }
-      else
-        cases
-    Term.Abs(properties, swapped)
-  case Term.App(expr, args) =>
-    Term.App(swap(expr), args map { swap(_, swaps) })
-  case Term.Var(name) =>
-    Term.Var(swaps.getOrElse(name, name))
-  case Term.Ctor(name, args) =>
-    Term.Ctor(name, args map { swap(_, swaps) })
-  case Term.Let(properties, name, bound, expr) =>
-    Term.Let(properties, name, swap(bound, swaps), swap(expr, swaps))
+      }
+
+  inputspace(fun, Set(Bind(Symbol("□"))))
+  result.toSet
 
 
-extension (context: Map[Ident.Term, Properties]) def contains(ident: Ident.Term, property: Property) =
-  context.get(ident).exists(_.contains(property))
-
-
-def normalize(expr: Term, context: Map[Ident.Term, Properties] = Map.empty): Term = expr match
-  case Term.Abs(properties, cases) =>
-    Term.Abs(properties, cases map { case cases -> expr => cases -> normalize(expr, context) })
-  case Term.App(variable @ Term.Var(name), List(arg0, arg1)) if context.contains(name, Property.Commutative) =>
-    if arg0 < arg1 then
-      Term.App(variable, List(normalize(arg0, context), normalize(arg1, context)))
+def inputs(inputspace: Set[Case], dimension: Int): List[List[Case]] =
+  def combinations(patterns: List[Case], rest: Int): List[List[Case]] =
+    if rest > 0 then
+      val tail = combinations(patterns, rest - 1)
+      patterns flatMap { pattern => tail map { pattern :: _ } }
     else
-      Term.App(variable, List(normalize(arg1, context), normalize(arg0, context)))
-  case Term.App(expr, args) =>
-    Term.App(normalize(expr, context), args map { normalize(_, context) })
-  case Term.Var(_) =>
-    expr
-  case Term.Ctor(name, args) =>
-    Term.Ctor(name, args map { normalize(_, context) })
-  case Term.Let(properties, name, bound, expr) =>
-    val extended = context + (name -> properties)
-    Term.Let(properties, name, normalize(bound, extended), normalize(expr, extended))
+      List.fill(dimension)(List.empty)
+
+  combinations(inputspace.toList, dimension).distinct
 
 
-def collectBindings(cases: List[Case]): Set[Ident.Term] = cases match
-  case Case.Pattern(_, args) :: tail =>
-    collectBindings(tail) ++ collectBindings(args)
-  case Case.Bind(name) :: tail =>
-    collectBindings(tail) + name
-  case _ =>
-    Set.empty
+def inputarg(input: Case): Term = input match
+  case Pattern(ident, args) => App(Set.empty, Ident(ident), args map inputarg)
+  case Bind(ident) => Ident(ident)
 
 
-def checkValidity(expr: Term, context: Map[Ident.Term, Properties] = Map.empty): Unit = expr match
-  case Term.Abs(properties, cases) =>
-    cases foreach { (cases, expr) =>
-      val bindings = collectBindings(cases)
-      val existing = context.keySet & bindings
-      if existing.nonEmpty then
-        fail(s"Name clash: ${existing.map(_.name).mkString(", ")}")
+def subst(expr: Term, substs: Map[Symbol, Term]): Term =
+  def bound(pattern: Case): List[Symbol] = pattern match
+    case Pattern(ident, args) => args flatMap bound
+    case Bind(ident) => List(ident)
 
-      val extended = context ++ bindings.map(_ -> Set.empty)
-      checkValidity(expr, context)
+  def subst(expr: Term, substs: Map[Symbol, Term]): Term = expr match
+    case Abs(properties, args, expr) =>
+      Abs(properties, args, subst(expr, substs -- args))
+    case App(properties, expr, args) =>
+      App(properties, subst(expr, substs), args map { subst(_, substs) })
+    case Ident(ident) =>
+      substs.getOrElse(ident, expr)
+    case Let(ident, bound, expr) =>
+      Let(ident, subst(bound, substs), subst(expr, substs - ident))
+    case Cases(scrutinee, cases) =>
+      Cases(
+        subst(scrutinee, substs),
+        cases map { (pattern, expr) =>
+          pattern -> subst(expr, substs -- bound(pattern))
+        })
+
+  subst(expr, substs)
+
+
+def partialeval(fun: Abs, args: List[Term]): Term =
+  def contains(expr: Term, ident: Symbol): Boolean = expr match
+    case Abs(_, args, expr) => contains(expr, ident)
+    case App(_, expr, args) => contains(expr, ident) || (args exists { contains(_, ident) })
+    case Ident(`ident`) => true
+    case Ident(_) => false
+    case Let(_, bound, expr) => contains(bound, ident) || contains(expr, ident)
+    case Cases(scrutinee, cases) => contains(scrutinee, ident) || (cases exists { (_, expr) => contains(expr, ident) })
+
+  def partialeval(expr: Term): Term = expr match
+    case Abs(properties, args, expr) =>
+      Abs(properties, args, partialeval(expr))
+    case App(properties, expr, args) =>
+      App(properties, partialeval(expr), args map partialeval)
+    case Ident(ident) =>
+      expr
+    case Let(ident, bound, expr) =>
+      if contains(bound, ident) then
+        Let(ident, partialeval(bound), partialeval(expr))
+      else
+        partialeval(subst(expr, Map(ident -> bound)))
+    case Cases(scrutinee, cases) =>
+      val evaluatedScrutinee = partialeval(scrutinee)
+
+      def process(cases: List[(Case, Term)]): Option[(Case, Term)] = cases match
+        case (pattern, expr) :: tail =>
+          unify(pattern, evaluatedScrutinee) match 
+            case Unification.Full(substs) =>
+              Some(pattern -> subst(expr, substs))
+            case _ =>
+              process(tail)
+        case _ =>
+          None
+
+      process(cases) match
+        case Some(_ -> expr) => partialeval(expr)
+        case None => Ident(Symbol("∅"))
+
+  if fun.args.size != args.size then
+    fail(s"Wrong number of arguments: ${args.size} (expected: ${fun.args.size})")
+
+  partialeval(subst(fun.expr, (fun.args zip args).toMap))
+
+
+object commutativity:
+  def inputs(inputspace: Set[Case]): List[List[Case]] =
+    enmuerateBinds(checker.inputs(inputspace, 2).map(_.sorted).distinct) filter {
+      case List(a, b) => a != b
+      case _ => true 
     }
-  case Term.App(expr, args) =>
-    checkValidity(expr, context)
-    args foreach { checkValidity(_, context) }
-  case Term.Var(_) =>
-    ()
-  case Term.Ctor(name, args) =>
-    args foreach { checkValidity(_, context) }
-  case Term.Let(properties, name, bound, expr) =>
-    if properties.contains(Property.Commutative) then bound match
-      case Term.Var(name) if !context.contains(name, Property.Commutative) =>
-        fail("Cannot bind non-commutative value to commutative identifier")
-      case Term.Abs(properties, _) if !properties.contains(Property.Commutative) =>
-        fail("Cannot bind non-commutative value to commutative identifier")
-      case _ =>
 
-    if context.contains(name) then
-      fail(s"Name clash: ${name.name}")
+  def normalize(expr: Term): Term = expr match
+    case Abs(properties, args, expr) =>
+      Abs(properties, args, normalize(expr))
+    case App(properties, expr, List(arg0, arg1)) if properties.contains(Property.Commutative) =>
+      val normalizedArg0 = normalize(arg0)
+      val normalizedArg1 = normalize(arg1)
+      if normalizedArg0 < normalizedArg1 then
+        App(properties, normalize(expr), List(normalizedArg0, normalizedArg1))
+      else
+        App(properties, normalize(expr), List(normalizedArg1, normalizedArg0))
+    case App(properties, expr, args) =>
+      App(properties, normalize(expr), args map normalize)
+    case Ident(ident) =>
+      expr
+    case Let(ident, bound, expr) =>
+      Let(ident, normalize(bound), normalize(expr))
+    case Cases(scrutinee, cases) =>
+      Cases(normalize(scrutinee), cases map { (pattern, expr) => pattern -> normalize(expr) })
 
-    val extended = context + (name -> properties)
-    checkValidity(bound, extended)
-    checkValidity(expr, extended)
+  def normalize(fun: Abs, inputs: List[Case]): Term =
+    normalize(partialeval(fun, inputs map inputarg))
 
-def checkCommutativity(expr: Term): Unit =
-  if normalize(expr) != normalize(swap(expr)) then fail("Cannot prove commutativity")
-
-def check(expr: Term): Unit =
-  checkValidity(expr)
-  checkCommutativity(expr)
+  def check(fun: Abs): Boolean =
+    inputs(inputspace(fun)) forall { inputs =>
+      val args = inputs map inputarg
+      normalize(partialeval(fun, args)) equiv normalize(partialeval(fun, args.reverse))
+    }

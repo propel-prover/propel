@@ -1,21 +1,21 @@
 package ast
 
+export Property.*
+export Case.*
+export Term.*
+
 type Properties = Set[Property]
 
 enum Property:
   case Commutative
 
-enum Ident:
-  case Term(name: String)
-  case Type(name: String)
-
 enum Case:
-  case Pattern(name: Ident.Type, args: List[Case])
-  case Bind(name: Ident.Term)
+  case Pattern(ident: Symbol, args: List[Case])
+  case Bind(ident: Symbol)
 
 enum Term:
-  case Abs(properties: Properties, cases: List[(List[Case], Term)])
-  case App(expr: Term, args: List[Term])
-  case Var(name: Ident.Term)
-  case Ctor(name: Ident.Type, args: List[Term])
-  case Let(properties: Properties, name: Ident.Term, bound: Term, expr: Term)
+  case Abs(properties: Properties, args: List[Symbol], expr: Term)
+  case App(properties: Properties, expr: Term, args: List[Term])
+  case Ident(ident: Symbol)
+  case Let(ident: Symbol, bound: Term, expr: Term)
+  case Cases(scrutinee: Term, cases: List[(Case, Term)])
