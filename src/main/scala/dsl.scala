@@ -130,7 +130,6 @@ package sugar:
   def `if`[A: TermExpr, B: TermExpr, C: TermExpr](a: A)(b: B)(c: C) = cases(a)(True -> b, False -> c)
 
 
-
 extension (property: Property) def show: String = property match
   case Commutative => "comm"
   case Associative => "assoc"
@@ -152,40 +151,110 @@ extension (pattern: Pattern) def show: String = pattern match
   case Match(ctor, args) => s"(${ctor.ident.name} ${args.map(_.show).mkString(" ")})"
   case Bind(ident) => ident.name
 
-extension (patterns: List[Pattern]) def show: String =
-  s"❬${patterns.map(_.show).mkString(", ")}❭"
-
 extension (expr: Term) def show: String =
-  def show(expr: Term | Constructor, indent: Int): String =
-    def showDirect(expr: Term | Constructor) = show(expr, indent)
-    def showInline(expr: Term | Constructor) = show(expr, indent + 1)
-    def showAlinged(output: String) = s"\n${"  " * indent}$output"
-    def showIndented(output: String) = s"\n${"  " * (indent + 1)}$output"
-    def annotation(properties: Properties) = if properties.isEmpty then "" else s"[${properties.show}] "
+  def show(expr: Term | Constructor): List[String] =
+    val falseMatch = Match(False, List.empty)
+    val falseApp = App(Set.empty, False, List.empty)
+    val trueMatch = Match(True, List.empty)
+    val trueApp = App(Set.empty, True, List.empty)
+
+    val indent = "  "
+
+    def annotation(properties: Properties) =
+      if properties.isEmpty then "" else s"[${properties.show}] "
+
+    def indented(values: List[String]) =
+      if values forall { _ startsWith indent } then values else values map { indent + _ }
+
+    def flatten(values: (String | List[String])*) = (values map {
+        case value: String => List(value)
+        case value: List[String] => value
+      }).flatten.toList
+
+    def parenthesize(values: List[String]) =
+      if values.lengthCompare(1) > 0 then
+        flatten(s"(${values.head}", values.init.tail, s"${values.last})")
+      else
+        flatten(s"(${values.head})")
+
+    def ensureParenthesis(expr: Term) = expr match
+      case _: (App | Var) => show(expr)
+      case _ => parenthesize(show(expr))
+
+    def binaryOp(op: String, a: Term, b: Term) =
+      val aOp = ensureParenthesis(a)
+      val bOp = ensureParenthesis(b)
+      if aOp.lengthCompare(1) > 0 || bOp.lengthCompare(1) > 0 then
+        parenthesize(aOp.head :: indented(flatten(aOp.tail, op, indented(bOp))))
+      else
+        parenthesize(flatten(s"${aOp.head} $op ${bOp.head}"))
 
     expr match
+      case Cases(a, List(`trueMatch` -> `falseApp`, `falseMatch` -> `trueApp`)) =>
+        val casess = ensureParenthesis(a)
+        flatten(s"¬${casess.head}", casess.tail)
+      case Cases(a, List(`trueMatch` -> `trueApp`, `falseMatch` -> b)) =>
+        binaryOp("∨", a, b)
+      case Cases(a, List(`trueMatch` -> b, `falseMatch` -> `falseApp`)) =>
+        binaryOp("∧", a, b)
+      case Cases(a, List(`trueMatch` -> b, `falseMatch` -> `trueApp`)) =>
+        binaryOp("→", a, b)
+      case Cases(cond, List(`trueMatch` -> thenBranch, `falseMatch` -> elseBranch)) =>
+        val condexpr = show(cond)
+        val thenexpr = show(thenBranch)
+        val elsexpr = show(elseBranch)
+        if condexpr.lengthCompare(1) > 0 then
+          flatten("if", indented(condexpr), "then", indented(thenexpr), "else", indented(elsexpr))
+        else if thenexpr.lengthCompare(1) > 0 || elsexpr.lengthCompare(1) > 0 then
+          flatten(s"if ${ensureParenthesis(cond).head} then", indented(thenexpr), "else", indented(elsexpr))
+        else
+          flatten(s"if ${ensureParenthesis(cond).head} then ${ensureParenthesis(thenBranch).head} else ${ensureParenthesis(elseBranch).head}")
       case Constructor(ident) =>
-        ident.name
+        flatten(ident.name)
       case Abs(properties, args, expr) =>
-        s"λ ${annotation(properties)}${args.map(_.name).mkString(" ")}. ${showInline(expr)}"
+        val absexpr = show(expr)
+        flatten(s"λ ${annotation(properties)}${args.map(_.name).mkString(" ")}. ${absexpr.head}", indented(absexpr.tail))
       case App(_, ctor: Constructor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
-        showDirect(ctor)
+        show(ctor)
       case App(_, expr: Var, List()) if expr.ident.name.headOption exists { _.isUpper } =>
-        showDirect(expr)
+        show(expr)
       case App(_, expr, List()) =>
-        s"(${showInline(expr)})"
+        parenthesize(show(expr))
       case App(properties, expr, args) =>
-        s"(${annotation(properties)}${showInline(expr)} ${(args map {
-          case arg: (Let | Cases) => s"(${showInline(arg)})"
-          case arg => showInline(arg)
-        }).mkString(" ")})"
+        val appexprs = expr :: args map {
+          case expr: (Abs | Cases | Let) => parenthesize(show(expr))
+          case expr =>
+            val appexpr = show(expr)
+            if appexpr.lengthCompare(1) > 0 then parenthesize(appexpr) else appexpr
+        }
+        val appexpr = appexprs.flatten
+        if appexprs exists { _.lengthCompare(1) > 0 } then
+          parenthesize(flatten(s"${annotation(properties)}${appexpr.head}", indented(appexpr.tail)))
+        else
+          parenthesize(flatten(s"${annotation(properties)}${appexpr.mkString(" ")}"))
       case Var(ident) =>
-        ident.name
+        flatten(ident.name)
+      case Let(ident, bound: (Abs | Cases), expr) =>
+        val letbound = show(bound)
+        flatten(s"let ${ident.name} = ${letbound.head}", indented(letbound.tail), "in", indented(show(expr)))
       case Let(ident, bound, expr) =>
-        s"let ${ident.name} = ${showInline(bound)}${showAlinged("in")}${showIndented(showInline(expr))}"
-      case Cases(scrutinee: (App | Var), cases) =>
-        s"cases ${showInline(scrutinee)} of${cases.map((cases, expr) => showIndented(s"${cases.show} ⇒ ${showInline(expr)}")).mkString}"
+        val letbound = show(bound)
+        val letexpr = show(expr)
+        if letbound.lengthCompare(1) > 0 then
+          flatten(s"let ${ident.name} =", indented(letbound), "in", indented(letexpr))
+        else if letexpr.lengthCompare(1) > 0 then
+          flatten(s"let ${ident.name} = ${letbound.head} in", indented(letexpr))
+        else
+          flatten(s"let ${ident.name} = ${letbound.head} in ${letexpr.head}")
       case Cases(scrutinee, cases) =>
-        s"cases (${showInline(scrutinee)}) of${cases.map((cases, expr) => showIndented(s"${cases.show} ⇒ ${showInline(expr)}")).mkString}"
+        val casesscrutinee = ensureParenthesis(scrutinee)
+        val caselist = cases map { (pattern, expr) =>
+          val caseexpr = show(expr)
+          flatten(s"${pattern.show} ⇒ ${caseexpr.head}", indented(caseexpr.tail))
+        }
+        if casesscrutinee.lengthCompare(1) > 0 then
+          flatten("cases", indented(casesscrutinee), "of", indented(caselist.flatten))
+        else
+          flatten(s"cases ${casesscrutinee.head} of", indented(caselist.flatten))
 
-  show(expr, 0)
+  show(expr).mkString("\n")
