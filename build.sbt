@@ -1,4 +1,4 @@
-name := "function-properties"
+name := "propel"
 
 scalaVersion := "3.1.3"
 
