@@ -21,21 +21,28 @@ given [T](using ord: Ordering[T]): AnyRef with
 
 given Ordering[Symbol] = _.name compare _.name
 
-given Ordering[Case] =
-  case (case0: Pattern, case1: Pattern) =>
-    order[Pattern].by(_.ident).orElseBy(_.args).compare(case0, case1)
-  case (case0: Bind, case1: Bind) =>
-    order[Bind].by(_.ident).compare(case0, case1)
-  case (case0, case1) =>
-    case0.ordinal - case1.ordinal
+given Ordering[Constructor] = order[Constructor].by(_.ident)
+
+given Ordering[Pattern] =
+  case (pattern0: Match, pattern1: Match) =>
+    order[Match].by(_.ctor).orElseBy(_.args).compare(pattern0, pattern1)
+  case (pattern0: Bind, pattern1: Bind) =>
+    order[Bind].by(_.ident).compare(pattern0, pattern1)
+  case (pattern0, pattern1) =>
+    pattern0.ordinal - pattern1.ordinal
 
 given Ordering[Term] =
   case (expr0: Abs, expr1: Abs) =>
     order[Abs].by(_.args).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: App, expr1: App) =>
+    given Ordering[Term | Constructor] =
+      case (expr0: Constructor, expr1: Constructor) => Ordering[Constructor].compare(expr0, expr1)
+      case (expr0: Term, expr1: Term) => Ordering[Term].compare(expr0, expr1)
+      case (_: Constructor, _: Term) => -1
+      case (_: Term, _: Constructor) => 1
     order[App].by(_.expr).orElseBy(_.args).compare(expr0, expr1)
-  case (expr0: Ident, expr1: Ident) =>
-    order[Ident].by(_.ident).compare(expr0, expr1)
+  case (expr0: Var, expr1: Var) =>
+    order[Var].by(_.ident).compare(expr0, expr1)
   case (expr0: Let, expr1: Let) =>
     order[Let].by(_.ident).orElseBy(_.bound).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: Cases, expr1: Cases) =>
