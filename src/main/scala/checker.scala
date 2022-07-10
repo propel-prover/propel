@@ -62,7 +62,9 @@ def alpharename(expr: Term): Term =
   renameTerm(expr, Map.empty)
 
 
-def subst(expr: Term, substs: Map[Symbol, Term]): Term =
+type TermSubstitutions = Map[Symbol, Term]
+
+def subst(expr: Term, substs: TermSubstitutions): Term =
   substs foreach { (ident, bound) =>
     def countIdent(expr: Term, ident: Symbol): Int = expr match
       case Abs(_, args, expr) => countIdent(expr, ident)
@@ -90,7 +92,7 @@ def subst(expr: Term, substs: Map[Symbol, Term]): Term =
     case Match(_, args) => args flatMap bound
     case Bind(ident) => List(ident)
 
-  def subst(expr: Term, substs: Map[Symbol, Term]): Term = expr match
+  def subst(expr: Term, substs: TermSubstitutions): Term = expr match
     case Abs(properties, args, expr) =>
       Abs(properties, args, subst(expr, substs -- args))
     case App(properties, ctor: Constructor, args) =>
@@ -110,26 +112,44 @@ def subst(expr: Term, substs: Map[Symbol, Term]): Term =
 
   subst(expr, substs)
 
+type PatternSubstitutions = Map[Symbol, Pattern]
 
-def subst(pattern: Pattern, substs: Map[Symbol, Pattern]): Pattern = pattern match
+def subst(pattern: Pattern, substs: PatternSubstitutions): Pattern = pattern match
   case Match(ctor, args) =>
     Match(ctor, args map { subst(_, substs) })
   case Bind(ident) =>
     substs.getOrElse(ident, pattern)
 
 
+type PatternConstraints = Unification.Constraints
+
+lazy val PatternConstraints: Unification.Constraints.type = Unification.Constraints
+
 enum Unification:
-  case Full(substs: Map[Symbol, Term])
-  case Irrefutable(substs: Map[Symbol, Term], constraints: Map[Term, Pattern])
+  case Full(substs: TermSubstitutions)
+  case Irrefutable(substs: TermSubstitutions, constraints: PatternConstraints)
   case Distinct
 
 object Unification:
-  type Constraints = Map[Term, Pattern]
+  opaque type Constraints <: Map[Term, Pattern] = Map[Term, Pattern]
 
-  type Substitutions = Map[Symbol, Term]
+  object Constraints:
+    def empty: Constraints = Map.empty
+    def make(expr: Term, pattern: Pattern): Constraints = Map(expr -> pattern)
+    def make(constraints: IterableOnce[(Term, Pattern)]): Option[Constraints] =
+      (constraints.iterator map { Map(_) }).reduceLeftIfDefinedOrElse(Map.empty) { unify(_, _) }
+
+  extension (constraints: Constraints)
+    @targetName("unifyConstraints")
+    def unify(other: Constraints): Option[Constraints] = Unification.unify(constraints, other)
+    @targetName("refutableConstraints")
+    def refutable(other: Constraints): Boolean = Unification.refutable(constraints, other)
+    @targetName("refutableConstraints")
+    def refutable(other: IterableOnce[(Term, Pattern)]): Boolean =
+      (((other.iterator map { Map(_) }) ++ Iterator(constraints)).reduceLeftIfDefinedOrElse(Map.empty) { _ unify _ }).isEmpty
 
   def unify(pattern: Pattern, expr: Term): Unification =
-    def unify(pattern: Pattern, expr: Term): Option[(Substitutions, Constraints)] =
+    def unify(pattern: Pattern, expr: Term): Option[(TermSubstitutions, Constraints)] =
       pattern -> expr match
         case Match(patternCtor, List()) -> App(_, exprCtor: Constructor, List()) =>
           Option.when(patternCtor == exprCtor)(Map.empty, Map.empty)
@@ -137,7 +157,7 @@ object Unification:
           Option.when(patternCtor == exprCtor && patternArgs.size == exprArgs.size) {
             patternArgs zip exprArgs mapIfDefined unify flatMap { unified =>
               val (substss, constraintss) = unified.unzip
-              constraintss reduceLeftIfDefined Unification.unify map { (substss.mergeLeft, _) }
+              constraintss.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map { (substss.mergeLeft, _) }
             }
           }.flatten
         case Bind(ident) -> expr =>
@@ -191,7 +211,7 @@ object Unification:
         Option.when(ctor0 == ctor1 && args0.size == args1.size) {
           args0 zip args1 mapIfDefined { unify(_, _) } flatMap { unified =>
             val (args, constraintss) = unified.unzip
-            constraintss reduceLeftIfDefined { unify(_, _) } map { (Match(ctor0, args), _) }
+            constraintss.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map { (Match(ctor0, args), _) }
           }
         }.flatten
       case Bind(ident0) -> Bind(ident1) if ident0 == ident1 =>
@@ -208,7 +228,26 @@ end Unification
 
 
 object Symbolic:
-  case class Constraints(pos: Map[Term, Pattern], neg: Set[Map[Term, Pattern]])
+  case class Constraints private (pos: PatternConstraints, neg: Set[PatternConstraints]):
+    def refutable(constraints: Constraints): Boolean =
+      constraints.pos unify this.pos forall { Constraints.refutable(_, constraints.neg ++ this.neg) }
+    def refutable(pos: PatternConstraints): Boolean =
+      pos unify this.pos forall { Constraints.refutable(_, this.neg) }
+    def refutable(pos: IterableOnce[(Term, Pattern)]): Boolean =
+      PatternConstraints.make(pos) flatMap { _ unify this.pos } forall { Constraints.refutable(_, this.neg) }
+
+  object Constraints:
+    def empty =
+      Constraints(PatternConstraints.empty, Set.empty)
+    def make(pos: PatternConstraints, neg: Set[PatternConstraints]): Option[Constraints] =
+      Option.when(!refutable(pos, neg))(Constraints(pos, neg))
+
+    private def refutable(pos: PatternConstraints, neg: Set[PatternConstraints]) =
+      neg exists {
+        _ forall { (expr, pattern) =>
+          pos.get(expr) exists { !Unification.refutable(_, pattern) }
+        }
+      }
 
   case class Result(reductions: List[Reduction]) extends AnyVal
 
@@ -240,14 +279,7 @@ object Symbolic:
       case Match(ctor, args) => App(Set.empty, ctor, args map { _.asTerm })
       case Bind(ident) => Var(ident)
 
-  private def refutable(pos: Map[Term, Pattern], neg: Set[Map[Term, Pattern]]) =
-    neg exists {
-      _ forall { (expr, pattern) =>
-        pos.get(expr) exists { !Unification.refutable(_, pattern) }
-      }
-    }
-
-  private def substConstraints(expr: Term, constraints: Map[Term, Pattern]): Term =
+  private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
     replaceByConstraint(expr, constraints) match
       case Abs(properties, args, expr) =>
         Abs(properties, args, substConstraints(expr, constraints))
@@ -262,7 +294,7 @@ object Symbolic:
       case Cases(scrutinee, cases) =>
         Cases(substConstraints(scrutinee, constraints), cases map { (pattern, expr) => pattern -> substConstraints(expr, constraints) })
 
-  private def replaceByConstraint(expr: Term, constraints: Map[Term, Pattern]): Term =
+  private def replaceByConstraint(expr: Term, constraints: PatternConstraints): Term =
     constraints.get(expr) match
       case Some(pattern) => replaceByConstraint(pattern.asTerm, constraints)
       case None => expr
@@ -277,8 +309,8 @@ object Symbolic:
       case Var(`ident`) => true
       case _ => false
 
-    def complementConstraintsByProperties(constraints: Map[Term, Pattern]): Option[Map[Term, Pattern]] =
-      (constraintsByProperties.derive(constraints.toSet).toList map { Map(_) }) :+ constraints reduceLeftIfDefined Unification.unify
+    def complementConstraintsByProperties(constraints: PatternConstraints): Option[PatternConstraints] =
+      PatternConstraints.make(constraintsByProperties.derive(constraints.toSet)) flatMap { _ unify constraints }
 
     def evals(exprs: List[Term], constraints: Constraints): Results =
       exprs.foldLeft(Results(List(Reductions(List.empty, constraints)))) { (results, expr) =>
@@ -317,13 +349,12 @@ object Symbolic:
 
                   case Unification.Irrefutable(substs, posConstraints) =>
                     val Constraints(pos, neg) = constraints
-                    Unification.unify(posConstraints, pos) flatMap complementConstraintsByProperties match
-                      case Some(posUnified) if !refutable(posUnified, neg) =>
-                        eval(subst(expr, substs), Constraints(posUnified, neg)).reductions ++ {
-                          if (!refutable(pos, neg + posConstraints))
-                            process(tail, Constraints(pos, neg + posConstraints))
-                          else
-                            List.empty
+                    Unification.unify(posConstraints, pos) flatMap complementConstraintsByProperties flatMap { Constraints.make(_, neg) } match
+                      case Some(constraints) =>
+                        eval(subst(expr, substs), constraints).reductions ++ {
+                          Constraints.make(pos, neg + posConstraints) map {
+                            process(tail, _)
+                          } getOrElse List.empty
                         }
                       case _ =>
                         process(tail, constraints)
@@ -334,7 +365,7 @@ object Symbolic:
             process(cases, constraints)
           }
 
-    val result = eval(fun.expr, Constraints(Map.empty, Set.empty))
+    val result = eval(fun.expr, Constraints.empty)
     Result(result.reductions map { reduction => reduction map { substConstraints(_, reduction.constraints.pos) } })
   end eval
 end Symbolic
@@ -416,11 +447,11 @@ object antisymmetry:
           true
         case Symbolic.Reduction(App(_, Constructor.False, _), constraints) =>
           constraints.pos.get(Var(arg0)) == constraints.pos.get(Var(arg1)) ||
-            Unification.refutable(constraints.pos, constraints.pos collect {
+            (constraints refutable (constraints.pos collect {
               case App(properties, expr, List(arg0, arg1)) -> Match(Constructor.True, List())
                   if properties.contains(Antisymmetric) =>
                 App(properties, expr, List(arg1, arg0)) -> Match(Constructor.False, List())
-            })
+            }))
         case _ =>
           false
       }
