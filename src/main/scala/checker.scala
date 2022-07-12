@@ -36,16 +36,13 @@ def alpharename(expr: Term): Term =
       (Bind(fresh), Map(ident -> fresh))
 
   def renameTerm(expr: Term, subst: Map[Symbol, Symbol]): Term = expr match
-    case Abs(properties, args, expr) =>
-      val (renamedArgs, additionalSubst) = (args map { arg =>
-        val fresh = freshIdent(arg, 1)
-        (fresh, arg -> fresh)
-      }).unzip
-      Abs(properties, renamedArgs, renameTerm(expr, subst ++ additionalSubst))
-    case App(properties, ctor: Constructor, args) =>
-      App(properties, ctor, args map { renameTerm(_, subst) })
-    case App(properties, expr: Term, args) =>
-      App(properties, renameTerm(expr, subst), args map { renameTerm(_, subst) })
+    case Abs(properties, arg, expr) =>
+      val fresh = freshIdent(arg, 1)
+      Abs(properties, fresh, renameTerm(expr, subst + (arg -> fresh)))
+    case App(properties, expr, arg) =>
+      App(properties, renameTerm(expr, subst), renameTerm(arg, subst))
+    case Data(ctor, args) =>
+      Data(ctor, args map { renameTerm(_, subst) })
     case Var(ident) =>
       subst.get(ident) map { Var(_) } getOrElse expr
     case Let(ident, bound, expr) =>
@@ -67,25 +64,25 @@ type TermSubstitutions = Map[Symbol, Term]
 def subst(expr: Term, substs: TermSubstitutions): Term =
   substs foreach { (ident, bound) =>
     def countIdent(expr: Term, ident: Symbol): Int = expr match
-      case Abs(_, args, expr) => countIdent(expr, ident)
-      case App(_, _: Constructor, args) => (args map { countIdent(_, ident) }).sum
-      case App(_, expr: Term, args) => countIdent(expr, ident) + (args map { countIdent(_, ident) }).sum
+      case Abs(_, arg, expr) => countIdent(expr, ident)
+      case App(_, expr, arg) => countIdent(expr, ident) + countIdent(arg, ident)
+      case Data(_, args) => (args map { countIdent(_, ident) }).sum
       case Let(_, bound, expr) => countIdent(bound, ident) + countIdent(expr, ident)
       case Cases(scrutinee, cases) => countIdent(scrutinee, ident) + (cases map { (_, expr) => countIdent(expr, ident) }).sum
       case Var(`ident`) => 1
       case _ => 0
 
     def containsLambda(expr: Term): Boolean = expr match
-      case Abs(_, _ :: _, _) => true
-      case App(_, _: Constructor, args) => args exists containsLambda
-      case App(_, expr: Term, args) => containsLambda(expr) || (args exists containsLambda)
+      case Abs(_, _, _) => true
+      case App(_, expr, arg) => containsLambda(expr) || containsLambda(arg)
+      case Data(_, args) => args exists containsLambda
       case Let(_, bound, expr) => containsLambda(bound) || containsLambda(expr)
       case Cases(scrutinee, cases) => containsLambda(scrutinee) || (cases exists { (_, expr) => containsLambda(expr) })
       case _ => false
 
     if containsLambda(bound) && countIdent(expr, ident) > 1 then
       fail("Implementation restriction: "+
-        s"expression bound to ${ident.name} cannot be used multiple times because it contains non-constant lambda expressions")
+        s"expression bound to ${ident.name} cannot be used multiple times because it contains lambda expressions")
   }
 
   def bound(pattern: Pattern): List[Symbol] = pattern match
@@ -93,12 +90,12 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
     case Bind(ident) => List(ident)
 
   def subst(expr: Term, substs: TermSubstitutions): Term = expr match
-    case Abs(properties, args, expr) =>
-      Abs(properties, args, subst(expr, substs -- args))
-    case App(properties, ctor: Constructor, args) =>
-      App(properties, ctor, args map { subst(_, substs) })
-    case App(properties, expr: Term, args) =>
-      App(properties, subst(expr, substs), args map { subst(_, substs) })
+    case Abs(properties, arg, expr) =>
+      Abs(properties, arg, subst(expr, substs - arg))
+    case App(properties, expr, arg) =>
+      App(properties, subst(expr, substs), subst(arg, substs))
+    case Data(ctor, args) =>
+      Data(ctor, args map { subst(_, substs) })
     case Var(ident) =>
       substs.getOrElse(ident, expr)
     case Let(ident, bound, expr) =>
@@ -151,9 +148,9 @@ object Unification:
   def unify(pattern: Pattern, expr: Term): Unification =
     def unify(pattern: Pattern, expr: Term): Option[(TermSubstitutions, Constraints)] =
       pattern -> expr match
-        case Match(patternCtor, List()) -> App(_, exprCtor: Constructor, List()) =>
+        case Match(patternCtor, List()) -> Data(exprCtor, List()) =>
           Option.when(patternCtor == exprCtor)(Map.empty, Map.empty)
-        case Match(patternCtor, patternArgs) -> App(_, exprCtor: Constructor, exprArgs) =>
+        case Match(patternCtor, patternArgs) -> Data(exprCtor, exprArgs) =>
           Option.when(patternCtor == exprCtor && patternArgs.size == exprArgs.size) {
             patternArgs zip exprArgs mapIfDefined unify flatMap { unified =>
               val (substss, constraintss) = unified.unzip
@@ -276,17 +273,17 @@ object Symbolic:
 
   extension (pattern: Pattern)
     private def asTerm: Term = pattern match
-      case Match(ctor, args) => App(Set.empty, ctor, args map { _.asTerm })
+      case Match(ctor, args) => Data(ctor, args map { _.asTerm })
       case Bind(ident) => Var(ident)
 
   private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
     replaceByConstraint(expr, constraints) match
-      case Abs(properties, args, expr) =>
-        Abs(properties, args, substConstraints(expr, constraints))
-      case App(properties, ctor: Constructor, args) =>
-        App(properties, ctor, args map { substConstraints(_, constraints) })
-      case App(properties, expr: Term, args) =>
-        App(properties, substConstraints(expr, constraints), args map { substConstraints(_, constraints) })
+      case Abs(properties, arg, expr) =>
+        Abs(properties, arg, substConstraints(expr, constraints))
+      case App(properties, expr, arg) =>
+        App(properties, substConstraints(expr, constraints), substConstraints(arg, constraints))
+      case Data(ctor, args) =>
+        Data(ctor, args map { substConstraints(_, constraints) })
       case Var(_) =>
         expr
       case Let(ident, bound, expr) =>
@@ -301,9 +298,9 @@ object Symbolic:
 
   def eval(fun: Abs): Result =
     def contains(expr: Term, ident: Symbol): Boolean = expr match
-      case Abs(_, args, expr) => contains(expr, ident)
-      case App(_, _: Constructor, args) => args exists { contains(_, ident) }
-      case App(_, expr: Term, args) => contains(expr, ident) || (args exists { contains(_, ident) })
+      case Abs(_, _, expr) => contains(expr, ident)
+      case App(_, expr, arg) => contains(expr, ident) || contains(arg, ident)
+      case Data(_, args) => args exists { contains(_, ident) }
       case Let(_, bound, expr) => contains(bound, ident) || contains(expr, ident)
       case Cases(scrutinee, cases) => contains(scrutinee, ident) || (cases exists { (_, expr) => contains(expr, ident) })
       case Var(`ident`) => true
@@ -323,12 +320,12 @@ object Symbolic:
 
     def eval(expr: Term, constraints: Constraints): Result =
       replaceByConstraint(expr, constraints.pos) match
-        case Abs(properties, args, expr) =>
-          eval(expr, constraints) map { Abs(properties, args, _) }
-        case App(properties, ctor: Constructor, args) =>
-          evals(args, constraints) map { args => App(properties, ctor, args) }
-        case App(properties, expr: Term, args) =>
-          evals(expr :: args, constraints) map { args => App(properties, args.head, args.tail) }
+        case Abs(properties, arg, expr) =>
+          eval(expr, constraints) map { Abs(properties, arg, _) }
+        case App(properties, expr, arg) =>
+          evals(List(expr, arg), constraints) map { exprs => App(properties, exprs.head, exprs.tail.head) }
+        case Data(ctor, args) =>
+          evals(args, constraints) map { args => Data(ctor, args) }
         case Var(_) =>
           Result(List(Reduction(expr, constraints)))
         case Let(ident, bound, expr) =>
@@ -400,13 +397,13 @@ object constraintsByProperties:
 
   def deriveCompound(constraints0: Set[(Term, Pattern)], constraints1: Set[(Term, Pattern)]): Set[(Term, Pattern)] =
     (constraints0 collect {
-      case App(properties, expr, List(arg1, arg2)) -> Match(Constructor.True, List())
-          if properties.contains(Transitive) =>
+      case App(properties2, App(properties1, expr, arg1), arg2) -> Match(Constructor.True, List())
+          if properties1.contains(Transitive) =>
         constraints1 collect {
-          case App(`properties`, `expr`, List(`arg2`, arg3)) -> Match(Constructor.True, List()) =>
-            App(properties, expr, List(arg1, arg3)) -> Match(Constructor.True, List())
-          case App(`properties`, `expr`, List(arg0, `arg1`)) -> Match(Constructor.True, List()) =>
-            App(properties, expr, List(arg0, arg2)) -> Match(Constructor.True, List())
+          case App(properties, App(`properties1`, expr, `arg2`), arg3) -> Match(Constructor.True, List()) =>
+            App(properties, App(properties1, expr, arg1), arg3) -> Match(Constructor.True, List())
+          case App(properties, App(`properties1`, expr, arg0), `arg1`) -> Match(Constructor.True, List()) =>
+            App(properties, App(properties1, expr, arg0), arg2) -> Match(Constructor.True, List())
         }
     }).flatten
 end constraintsByProperties
@@ -415,42 +412,42 @@ end constraintsByProperties
 package connectors:
   def implies(a: Term, b: Term) = Cases(a, List(
     Match(Constructor.True, List.empty) -> b,
-    Match(Constructor.False, List.empty) -> App(Set.empty, Constructor.True, List.empty)))
+    Match(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)))
 
   def or(a: Term, b: Term) = Cases(a, List(
-    Match(Constructor.True, List.empty) -> App(Set.empty, Constructor.True, List.empty),
+    Match(Constructor.True, List.empty) -> Data(Constructor.True, List.empty),
     Match(Constructor.False, List.empty) -> b))
 
   def and(a: Term, b: Term) = Cases(a, List(
     Match(Constructor.True, List.empty) -> b,
-    Match(Constructor.False, List.empty) -> App(Set.empty, Constructor.False, List.empty)))
+    Match(Constructor.False, List.empty) -> Data(Constructor.False, List.empty)))
 
   def not(a: Term) = Cases(a, List(
-    Match(Constructor.True, List.empty) -> App(Set.empty, Constructor.False, List.empty),
-    Match(Constructor.False, List.empty) -> App(Set.empty, Constructor.True, List.empty)))
+    Match(Constructor.True, List.empty) -> Data(Constructor.False, List.empty),
+    Match(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)))
 
 import connectors.*
 
 
 object antisymmetry:
   def prepare(fun: Abs): Abs = fun match
-    case Abs(_, List(arg0, arg1), expr) =>
+    case Abs(_, arg0, Abs(_, arg1, expr)) =>
       val reversed = subst(expr, Map(arg0 -> Var(arg1), arg1 -> Var(arg0)))
-      Abs(Set.empty, List(arg0, arg1), implies(expr, not(reversed)))
+      Abs(Set.empty, arg0, Abs(Set.empty, arg1, implies(expr, not(reversed))))
     case _ =>
       fun
 
-  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean = fun.args match
-    case List(arg0, arg1) =>
+  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean = fun match
+    case Abs(_, arg0, Abs(_, arg1, _)) =>
       result.reductions forall {
-        case Symbolic.Reduction(App(_, Constructor.True, _), _) =>
+        case Symbolic.Reduction(Data(Constructor.True, _), _) =>
           true
-        case Symbolic.Reduction(App(_, Constructor.False, _), constraints) =>
+        case Symbolic.Reduction(Data(Constructor.False, _), constraints) =>
           constraints.pos.get(Var(arg0)) == constraints.pos.get(Var(arg1)) ||
             (constraints refutable (constraints.pos collect {
-              case App(properties, expr, List(arg0, arg1)) -> Match(Constructor.True, List())
-                  if properties.contains(Antisymmetric) =>
-                App(properties, expr, List(arg1, arg0)) -> Match(Constructor.False, List())
+              case App(properties1, App(properties0, expr, arg0), arg1) -> Match(Constructor.True, List())
+                  if properties0.contains(Antisymmetric) =>
+                App(properties1, App(properties0, expr, arg1), arg0) -> Match(Constructor.False, List())
             }))
         case _ =>
           false
@@ -461,17 +458,17 @@ object antisymmetry:
 
 object transitivity:
   def prepare(fun: Abs): Abs = fun match
-    case Abs(_, List(arg0, arg1), expr) =>
+    case Abs(_, arg0, Abs(_, arg1, expr)) =>
       val ab = subst(expr, Map(arg0 -> Var(Symbol("a")), arg1 -> Var(Symbol("b"))))
       val bc = subst(expr, Map(arg0 -> Var(Symbol("b")), arg1 -> Var(Symbol("c"))))
       val ac = subst(expr, Map(arg0 -> Var(Symbol("a")), arg1 -> Var(Symbol("c"))))
-      Abs(Set.empty, List(Symbol("a"), Symbol("b"), Symbol("c")), implies(and(ab, bc), ac))
+      Abs(Set.empty, Symbol("a"), Abs(Set.empty, Symbol("b"), Abs(Set.empty, Symbol("c"), implies(and(ab, bc), ac))))
     case _ =>
       fun
 
   def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
     result.reductions forall {
-      case Symbolic.Reduction(App(_, Constructor.True, _), _) =>
+      case Symbolic.Reduction(Data(Constructor.True, _), _) =>
         true
       case _ =>
         false
@@ -480,34 +477,34 @@ object transitivity:
 
 object commutativity:
   def prepare(fun: Abs): Abs = fun match
-    case Abs(_, List(arg0, arg1), expr) =>
+    case Abs(_, arg0, Abs(_, arg1, expr)) =>
       val reversed = subst(expr, Map(arg0 -> Var(arg1), arg1 -> Var(arg0)))
-      Abs(Set.empty, List(arg0, arg1), App(Set.empty, Constructor(Symbol("≟")), List(expr, reversed)))
+      Abs(Set.empty, arg0, Abs(Set.empty, arg1, Data(Constructor(Symbol("≟")), List(expr, reversed))))
     case _ =>
       fun
 
   def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
     result.reductions forall {
-      case Symbolic.Reduction(App(_, Constructor(Symbol("≟")), List(arg0, arg1)), _) =>
+      case Symbolic.Reduction(Data(Constructor(Symbol("≟")), List(arg0, arg1)), _) =>
         normalize(arg0) == normalize(arg1)
       case _ =>
         false
     }
 
   def normalize(expr: Term): Term = expr match
-    case Abs(properties, args, expr) =>
-      Abs(properties, args, normalize(expr))
-    case App(properties, expr: Term, List(arg0, arg1)) if properties.contains(Commutative) =>
+    case Abs(properties, arg, expr) =>
+      Abs(properties, arg, normalize(expr))
+    case App(properties1, App(properties0, expr, arg0), arg1) if properties0.contains(Commutative) =>
       val normalizedArg0 = normalize(arg0)
       val normalizedArg1 = normalize(arg1)
       if normalizedArg0 < normalizedArg1 then
-        App(properties, normalize(expr), List(normalizedArg0, normalizedArg1))
+        App(properties1, App(properties0, normalize(expr), normalizedArg0), normalizedArg1)
       else
-        App(properties, normalize(expr), List(normalizedArg1, normalizedArg0))
-    case App(properties, expr: Term, args) =>
-      App(properties, normalize(expr), args map normalize)
-    case App(properties, ctor: Constructor, args) =>
-      App(properties, ctor, args map normalize)
+        App(properties1, App(properties0, normalize(expr), normalizedArg1), normalizedArg0)
+    case App(properties, expr, arg) =>
+      App(properties, normalize(expr), normalize(arg))
+    case Data(ctor, args) =>
+      Data(ctor, args map normalize)
     case Var(ident) =>
       expr
     case Let(ident, bound, expr) =>

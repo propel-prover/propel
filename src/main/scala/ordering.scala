@@ -33,14 +33,11 @@ given Ordering[Pattern] =
 
 given Ordering[Term] =
   case (expr0: Abs, expr1: Abs) =>
-    order[Abs].by(_.args).orElseBy(_.expr).compare(expr0, expr1)
+    order[Abs].by(_.arg).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: App, expr1: App) =>
-    given Ordering[Term | Constructor] =
-      case (expr0: Constructor, expr1: Constructor) => Ordering[Constructor].compare(expr0, expr1)
-      case (expr0: Term, expr1: Term) => Ordering[Term].compare(expr0, expr1)
-      case (_: Constructor, _: Term) => -1
-      case (_: Term, _: Constructor) => 1
-    order[App].by(_.expr).orElseBy(_.args).compare(expr0, expr1)
+    order[App].by(_.expr).orElseBy(_.arg).compare(expr0, expr1)
+  case (expr0: Data, expr1: Data) =>
+    order[Data].by(_.ctor).orElseBy(_.args).compare(expr0, expr1)
   case (expr0: Var, expr1: Var) =>
     order[Var].by(_.ident).compare(expr0, expr1)
   case (expr0: Let, expr1: Let) =>

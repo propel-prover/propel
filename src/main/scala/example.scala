@@ -75,10 +75,10 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"ANTISYMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, _) = alpharename(antisymmetry.prepare(fun))
-    println(prepared.show)
+    val prepared @ ast.Abs(_, _, body: ast.Abs) = alpharename(antisymmetry.prepare(fun))
+    println(body.show)
 
-    val result = eval(name, prepared)
+    val result = eval(name, body)
 
     println()
     println(s"ANTISYMM CHECK for $name:")
@@ -88,10 +88,10 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"TRANS CHECK for $name:")
-    val prepared @ ast.Abs(_, _, _) = alpharename(transitivity.prepare(fun))
-    println(prepared.show)
+    val prepared @ ast.Abs(_, _, ast.Abs(_, _, body: ast.Abs)) = alpharename(transitivity.prepare(fun))
+    println(body.show)
 
-    val result = eval(name, prepared)
+    val result = eval(name, body)
 
     println()
     println(s"TRANS CHECK for $name:")
@@ -108,10 +108,10 @@ def exampleCommutative(program: Term) =
   {
     println()
     println(s"COMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, _) = alpharename(commutativity.prepare(fun))
-    println(prepared.show)
+    val prepared @ ast.Abs(_, _, body: ast.Abs) = alpharename(commutativity.prepare(fun))
+    println(body.show)
 
-    val result = eval(name, prepared)
+    val result = eval(name, body)
 
     println()
     println(s"COMM CHECK for $name:")
@@ -119,16 +119,22 @@ def exampleCommutative(program: Term) =
   }
 
 
-def eval(name: String, prepared: ast.Abs) =
+def eval(name: String, body: ast.Abs) =
+  def parenthesize(value: ast.Term | ast.Pattern) = value match
+    case value @ (ast.Bind(_) | ast.Match(_, List())) => value.show
+    case value @ (ast.Var(_) | ast.Data(_, List())) => value.show
+    case value: ast.Term => s"(${value.show})"
+    case value: ast.Pattern => s"(${value.show})"
+
   println()
   println(s"SYMBOL EVAL for $name:")
 
-  val result = Symbolic.eval(prepared)
+  val result = Symbolic.eval(body)
 
   println((result.reductions map { case Symbolic.Reduction(expr, Symbolic.Constraints(pos, neg)) =>
     "• " + expr.show + "\n" +
-    (pos map { (expr, pattern) => expr.show + "≔" + pattern.show }).mkString("  pos: {", ", ", "}\n") +
-    (neg map { neg => (neg map { (expr, pattern) => expr.show + "≔" + pattern.show }).mkString("{", ", ", "}") }).mkString("  neg: {", ", ", "}")
+    (pos map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).mkString("  pos: {", ", ", "}\n") +
+    (neg map { neg => (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).mkString("{", ", ", "}") }).mkString("  neg: {", ", ", "}")
   }).mkString("\n\n"))
 
   result

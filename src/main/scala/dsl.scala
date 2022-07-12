@@ -17,9 +17,7 @@ package impl:
 
     trait Rest[V <: Tuple]:
       extension (expr: V)
-        def make = expr.makeImpl(false)
-        private[impl] def makeNested = expr.makeImpl(true)
-        private[impl] def makeImpl: Boolean => List[T]
+        def make: List[T]
 
     given baseExpr: Base[T] = expr => _ => expr
     given compoundExpr: Base[U] = expr => _ => compound(expr)
@@ -28,16 +26,16 @@ package impl:
       else lower(Symbol(expr))
 
     given baseTuple1[V: Base]: Rest[V *: EmptyTuple] =
-      case expr *: _ => EmptyTuple => List(expr.make)
+      case expr *: _ => List(expr.make)
     given baseTupleN[V: Base, R <: Tuple: Rest]: Rest[V *: R] =
-      case expr *: rest => _ => expr.make :: rest.make
+      case expr *: rest => expr.make :: rest.make
 
 
-  object TermExpr extends Expr(Var(_), Constructor(_), App(Set.empty, _, List.empty)):
+  object TermExpr extends Expr(Var(_), Constructor(_), Data(_, List.empty)):
     given baseTuple[T: TermExpr, R <: Tuple: Rest]: Base[T *: R] =
       case expr *: rest => _ => expr.makeNested match
-        case App(_, expr, _) => App(Set.empty, expr, rest.make)
-        case expr => App(Set.empty, expr, rest.make)
+        case Data(expr, List()) => Data(expr, rest.make)
+        case expr => rest.make.foldLeft(expr) { App(Set.empty, _, _) }
 
 
   object PatternExpr extends Expr(Bind(_), Constructor(_), Match(_, List.empty)):
@@ -90,21 +88,21 @@ def trans = Transitive
 def term[A: TermExpr](expr: A): Term =
   expr.make
 
-def abs[A: TermExpr](args: String*)(expr: A): Term =
-  Abs(Set.empty, args.map(Symbol(_)).toList, expr.make)
+def abs[A: TermExpr](arg: String, args: String*)(expr: A): Term =
+  abs()(arg, args*)(expr)
 
-def abs[A: TermExpr](properties: Property*)(args: String*)(expr: A): Term =
-  Abs(properties.toSet, args.map(Symbol(_)).toList, expr.make)
+def abs[A: TermExpr](properties: Property*)(arg: String, args: String*)(expr: A): Term =
+  Abs(properties.toSet, Symbol(arg), args.foldRight(expr.make) { (arg, expr) => Abs(Set.empty, Symbol(arg), expr) })
 
 def app[A <: (Tuple | Term | String): TermExpr](expr: A): Term =
-  expr.make match
-    case expr: App => expr
-    case expr => App(Set.empty, expr, List.empty)
+  app()(expr)
 
 def app[A <: (Tuple | Term | String): TermExpr](properties: Property*)(expr: A): Term =
-  expr.make match
-    case expr: App => expr.copy(properties = properties.toSet)
-    case expr => App(properties.toSet, expr, List.empty)
+  def decorate(expr: Term): Term = expr match
+    case App(properties, expr: App, arg) => App(properties, decorate(expr), arg)
+    case App(_, expr, arg) => App(properties.toSet, expr, arg)
+    case _ => expr
+  decorate(expr.make)
 
 def let[A: TermExpr, B: TermExpr](name: String, bound: A, expr: B): Term =
   Let(Symbol(name), bound.make, expr.make)
@@ -145,18 +143,31 @@ extension (property: Property) def show: String = property match
 extension (properties: Properties) def show: String =
   properties.map(_.show).mkString(", ")
 
+extension (constructor: Constructor) def show: String =
+  constructor.ident.name
+
 extension (pattern: Pattern) def show: String = pattern match
-  case Match(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) => ctor.ident.name
-  case Match(ctor, List()) => s"(${ctor.ident.name})"
-  case Match(ctor, args) => s"(${ctor.ident.name} ${args.map(_.show).mkString(" ")})"
-  case Bind(ident) => ident.name
+  case Match(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
+    ctor.ident.name
+  case Match(ctor, List()) =>
+    s"(${ctor.ident.name})"
+  case Match(ctor, args) =>
+    s"${ctor.ident.name} ${(args map {
+      case arg @ Match(_, args) if args.nonEmpty =>
+        val matcharg = arg.show
+        if (matcharg startsWith "(") && (matcharg endsWith ")") then matcharg else s"($matcharg)"
+      case arg =>
+        arg.show
+    }).mkString(" ")}"
+  case Bind(ident) =>
+    ident.name
 
 extension (expr: Term) def show: String =
-  def show(expr: Term | Constructor): List[String] =
+  def show(expr: Term): List[String] =
     val falseMatch = Match(False, List.empty)
-    val falseApp = App(Set.empty, False, List.empty)
+    val falseData = Data(False, List.empty)
     val trueMatch = Match(True, List.empty)
-    val trueApp = App(Set.empty, True, List.empty)
+    val trueData = Data(True, List.empty)
 
     val indent = "  "
 
@@ -172,66 +183,81 @@ extension (expr: Term) def show: String =
       }).flatten.toList
 
     def parenthesize(values: List[String]) =
-      if values.lengthCompare(1) > 0 then
+      if ((values.head startsWith "(") || (values.head startsWith "¬(")) &&
+          (values.last endsWith ")") then
+        values
+      else if values.lengthCompare(1) > 0 then
         flatten(s"(${values.head}", values.init.tail, s"${values.last})")
       else
         flatten(s"(${values.head})")
 
-    def ensureParenthesis(expr: Term) = expr match
-      case _: (App | Var) => show(expr)
+    def showNested(expr: Term) = expr match
+      case Var(_) => show(expr)
+      case Data(_, args) if args.isEmpty => show(expr)
       case _ => parenthesize(show(expr))
 
     def binaryOp(op: String, a: Term, b: Term) =
-      val aOp = ensureParenthesis(a)
-      val bOp = ensureParenthesis(b)
+      val aOp = showNested(a)
+      val bOp = showNested(b)
       if aOp.lengthCompare(1) > 0 || bOp.lengthCompare(1) > 0 then
-        parenthesize(aOp.head :: indented(flatten(aOp.tail, op, indented(bOp))))
+        aOp.head :: indented(flatten(aOp.tail, op, indented(bOp)))
       else
-        parenthesize(flatten(s"${aOp.head} $op ${bOp.head}"))
+        flatten(s"${aOp.head} $op ${bOp.head}")
 
     expr match
-      case Cases(a, List(`trueMatch` -> `falseApp`, `falseMatch` -> `trueApp`)) =>
-        val casess = ensureParenthesis(a)
-        flatten(s"¬${casess.head}", casess.tail)
-      case Cases(a, List(`trueMatch` -> `trueApp`, `falseMatch` -> b)) =>
+      case Cases(a, List(`trueMatch` -> `falseData`, `falseMatch` -> `trueData`)) =>
+        val expr = showNested(a)
+        flatten(s"¬${expr.head}", expr.tail)
+      case Cases(a, List(`trueMatch` -> `trueData`, `falseMatch` -> b)) =>
         binaryOp("∨", a, b)
-      case Cases(a, List(`trueMatch` -> b, `falseMatch` -> `falseApp`)) =>
+      case Cases(a, List(`trueMatch` -> b, `falseMatch` -> `falseData`)) =>
         binaryOp("∧", a, b)
-      case Cases(a, List(`trueMatch` -> b, `falseMatch` -> `trueApp`)) =>
+      case Cases(a, List(`trueMatch` -> b, `falseMatch` -> `trueData`)) =>
         binaryOp("→", a, b)
       case Cases(cond, List(`trueMatch` -> thenBranch, `falseMatch` -> elseBranch)) =>
-        val condexpr = show(cond)
+        val condexpr = showNested(cond)
         val thenexpr = show(thenBranch)
-        val elsexpr = show(elseBranch)
+        val elseexpr = show(elseBranch)
         if condexpr.lengthCompare(1) > 0 then
-          flatten("if", indented(condexpr), "then", indented(thenexpr), "else", indented(elsexpr))
-        else if thenexpr.lengthCompare(1) > 0 || elsexpr.lengthCompare(1) > 0 then
-          flatten(s"if ${ensureParenthesis(cond).head} then", indented(thenexpr), "else", indented(elsexpr))
+          flatten(s"if ${condexpr.head}", indented(condexpr.tail), "then", indented(thenexpr), "else", indented(elseexpr))
+        else if thenexpr.lengthCompare(1) > 0 || elseexpr.lengthCompare(1) > 0 then
+          flatten(s"if ${condexpr.head} then", indented(thenexpr), "else", indented(elseexpr))
         else
-          flatten(s"if ${ensureParenthesis(cond).head} then ${ensureParenthesis(thenBranch).head} else ${ensureParenthesis(elseBranch).head}")
-      case Constructor(ident) =>
-        flatten(ident.name)
-      case Abs(properties, args, expr) =>
+          flatten(s"if ${condexpr.head} then ${thenexpr.head} else ${elseexpr.head}")
+      case Abs(properties, arg, expr) =>
         val absexpr = show(expr)
-        flatten(s"λ ${annotation(properties)}${args.map(_.name).mkString(" ")}. ${absexpr.head}", indented(absexpr.tail))
-      case App(_, ctor: Constructor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
-        show(ctor)
-      case App(_, expr: Var, List()) if expr.ident.name.headOption exists { _.isUpper } =>
-        show(expr)
-      case App(_, expr, List()) =>
-        parenthesize(show(expr))
-      case App(properties, expr, args) =>
-        val appexprs = expr :: args map {
-          case expr: (Abs | Cases | Let) => parenthesize(show(expr))
-          case expr =>
-            val appexpr = show(expr)
-            if appexpr.lengthCompare(1) > 0 then parenthesize(appexpr) else appexpr
-        }
-        val appexpr = appexprs.flatten
-        if appexprs exists { _.lengthCompare(1) > 0 } then
-          parenthesize(flatten(s"${annotation(properties)}${appexpr.head}", indented(appexpr.tail)))
+        val absexprproc = expr match
+          case expr: Abs if expr.properties.isEmpty => flatten(s" ${absexpr.head.drop(2)}", absexpr.tail)
+          case _ => flatten(s". ${absexpr.head}", absexpr.tail)
+        flatten(s"λ ${annotation(properties)}${arg.name}${absexprproc.head}", indented(absexprproc.tail))
+      case Data(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
+        flatten(ctor.show)
+      case Data(ctor, List()) =>
+        parenthesize(flatten(ctor.show))
+      case Data(ctor, args) =>
+        val dataargss = args map showNested
+        val dataargs = dataargss.flatten
+        if dataargss exists { _.lengthCompare(1) > 0 } then
+          parenthesize(flatten(s"${ctor.show}", indented(dataargs)))
         else
-          parenthesize(flatten(s"${annotation(properties)}${appexpr.mkString(" ")}"))
+          flatten(s"${ctor.show} ${dataargs.mkString(" ")}")
+      case App(properties, expr, arg) =>
+        val appexpr = expr match
+          case _: App if properties.isEmpty =>
+            val values = showNested(expr)
+            if values.lengthCompare(1) == 0 &&
+                ((values.head startsWith "(") || (values.head startsWith "¬(")) &&
+                (values.last endsWith ")") then
+              flatten(values.head.drop(1).dropRight(1))
+            else
+              values
+          case _ =>
+            showNested(expr)
+        val apparg = showNested(arg)
+        if appexpr.lengthCompare(1) > 0 || apparg.lengthCompare(1) > 0 then
+          parenthesize(flatten(s"${annotation(properties)}${appexpr.head}", indented(appexpr.tail), indented(apparg)))
+        else
+          flatten(s"${annotation(properties)}${appexpr.mkString(" ")} ${apparg.mkString(" ")}")
       case Var(ident) =>
         flatten(ident.name)
       case Let(ident, bound: (Abs | Cases), expr) =>
@@ -247,7 +273,7 @@ extension (expr: Term) def show: String =
         else
           flatten(s"let ${ident.name} = ${letbound.head} in ${letexpr.head}")
       case Cases(scrutinee, cases) =>
-        val casesscrutinee = ensureParenthesis(scrutinee)
+        val casesscrutinee = showNested(scrutinee)
         val caselist = cases map { (pattern, expr) =>
           val caseexpr = show(expr)
           flatten(s"${pattern.show} ⇒ ${caseexpr.head}", indented(caseexpr.tail))

@@ -29,8 +29,9 @@ enum Pattern:
   case Bind(ident: Symbol)
 
 enum Term:
-  case Abs(properties: Properties, args: List[Symbol], expr: Term)
-  case App(properties: Properties, expr: Term | Constructor, args: List[Term])
+  case Abs(properties: Properties, arg: Symbol, expr: Term)
+  case App(properties: Properties, expr: Term , arg: Term)
+  case Data(ctor: Constructor, args: List[Term])
   case Var(ident: Symbol)
   case Let(ident: Symbol, bound: Term, expr: Term)
   case Cases(scrutinee: Term, cases: List[(Pattern, Term)])
