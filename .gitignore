@@ -25,3 +25,4 @@ target/
 *.pdf
 *.synctex.gz
 *.toc
+*.v#

@@ -5,6 +5,23 @@ import dsl.sugar.*
 import checker.*
 
 
+def merge[A: TermExpr](expr: A) =
+    let(
+       "merge",
+       abs(comm)("a", "b") (
+         cases("Pair", "a", "b")(
+           ("Pair", "Nil", "Nil") -> "Nil",
+           ("Pair", ("Cons", "a", "as"), "Nil") -> ("Cons", "a", "as"),
+           ("Pair", "Nil", ("Cons", "b", "bs")) -> ("Cons", "b", "bs"),
+           ("Pair", ("Cons", "a", "as"), ("Cons", "b", "bs")) ->
+                `if`("=", "a", "b")
+                    ("Cons", "a", ("Cons", "b", ("merge", "as", "bs")))
+                    (`if`("<", "a", "b")                       
+                         ("Cons", "a", ("merge", "as", ("Cons", "b", "bs")))
+                         ("Cons", "b", ("merge", ("Cons", "a", "as"), "bs"))))
+       )
+       , expr)
+
 def min[A: TermExpr](expr: A) =
   let(
     "min",
