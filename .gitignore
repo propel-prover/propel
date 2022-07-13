@@ -17,9 +17,11 @@ target/
 *.bbl
 *.blg
 *.fdb_latexmk
+*.fls
 *.lof
 *.log
 *.lot
 *.out
+*.pdf
 *.synctex.gz
 *.toc
