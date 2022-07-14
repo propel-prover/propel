@@ -1,4 +1,6 @@
-package ordering
+package propel
+package evaluator
+package properties
 
 import ast.*
 import math.Ordering.Implicits.given

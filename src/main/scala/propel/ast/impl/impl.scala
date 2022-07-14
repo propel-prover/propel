@@ -1,4 +1,6 @@
+package propel
 package ast
+package impl
 
 import scala.quoted.*
 import scala.runtime.Tuples
@@ -25,8 +27,8 @@ def defaultApplyImpl[T: Type](using Quotes) =
 
     case List(List(template), args) =>
       val seq = TypeRepr.of[Seq[?]]
-      val eqSeq = Ref(Symbol.requiredMethod("ast.eqSeq"))
-      val filter = Ref(Symbol.requiredMethod("ast.Enrichments.filter"))
+      val eqSeq = Ref(Symbol.requiredMethod("propel.ast.impl.eqSeq"))
+      val filter = Ref(Symbol.requiredMethod("propel.ast.Enrichments.filter"))
       val isInstanceOf = defn.AnyClass.methodMember("isInstanceOf").head
       val asInstanceOf = defn.AnyClass.methodMember("asInstanceOf").head
       val eq = defn.AnyRefClass.methodMember("eq").head

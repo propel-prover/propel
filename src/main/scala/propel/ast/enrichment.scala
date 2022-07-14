@@ -1,4 +1,7 @@
+package propel
 package ast
+
+import util.*
 
 transparent trait Enrichable[Enriched <: Enrichable[Enriched]]:
   this: Enriched =>
@@ -25,16 +28,18 @@ transparent trait Enrichable[Enriched <: Enrichable[Enriched]]:
       case Some(enrichment) =>
         this -> enrichment
       case _ =>
-        val (enriched, updatedEnrichment) = enrichment.make(this)
-        withEnrichment(enriched, Intrinsic(updatedEnrichment) :: enrichments) -> updatedEnrichment
+        let(enrichment.make(this)) { (enriched, enrichment) =>
+          withEnrichment(enriched, Intrinsic(enrichment) :: enrichments) -> enrichment
+        }
 
   def withInfo[E](enrichment: Enrichment.Extrinsic[Enriched, E])(make: => E): (Enriched, E) =
     info(enrichment) match
       case Some(enrichment) =>
         this -> enrichment
       case _ =>
-        val updatedEnrichment = make
-        withEnrichment(this, Extrinsic(updatedEnrichment) :: enrichments) -> updatedEnrichment
+        let(make) { enrichment =>
+          withEnrichment(this, Extrinsic(enrichment) :: enrichments) -> enrichment
+        }
 
   def withThisInfo[E](enrichment: Enrichment.Extrinsic[Enriched, E])(make: => E): Enriched =
     withoutInfo(enrichment).withInfo(enrichment)(make)._1

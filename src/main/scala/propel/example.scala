@@ -1,8 +1,8 @@
-package example
+package propel
 
 import dsl.*
 import dsl.sugar.*
-import checker.*
+import evaluator.*
 
 
 def merge[A: TermExpr](expr: A) =
@@ -92,27 +92,29 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"ANTISYMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, body: ast.Abs) = AlphaConversion.uniqueNames(antisymmetry.prepare(fun)).expr
+    val prepared @ ast.Abs(_, _, body: ast.Abs) =
+      AlphaConversion.uniqueNames(properties.antisymmetry.prepare(fun)).expr
     println(body.show)
 
     val result = eval(name, body)
 
     println()
     println(s"ANTISYMM CHECK for $name:")
-    println(if antisymmetry.check(name, prepared, result) then "✔ true" else "✘ false")
+    println(if properties.antisymmetry.check(name, prepared, result) then "✔ true" else "✘ false")
   }
 
   {
     println()
     println(s"TRANS CHECK for $name:")
-    val prepared @ ast.Abs(_, _, ast.Abs(_, _, body: ast.Abs)) = AlphaConversion.uniqueNames(transitivity.prepare(fun)).expr
+    val prepared @ ast.Abs(_, _, ast.Abs(_, _, body: ast.Abs)) =
+      AlphaConversion.uniqueNames(properties.transitivity.prepare(fun)).expr
     println(body.show)
 
     val result = eval(name, body)
 
     println()
     println(s"TRANS CHECK for $name:")
-    println(if transitivity.check(name, prepared, result) then "✔ true" else "✘ false")
+    println(if properties.transitivity.check(name, prepared, result) then "✔ true" else "✘ false")
   }
 
 
@@ -125,14 +127,15 @@ def exampleCommutative(program: Term) =
   {
     println()
     println(s"COMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, body: ast.Abs) = AlphaConversion.uniqueNames(commutativity.prepare(fun)).expr
+    val prepared @ ast.Abs(_, _, body: ast.Abs) =
+      AlphaConversion.uniqueNames(properties.commutativity.prepare(fun)).expr
     println(body.show)
 
     val result = eval(name, body)
 
     println()
     println(s"COMM CHECK for $name:")
-    println(if commutativity.check(name, prepared, result) then "✔ true" else "✘ false")
+    println(if properties.commutativity.check(name, prepared, result) then "✔ true" else "✘ false")
   }
 
 
@@ -150,8 +153,12 @@ def eval(name: String, body: ast.Abs) =
 
   println((result.reductions map { case Symbolic.Reduction(expr, Symbolic.Constraints(pos, neg)) =>
     "• " + expr.show + "\n" +
-    (pos map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).mkString("  pos: {", ", ", "}\n") +
-    (neg map { neg => (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).mkString("{", ", ", "}") }).mkString("  neg: {", ", ", "}")
+    (pos map { (expr, pattern) =>
+      parenthesize(expr) + "≔" + parenthesize(pattern)
+    }).mkString("  pos: {", ", ", "}\n") +
+    (neg map { neg =>
+      (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).mkString("{", ", ", "}")
+    }).mkString("  neg: {", ", ", "}")
   }).mkString("\n\n"))
 
   result
