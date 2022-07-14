@@ -92,7 +92,7 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"ANTISYMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, body: ast.Abs) = alpharename(antisymmetry.prepare(fun))
+    val prepared @ ast.Abs(_, _, body: ast.Abs) = AlphaConversion.uniqueNames(antisymmetry.prepare(fun)).expr
     println(body.show)
 
     val result = eval(name, body)
@@ -105,7 +105,7 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"TRANS CHECK for $name:")
-    val prepared @ ast.Abs(_, _, ast.Abs(_, _, body: ast.Abs)) = alpharename(transitivity.prepare(fun))
+    val prepared @ ast.Abs(_, _, ast.Abs(_, _, body: ast.Abs)) = AlphaConversion.uniqueNames(transitivity.prepare(fun)).expr
     println(body.show)
 
     val result = eval(name, body)
@@ -125,7 +125,7 @@ def exampleCommutative(program: Term) =
   {
     println()
     println(s"COMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, body: ast.Abs) = alpharename(commutativity.prepare(fun))
+    val prepared @ ast.Abs(_, _, body: ast.Abs) = AlphaConversion.uniqueNames(commutativity.prepare(fun)).expr
     println(body.show)
 
     val result = eval(name, body)
