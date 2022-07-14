@@ -28,8 +28,8 @@ given Ordering[Pattern] =
     order[Match].by(_.ctor).orElseBy(_.args).compare(pattern0, pattern1)
   case (pattern0: Bind, pattern1: Bind) =>
     order[Bind].by(_.ident).compare(pattern0, pattern1)
-  case (pattern0, pattern1) =>
-    pattern0.ordinal - pattern1.ordinal
+  case (pattern0: Product, pattern1: Product) =>
+    pattern0.productPrefix compare pattern1.productPrefix
 
 given Ordering[Term] =
   case (expr0: Abs, expr1: Abs) =>
@@ -44,5 +44,5 @@ given Ordering[Term] =
     order[Let].by(_.ident).orElseBy(_.bound).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: Cases, expr1: Cases) =>
     order[Cases].by(_.scrutinee).orElseBy(_.cases).compare(expr0, expr1)
-  case (expr0, expr1) =>
-    expr0.ordinal - expr1.ordinal
+  case (expr0: Product, expr1: Product) =>
+    expr0.productPrefix compare expr1.productPrefix

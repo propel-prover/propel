@@ -30,31 +30,31 @@ def alpharename(expr: Term): Term =
   def renameCase(pattern: Pattern): (Pattern, Map[Symbol, Symbol]) = pattern match
     case Match(ctor, args) =>
       val (renamedArgs, substs) = args.map(renameCase).unzip
-      (Match(ctor, renamedArgs), substs.foldLeft(Map.empty) { _ ++ _ })
+      (Match(pattern)(ctor, renamedArgs), substs.foldLeft(Map.empty) { _ ++ _ })
     case Bind(ident) =>
       val fresh = freshIdent(ident, 1)
-      (Bind(fresh), Map(ident -> fresh))
+      (Bind(pattern)(fresh), Map(ident -> fresh))
 
-  def renameTerm(expr: Term, subst: Map[Symbol, Symbol]): Term = expr match
+  def renameTerm(term: Term, subst: Map[Symbol, Symbol]): Term = term match
     case Abs(properties, arg, expr) =>
       val fresh = freshIdent(arg, 1)
-      Abs(properties, fresh, renameTerm(expr, subst + (arg -> fresh)))
+      Abs(term)(properties, fresh, renameTerm(expr, subst + (arg -> fresh)))
     case App(properties, expr, arg) =>
-      App(properties, renameTerm(expr, subst), renameTerm(arg, subst))
+      App(term)(properties, renameTerm(expr, subst), renameTerm(arg, subst))
     case Data(ctor, args) =>
-      Data(ctor, args map { renameTerm(_, subst) })
+      Data(term)(ctor, args map { renameTerm(_, subst) })
     case Var(ident) =>
-      subst.get(ident) map { Var(_) } getOrElse expr
+      subst.get(ident) map { Var(_) } getOrElse term
     case Let(ident, bound, expr) =>
       val fresh = freshIdent(ident, 1)
-      Let(fresh, renameTerm(bound, subst + (ident -> fresh)), renameTerm(expr, subst + (ident -> fresh)))
+      Let(term)(fresh, renameTerm(bound, subst + (ident -> fresh)), renameTerm(expr, subst + (ident -> fresh)))
     case Cases(scrutinee, cases) =>
       val renamedScrutinee = renameTerm(scrutinee, subst)
       val renamedCases = cases map { (pattern, expr) =>
         val (renamedPattern, additionalSubst) = renameCase(pattern)
         renamedPattern -> renameTerm(expr, subst ++ additionalSubst)
       }
-      Cases(renamedScrutinee, renamedCases)
+      Cases(term)(renamedScrutinee, renamedCases)
 
   renameTerm(expr, Map.empty)
 
@@ -89,19 +89,19 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
     case Match(_, args) => args flatMap bound
     case Bind(ident) => List(ident)
 
-  def subst(expr: Term, substs: TermSubstitutions): Term = expr match
+  def subst(term: Term, substs: TermSubstitutions): Term = term match
     case Abs(properties, arg, expr) =>
-      Abs(properties, arg, subst(expr, substs - arg))
+      Abs(term)(properties, arg, subst(expr, substs - arg))
     case App(properties, expr, arg) =>
-      App(properties, subst(expr, substs), subst(arg, substs))
+      App(term)(properties, subst(expr, substs), subst(arg, substs))
     case Data(ctor, args) =>
-      Data(ctor, args map { subst(_, substs) })
+      Data(term)(ctor, args map { subst(_, substs) })
     case Var(ident) =>
-      substs.getOrElse(ident, expr)
+      substs.getOrElse(ident, term)
     case Let(ident, bound, expr) =>
-      Let(ident, subst(bound, substs), subst(expr, substs - ident))
+      Let(term)(ident, subst(bound, substs), subst(expr, substs - ident))
     case Cases(scrutinee, cases) =>
-      Cases(
+      Cases(term)(
         subst(scrutinee, substs),
         cases map { (pattern, expr) =>
           pattern -> subst(expr, substs -- bound(pattern))
@@ -113,7 +113,7 @@ type PatternSubstitutions = Map[Symbol, Pattern]
 
 def subst(pattern: Pattern, substs: PatternSubstitutions): Pattern = pattern match
   case Match(ctor, args) =>
-    Match(ctor, args map { subst(_, substs) })
+    Match(pattern)(ctor, args map { subst(_, substs) })
   case Bind(ident) =>
     substs.getOrElse(ident, pattern)
 
@@ -278,18 +278,18 @@ object Symbolic:
 
   private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
     replaceByConstraint(expr, constraints) match
-      case Abs(properties, arg, expr) =>
-        Abs(properties, arg, substConstraints(expr, constraints))
-      case App(properties, expr, arg) =>
-        App(properties, substConstraints(expr, constraints), substConstraints(arg, constraints))
-      case Data(ctor, args) =>
-        Data(ctor, args map { substConstraints(_, constraints) })
-      case Var(_) =>
-        expr
-      case Let(ident, bound, expr) =>
-        Let(ident, substConstraints(bound, constraints), substConstraints(expr, constraints))
-      case Cases(scrutinee, cases) =>
-        Cases(substConstraints(scrutinee, constraints), cases map { (pattern, expr) => pattern -> substConstraints(expr, constraints) })
+      case term @ Abs(properties, arg, expr) =>
+        Abs(term)(properties, arg, substConstraints(expr, constraints))
+      case term @ App(properties, expr, arg) =>
+        App(term)(properties, substConstraints(expr, constraints), substConstraints(arg, constraints))
+      case term @ Data(ctor, args) =>
+        Data(term)(ctor, args map { substConstraints(_, constraints) })
+      case term @ Var(_) =>
+        term
+      case term @ Let(ident, bound, expr) =>
+        Let(term)(ident, substConstraints(bound, constraints), substConstraints(expr, constraints))
+      case term @ Cases(scrutinee, cases) =>
+        Cases(term)(substConstraints(scrutinee, constraints), cases map { (pattern, expr) => pattern -> substConstraints(expr, constraints) })
 
   private def replaceByConstraint(expr: Term, constraints: PatternConstraints): Term =
     constraints.get(expr) match
@@ -320,17 +320,17 @@ object Symbolic:
 
     def eval(expr: Term, constraints: Constraints): Result =
       replaceByConstraint(expr, constraints.pos) match
-        case Abs(properties, arg, expr) =>
-          eval(expr, constraints) map { Abs(properties, arg, _) }
-        case App(properties, expr, arg) =>
-          evals(List(expr, arg), constraints) map { exprs => App(properties, exprs.head, exprs.tail.head) }
-        case Data(ctor, args) =>
-          evals(args, constraints) map { args => Data(ctor, args) }
-        case Var(_) =>
-          Result(List(Reduction(expr, constraints)))
-        case Let(ident, bound, expr) =>
+        case term @ Abs(properties, arg, expr) =>
+          eval(expr, constraints) map { Abs(term)(properties, arg, _) }
+        case term @ App(properties, expr, arg) =>
+          evals(List(expr, arg), constraints) map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }
+        case term @ Data(ctor, args) =>
+          evals(args, constraints) map { args => Data(term)(ctor, args) }
+        case term @ Var(_) =>
+          Result(List(Reduction(term, constraints)))
+        case term @ Let(ident, bound, expr) =>
           if contains(bound, ident) then
-            evals(List(bound, expr), constraints) map { exprs => Let(ident, exprs.head, exprs.tail.head) }
+            evals(List(bound, expr), constraints) map { exprs => Let(term)(ident, exprs.head, exprs.tail.head) }
           else
             eval(bound, constraints) flatMap { case Reduction(bound, constraints) =>
               eval(subst(expr, Map(ident -> bound)), constraints).reductions

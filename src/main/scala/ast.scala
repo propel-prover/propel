@@ -4,6 +4,7 @@ export Property.*
 export Pattern.*
 export Term.*
 
+
 type Properties = Set[Property]
 
 enum Property:
@@ -18,20 +19,75 @@ enum Property:
   case Connected
   case Transitive
 
+
 case class Constructor(ident: Symbol)
 
 object Constructor:
   val False = Constructor(Symbol("⊥"))
   val True = Constructor(Symbol("⊤"))
 
-enum Pattern:
-  case Match(ctor: Constructor, args: List[Pattern])
-  case Bind(ident: Symbol)
 
-enum Term:
-  case Abs(properties: Properties, arg: Symbol, expr: Term)
-  case App(properties: Properties, expr: Term , arg: Term)
-  case Data(ctor: Constructor, args: List[Term])
-  case Var(ident: Symbol)
-  case Let(ident: Symbol, bound: Term, expr: Term)
-  case Cases(scrutinee: Term, cases: List[(Pattern, Term)])
+sealed trait Pattern extends Enrichable[Pattern]:
+  protected def withEnrichment(pattern: Pattern, enrichments: Enrichments) = pattern match
+    case Match(ctor, args) => Match(ctor, args)(enrichments)
+    case Bind(ident) => Bind(ident)(enrichments)
+
+object Pattern:
+  case class Match private[Pattern] (ctor: Constructor, args: List[Pattern]) (val enrichments: Enrichments) extends Pattern
+
+  object Match:
+    def apply(ctor: Constructor, args: List[Pattern]): Match = defaultApply
+    def apply(template: Pattern)(ctor: Constructor, args: List[Pattern]): Match = defaultApply
+
+  case class Bind private[Pattern] (ident: Symbol) (val enrichments: Enrichments) extends Pattern
+
+  object Bind:
+    def apply(ident: Symbol): Bind = defaultApply
+    def apply(template: Pattern)(ident: Symbol): Bind = defaultApply
+
+
+sealed trait Term extends Enrichable[Term]:
+  protected def withEnrichment(expr: Term, enrichments: Enrichments) = expr match
+    case Abs(properties, arg, expr) => Abs(properties, arg, expr)(enrichments)
+    case App(properties, expr, arg) => App(properties, expr, arg)(enrichments)
+    case Data(ctor, args) => Data(ctor, args)(enrichments)
+    case Var(ident) => Var(ident)(enrichments)
+    case Let(ident, bound, expr) => Let(ident, bound, expr)(enrichments)
+    case Cases(scrutinee, cases) => Cases(scrutinee, cases)(enrichments)
+
+object Term:
+  case class Abs private[Term] (properties: Properties, arg: Symbol, expr: Term) (val enrichments: Enrichments) extends Term
+
+  object Abs:
+    def apply(properties: Properties, arg: Symbol, expr: Term): Abs = defaultApply
+    def apply(template: Term)(properties: Properties, arg: Symbol, expr: Term): Abs = defaultApply
+
+  case class App private[Term] (properties: Properties, expr: Term, arg: Term) (val enrichments: Enrichments) extends Term
+
+  object App:
+    def apply(properties: Properties, expr: Term, arg: Term): App = defaultApply
+    def apply(template: Term)(properties: Properties, expr: Term, arg: Term): App = defaultApply
+
+  case class Data private[Term] (ctor: Constructor, args: List[Term]) (val enrichments: Enrichments) extends Term
+
+  object Data:
+    def apply(ctor: Constructor, args: List[Term]): Data = defaultApply
+    def apply(template: Term)(ctor: Constructor, args: List[Term]): Data = defaultApply
+
+  case class Var private[Term] (ident: Symbol) (val enrichments: Enrichments) extends Term
+
+  object Var:
+    def apply(ident: Symbol): Var = defaultApply
+    def apply(template: Term)(ident: Symbol): Var = defaultApply
+
+  case class Let private[Term] (ident: Symbol, bound: Term, expr: Term) (val enrichments: Enrichments) extends Term
+
+  object Let:
+    def apply(ident: Symbol, bound: Term, expr: Term): Let = defaultApply
+    def apply(template: Term)(ident: Symbol, bound: Term, expr: Term): Let = defaultApply
+
+  case class Cases(scrutinee: Term, cases: List[(Pattern, Term)]) (val enrichments: Enrichments) extends Term
+
+  object Cases:
+    def apply(scrutinee: Term, cases: List[(Pattern, Term)]): Cases = defaultApply
+    def apply(template: Term)(scrutinee: Term, cases: List[(Pattern, Term)]): Cases = defaultApply
