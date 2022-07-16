@@ -2,61 +2,97 @@ package propel
 package evaluator
 
 import ast.*
+import util.*
 
 type TermSubstitutions = Map[Symbol, Term]
 
 def subst(expr: Term, substs: TermSubstitutions): Term =
-  substs foreach { (ident, bound) =>
-    def countIdent(expr: Term, ident: Symbol): Int = expr match
-      case Abs(_, arg, expr) => countIdent(expr, ident)
-      case App(_, expr, arg) => countIdent(expr, ident) + countIdent(arg, ident)
-      case Data(_, args) => (args map { countIdent(_, ident) }).sum
-      case Let(_, bound, expr) => countIdent(bound, ident) + countIdent(expr, ident)
-      case Cases(scrutinee, cases) => countIdent(scrutinee, ident) + (cases map { (_, expr) => countIdent(expr, ident) }).sum
-      case Var(`ident`) => 1
-      case _ => 0
+  if substs.isEmpty then
+    expr
+  else
+    val substsTermInfos = substs.view mapValues { _.withInfo(Syntactic.Term) }
+    let(expr.withInfo(Syntactic.Term), (substsTermInfos.view mapValues { (term, _) => term }).toMap) { case ((expr, exprInfo), substs) =>
+      val free = (substsTermInfos.values flatMap { (_, info) => info.free.keySet }).toSet
+      val used = exprInfo.bound ++ (exprInfo.free map { (ident, _) => ident }) ++ free map { _.name }
 
-    def containsLambda(expr: Term): Boolean = expr match
-      case Abs(_, _, _) => true
-      case App(_, expr, arg) => containsLambda(expr) || containsLambda(arg)
-      case Data(_, args) => args exists containsLambda
-      case Let(_, bound, expr) => containsLambda(bound) || containsLambda(expr)
-      case Cases(scrutinee, cases) => containsLambda(scrutinee) || (cases exists { (_, expr) => containsLambda(expr) })
-      case _ => false
+      def freshIdent(base: Symbol, used: Set[String]): Symbol =
+        def freshIdent(base: String, index: Int): String =
+          val ident = base + Util.subscript(index)
+          if used.contains(ident) then
+            freshIdent(base, index + 1)
+          else
+            ident
 
-    if containsLambda(bound) && countIdent(expr, ident) > 1 then
-      Util.fail("Implementation restriction: "+
-        s"expression bound to ${ident.name} cannot be used multiple times because it contains lambda expressions")
-  }
+        Symbol(freshIdent(Util.dropSubscript(base.name), 1))
+      end freshIdent
 
-  def bound(pattern: Pattern): List[Symbol] = pattern match
-    case Match(_, args) => args flatMap bound
-    case Bind(ident) => List(ident)
+      def convert(pattern: Pattern, used: Set[String]): (Pattern, Map[Symbol, Var], Set[Symbol], Set[String]) = pattern match
+        case Match(ctor, args) =>
+          val converted = args.foldLeft(List.empty[Pattern], Map.empty[Symbol, Var], Set.empty[Symbol], used) {
+            case ((args, substs, bindings, used), arg) =>
+              let(convert(arg, used)) { (arg, argSubsts, argBindings, argUsed) =>
+                (arg :: args, substs ++ argSubsts, bindings ++ argBindings, used ++ argUsed)
+              }
+          }
+          let(converted) { (args, substs, bindings, used) => (Match(pattern)(ctor, args.reverse), substs, bindings, used) }
+        case Bind(ident) if free contains ident =>
+          val fresh = freshIdent(ident, used)
+          (Bind(pattern)(fresh), Map(ident -> Var(fresh)), Set.empty, used + fresh.name)
+        case Bind(ident) =>
+          (pattern, Map.empty, Set(ident), used)
 
-  def subst(term: Term, substs: TermSubstitutions): Term = term match
-    case Abs(properties, arg, expr) =>
-      Abs(term)(properties, arg, subst(expr, substs - arg))
-    case App(properties, expr, arg) =>
-      App(term)(properties, subst(expr, substs), subst(arg, substs))
-    case Data(ctor, args) =>
-      Data(term)(ctor, args map { subst(_, substs) })
-    case Var(ident) =>
-      substs.getOrElse(ident, term)
-    case Let(ident, bound, expr) =>
-      Let(term)(ident, subst(bound, substs), subst(expr, substs - ident))
-    case Cases(scrutinee, cases) =>
-      Cases(term)(
-        subst(scrutinee, substs),
-        cases map { (pattern, expr) =>
-          pattern -> subst(expr, substs -- bound(pattern))
-        })
+      def subst(term: Term, used: Set[String], substs: TermSubstitutions): Term = term match
+        case Abs(properties, arg, expr) if free contains arg =>
+          val fresh = freshIdent(arg, used)
+          Abs(term)(properties, fresh, subst(expr, used + fresh.name, substs + (arg -> Var(fresh))))
+        case Abs(properties, arg, expr) =>
+          Abs(term)(properties, arg, subst(expr, used, substs - arg))
+        case App(properties, expr, arg) =>
+          App(term)(properties, subst(expr, used, substs), subst(arg, used, substs))
+        case Data(ctor, args) =>
+          Data(term)(ctor, args map { subst(_, used, substs) })
+        case Var(ident) =>
+          substs.get(ident) match
+            case Some(Var(ident)) => Var(term)(ident)
+            case Some(expr) => expr
+            case _ => term
+        case Let(ident, bound, expr) if free contains ident =>
+          val fresh = freshIdent(ident, used)
+          Let(term)(ident, subst(bound, used, substs), subst(expr, used + fresh.name, substs + (ident -> Var(fresh))))
+        case Let(ident, bound, expr) =>
+          Let(term)(ident, subst(bound, used, substs), subst(expr, used, substs - ident))
+        case Cases(scrutinee, cases) =>
+          Cases(term)(
+            subst(scrutinee, used, substs),
+            cases map { (pattern, expr) =>
+              let(convert(pattern, used)) { (pattern, patternSubsts, patternBindings, used) =>
+                pattern -> subst(expr, used, substs ++ patternSubsts -- patternBindings)
+              }
+            })
 
-  subst(expr, substs)
+      subst(expr, used, substs)
+    }
+end subst
 
 type PatternSubstitutions = Map[Symbol, Pattern]
 
-def subst(pattern: Pattern, substs: PatternSubstitutions): Pattern = pattern match
-  case Match(ctor, args) =>
-    Match(pattern)(ctor, args map { subst(_, substs) })
-  case Bind(ident) =>
-    substs.getOrElse(ident, pattern)
+def subst(pattern: Pattern, substs: PatternSubstitutions): Pattern =
+  def subst(pattern: Pattern, substs: PatternSubstitutions): (Pattern, PatternSubstitutions) = pattern match
+    case Match(ctor, args) =>
+      val substituted = args.reverseIterator.foldLeft(List.empty[Pattern], substs) { case ((args, substs), arg) =>
+        if substs.nonEmpty then
+          let(subst(arg, substs)) { (arg, substs) => (arg :: args) -> substs }
+        else
+          (arg :: args) -> substs
+      }
+      let(substituted) { (args, substs) => Match(pattern)(ctor, args) -> substs }
+    case Bind(ident) =>
+      substs.get(ident) match
+        case Some(pattern) => pattern -> (substs - ident)
+        case _ => pattern -> substs
+
+  if substs.nonEmpty then
+    let(subst(pattern, substs)) { (pattern, _) => pattern }
+  else
+    pattern
+end subst

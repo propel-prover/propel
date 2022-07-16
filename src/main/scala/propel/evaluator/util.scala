@@ -4,8 +4,6 @@ package evaluator
 import ast.*
 
 package Util:
-  def fail(message: String) = throw RuntimeException(message)
-
   def subscript(i: Int) =
     def subscript(i: Int) = i.toString map { c => (c.toInt - '0' + '₀').toChar }
     if i < 0 then "₋" + subscript(-i) else subscript(i)
