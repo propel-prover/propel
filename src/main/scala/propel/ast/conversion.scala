@@ -1,53 +1,43 @@
 package propel
-package evaluator
+package ast
 
-import ast.*
 import util.*
 import scala.collection.mutable
 
 object AlphaConversion:
-  case class UniqueNames(expr: Term)(using NameSets):
-    def map[T](f: NameSets ?=> Term => T) = f(expr)
+  case class UniqueNames private[AlphaConversion] (expr: Term)(using Names):
+    def map[T](f: Names ?=> Term => T) = f(expr)
 
-  class NameSets private[AlphaConversion] (private[AlphaConversion] val used: mutable.Set[String])
+  class Names private[AlphaConversion] (private[AlphaConversion] val used: mutable.Set[String])
 
-  sealed trait PotentialNameSets[R <: UniqueNames | Term](using val sets: NameSets):
-    inline def used = sets.used
+  sealed trait PotentialNames[R <: UniqueNames | Term](using val names: Names):
+    inline def used = names.used
     def makeResult(expr: Term): R
 
-  sealed trait PotentialNameSetsFallback:
-    given[CompileToDef]: PotentialNameSets[UniqueNames](using NameSets(mutable.Set.empty)) with
+  sealed trait PotentialNamesFallback:
+    given[CompileToDef]: PotentialNames[UniqueNames](using Names(mutable.Set.empty)) with
       def makeResult(expr: Term) = UniqueNames(expr)
 
-  object PotentialNameSets extends PotentialNameSetsFallback:
-    given(using NameSets): PotentialNameSets[Term] with
+  object PotentialNames extends PotentialNamesFallback:
+    given(using Names): PotentialNames[Term] with
       def makeResult(expr: Term) = expr
 
-  def uniqueNames[R <: UniqueNames | Term](expr: Term)(using sets: PotentialNameSets[R]): R =
-    def freshIdent(base: Symbol): Symbol =
-      def freshIdent(base: String, index: Int): String =
-        val ident = base + Util.subscript(index)
-        if sets.used.contains(ident) then
-          freshIdent(base, index + 1)
-        else
-          sets.used += ident
-          ident
-
-      Symbol(freshIdent(Util.dropSubscript(base.name), 1))
-
+  def uniqueNames[R <: UniqueNames | Term](expr: Term)(using names: PotentialNames[R]): R =
     def renamePattern(pattern: Pattern): (Pattern, Map[Symbol, Symbol]) = pattern match
       case Match(ctor, args) =>
         let(args.map(renamePattern).unzip) { (args, substs) =>
           Match(pattern)(ctor, args) -> substs.fold(Map.empty) { _ ++ _ }
         }
       case Bind(ident) =>
-        val fresh = freshIdent(ident)
+        val fresh = Util.freshIdent(ident, names.used)
+        names.used += fresh.name
         Bind(pattern)(fresh) -> Map(ident -> fresh)
 
     def renameTerm(term: Term, subst: Map[Symbol, Symbol]): Term = term match
-      case Abs(properties, arg, expr) =>
-        val fresh = freshIdent(arg)
-        Abs(term)(properties, fresh, renameTerm(expr, subst + (arg -> fresh)))
+      case Abs(properties, ident, expr) =>
+        val fresh = Util.freshIdent(ident, names.used)
+        names.used += fresh.name
+        Abs(term)(properties, fresh, renameTerm(expr, subst + (ident -> fresh)))
       case App(properties, expr, arg) =>
         App(term)(properties, renameTerm(expr, subst), renameTerm(arg, subst))
       case Data(ctor, args) =>
@@ -64,5 +54,5 @@ object AlphaConversion:
           Cases(term)(scrutinee, renamedCases)
         }
 
-    sets.makeResult(renameTerm(expr, Map.empty))
+    names.makeResult(renameTerm(expr, Map.empty))
 end AlphaConversion

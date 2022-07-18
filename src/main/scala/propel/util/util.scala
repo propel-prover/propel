@@ -7,8 +7,6 @@ import scala.collection.mutable.Builder
 
 inline def let[T, R](v: T)(inline f: T => R): R = f(v)
 
-inline def let[T <: Tuple, R](v: T)(inline f: T => R): R = f(v)
-
 
 extension [K, V, C, CC[T] <: IterableOnce[T]](iterable: CC[Map[K, V]])
   inline def mergeLeft: Map[K, V] =

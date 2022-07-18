@@ -35,7 +35,7 @@ given Ordering[Pattern] =
 
 given Ordering[Term] =
   case (expr0: Abs, expr1: Abs) =>
-    order[Abs].by(_.arg).orElseBy(_.expr).compare(expr0, expr1)
+    order[Abs].by(_.ident).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: App, expr1: App) =>
     order[App].by(_.expr).orElseBy(_.arg).compare(expr0, expr1)
   case (expr0: Data, expr1: Data) =>

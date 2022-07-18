@@ -11,6 +11,18 @@ package Util:
   def dropSubscript(s: String) =
     (s.reverse dropWhile { c => c >= '₀' && c <= '₋'}).reverseIterator.mkString
 
+  def freshIdent(base: String, used: collection.Set[String]): String =
+    def freshIdent(base: String, index: Int): String =
+      val ident = base + subscript(index)
+      if used.contains(ident) then
+        freshIdent(base, index + 1)
+      else
+        ident
+    freshIdent(dropSubscript(base), 1)
+
+  def freshIdent(base: Symbol, used: collection.Set[String]): Symbol =
+    Symbol(freshIdent(base.name, used))
+
   def implies(a: Term, b: Term) = Cases(a, List(
     Match(Constructor.True, List.empty) -> b,
     Match(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)))

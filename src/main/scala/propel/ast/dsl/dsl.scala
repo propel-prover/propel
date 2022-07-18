@@ -41,11 +41,11 @@ def trans = Transitive
 def term[A: TermExpr](expr: A): Term =
   expr.make
 
-def abs[A: TermExpr](arg: String, args: String*)(expr: A): Term =
-  abs()(arg, args*)(expr)
+def abs[A: TermExpr](ident: String, idents: String*)(expr: A): Term =
+  abs()(ident, idents*)(expr)
 
-def abs[A: TermExpr](properties: Property*)(arg: String, args: String*)(expr: A): Term =
-  Abs(properties.toSet, Symbol(arg), args.foldRight(expr.make) { (arg, expr) => Abs(Set.empty, Symbol(arg), expr) })
+def abs[A: TermExpr](properties: Property*)(ident: String, idents: String*)(expr: A): Term =
+  Abs(properties.toSet, Symbol(ident), idents.foldRight(expr.make) { (ident, expr) => Abs(Set.empty, Symbol(ident), expr) })
 
 def app[A <: (Tuple | Term | String): TermExpr](expr: A): Term =
   app()(expr)
@@ -63,15 +63,7 @@ def let[A: PatternExpr, B: TermExpr, C: TermExpr](binding: (A, B))(expr: C): Ter
 
   val (_, info) = boundExpr.withInfo(Syntactic.Term)
   val free = (info.free map { (ident, _) => ident.name }).toSet
-
-  def freshIdent(base: String, index: Int): String =
-    val name = base + Util.subscript(index)
-    if free.contains(name) then
-      freshIdent(base, index + 1)
-    else
-      name
-
-  val valName = freshIdent("val", 1)
+  val valName = Util.freshIdent("val", free)
 
   app()(abs()(valName)(cases(valName)(pattern -> expr)), boundExpr)
 
@@ -84,15 +76,8 @@ def letrec[A: BindingExpr, B: TermExpr](binding: A)(expr: B): Term =
     info.free map { (ident, _) => ident.name }
   }).toSet
 
-  def freshIdent(base: String, index: Int): String =
-    val name = base + Util.subscript(index)
-    if free.contains(name) then
-      freshIdent(base, index + 1)
-    else
-      name
-
-  val recName = freshIdent("rec", 1)
-  val wildcardName = freshIdent("_", 1)
+  val recName = Util.freshIdent("rec", free)
+  val wildcardName = Util.freshIdent("_", free)
 
   val pattern = Match(Constructor(Symbol("Tuple")), idents map { Bind(_) })
   val substs = (idents map { ident => ident -> let(pattern -> app()(recName, "Unit"))(Var(ident)) }).toMap

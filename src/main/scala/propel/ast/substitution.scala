@@ -14,17 +14,6 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
       val free = (substsTermInfos.values flatMap { (_, info) => info.free.keySet }).toSet
       val used = exprInfo.bound ++ (exprInfo.free map { (ident, _) => ident }) ++ free map { _.name }
 
-      def freshIdent(base: Symbol, used: Set[String]): Symbol =
-        def freshIdent(base: String, index: Int): String =
-          val ident = base + Util.subscript(index)
-          if used.contains(ident) then
-            freshIdent(base, index + 1)
-          else
-            ident
-
-        Symbol(freshIdent(Util.dropSubscript(base.name), 1))
-      end freshIdent
-
       def convert(pattern: Pattern, used: Set[String]): (Pattern, Map[Symbol, Var], Set[Symbol], Set[String]) = pattern match
         case Match(ctor, args) =>
           val converted = args.foldLeft(List.empty[Pattern], Map.empty[Symbol, Var], Set.empty[Symbol], used) {
@@ -35,17 +24,17 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
           }
           let(converted) { (args, substs, bindings, used) => (Match(pattern)(ctor, args.reverse), substs, bindings, used) }
         case Bind(ident) if free contains ident =>
-          val fresh = freshIdent(ident, used)
+          val fresh = Util.freshIdent(ident, used)
           (Bind(pattern)(fresh), Map(ident -> Var(fresh)), Set.empty, used + fresh.name)
         case Bind(ident) =>
           (pattern, Map.empty, Set(ident), used)
 
       def subst(term: Term, used: Set[String], substs: TermSubstitutions): Term = term match
-        case Abs(properties, arg, expr) if free contains arg =>
-          val fresh = freshIdent(arg, used)
-          Abs(term)(properties, fresh, subst(expr, used + fresh.name, substs + (arg -> Var(fresh))))
-        case Abs(properties, arg, expr) =>
-          Abs(term)(properties, arg, subst(expr, used, substs - arg))
+        case Abs(properties, ident, expr) if free contains ident =>
+          val fresh = Util.freshIdent(ident, used)
+          Abs(term)(properties, fresh, subst(expr, used + fresh.name, substs + (ident -> Var(fresh))))
+        case Abs(properties, ident, expr) =>
+          Abs(term)(properties, ident, subst(expr, used, substs - ident))
         case App(properties, expr, arg) =>
           App(term)(properties, subst(expr, used, substs), subst(arg, used, substs))
         case Data(ctor, args) =>

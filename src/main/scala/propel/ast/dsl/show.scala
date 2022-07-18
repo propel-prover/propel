@@ -3,6 +3,9 @@ package dsl
 
 import ast.*
 
+extension (uniqueNames: AlphaConversion.UniqueNames) def show: String =
+  s"UniqueNames(${uniqueNames.expr.show})"
+
 extension (property: Property) def show: String = property match
   case Commutative => "comm"
   case Associative => "assoc"
@@ -111,12 +114,12 @@ extension (expr: Term) def show: String =
           flatten(s"let ${pattern.show} = ${letbound.head} in", indented(letexpr))
         else
           flatten(s"let ${pattern.show} = ${letbound.head} in ${letexpr.head}")
-      case Abs(properties, arg, expr) =>
+      case Abs(properties, ident, expr) =>
         val absexpr = show(expr)
         val absexprproc = expr match
           case expr: Abs if expr.properties.isEmpty => flatten(s" ${absexpr.head.drop(2)}", absexpr.tail)
           case _ => flatten(s". ${absexpr.head}", absexpr.tail)
-        flatten(s"λ ${annotation(properties)}${arg.name}${absexprproc.head}", indented(absexprproc.tail))
+        flatten(s"λ ${annotation(properties)}${ident.name}${absexprproc.head}", indented(absexprproc.tail))
       case Data(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
         flatten(ctor.show)
       case Data(ctor, List()) =>

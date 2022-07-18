@@ -1,5 +1,6 @@
 package propel
 
+import ast.*
 import dsl.*
 import dsl.sugar.*
 import evaluator.*
@@ -80,16 +81,16 @@ def exampleAntisymmAndTransitive(program: Term) =
   println()
   println("PROGRAM:")
 
-  val ast.App(_,
-    ast.Abs(_, _, ast.Cases(_, List(ast.Match(_, List(ast.Bind(Symbol(name)))) -> _))),
-    ast.App(_, _, ast.Abs(_ , _, ast.Abs(_, _, ast.Data(_, List(fun: ast.Abs)))))) = program
+  val App(_,
+    Abs(_, _, Cases(_, List(Match(_, List(Bind(Symbol(name)))) -> _))),
+    App(_, _, Abs(_ , _, Abs(_, _, Data(_, List(fun: Abs)))))) = program
 
   println(program.show)
 
   {
     println()
     println(s"ANTISYMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, body: ast.Abs) =
+    val prepared @ Abs(_, _, body: Abs) =
       AlphaConversion.uniqueNames(properties.antisymmetry.prepare(fun)).expr
     println(body.show)
 
@@ -103,7 +104,7 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"TRANS CHECK for $name:")
-    val prepared @ ast.Abs(_, _, ast.Abs(_, _, body: ast.Abs)) =
+    val prepared @ Abs(_, _, Abs(_, _, body: Abs)) =
       AlphaConversion.uniqueNames(properties.transitivity.prepare(fun)).expr
     println(body.show)
 
@@ -119,16 +120,16 @@ def exampleCommutative(program: Term) =
   println()
   println("PROGRAM:")
 
-  val ast.App(_,
-    ast.Abs(_, _, ast.Cases(_, List(ast.Match(_, List(ast.Bind(Symbol(name)))) -> _))),
-    ast.App(_, _, ast.Abs(_ , _, ast.Abs(_, _, ast.Data(_, List(fun: ast.Abs)))))) = program
+  val App(_,
+    Abs(_, _, Cases(_, List(Match(_, List(Bind(Symbol(name)))) -> _))),
+    App(_, _, Abs(_ , _, Abs(_, _, Data(_, List(fun: Abs)))))) = program
 
   println(program.show)
 
   {
     println()
     println(s"COMM CHECK for $name:")
-    val prepared @ ast.Abs(_, _, body: ast.Abs) =
+    val prepared @ Abs(_, _, body: Abs) =
       AlphaConversion.uniqueNames(properties.commutativity.prepare(fun)).expr
     println(body.show)
 
@@ -140,12 +141,12 @@ def exampleCommutative(program: Term) =
   }
 
 
-def eval(name: String, body: ast.Abs) =
-  def parenthesize(value: ast.Term | ast.Pattern) = value match
-    case value @ (ast.Bind(_) | ast.Match(_, List())) => value.show
-    case value @ (ast.Var(_) | ast.Data(_, List())) => value.show
-    case value: ast.Term => s"(${value.show})"
-    case value: ast.Pattern => s"(${value.show})"
+def eval(name: String, body: Abs) =
+  def parenthesize(value: Term | Pattern) = value match
+    case value @ (Bind(_) | Match(_, List())) => value.show
+    case value @ (Var(_) | Data(_, List())) => value.show
+    case value: Term => s"(${value.show})"
+    case value: Pattern => s"(${value.show})"
 
   println()
   println(s"SYMBOL EVAL for $name:")

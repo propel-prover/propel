@@ -49,18 +49,18 @@ object Pattern:
 
 sealed trait Term extends Enrichable[Term]:
   protected def withEnrichment(expr: Term, enrichments: Enrichments) = expr match
-    case Abs(properties, arg, expr) => Abs(properties, arg, expr)(enrichments)
+    case Abs(properties, ident, expr) => Abs(properties, ident, expr)(enrichments)
     case App(properties, expr, arg) => App(properties, expr, arg)(enrichments)
     case Data(ctor, args) => Data(ctor, args)(enrichments)
     case Var(ident) => Var(ident)(enrichments)
     case Cases(scrutinee, cases) => Cases(scrutinee, cases)(enrichments)
 
 object Term:
-  case class Abs private[Term] (properties: Properties, arg: Symbol, expr: Term) (val enrichments: Enrichments) extends Term
+  case class Abs private[Term] (properties: Properties, ident: Symbol, expr: Term) (val enrichments: Enrichments) extends Term
 
   object Abs:
-    def apply(properties: Properties, arg: Symbol, expr: Term): Abs = impl.defaultApply
-    def apply(template: Term)(properties: Properties, arg: Symbol, expr: Term): Abs = impl.defaultApply
+    def apply(properties: Properties, ident: Symbol, expr: Term): Abs = impl.defaultApply
+    def apply(template: Term)(properties: Properties, ident: Symbol, expr: Term): Abs = impl.defaultApply
 
   case class App private[Term] (properties: Properties, expr: Term, arg: Term) (val enrichments: Enrichments) extends Term
 

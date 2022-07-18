@@ -47,19 +47,19 @@ end constraints
 
 object antisymmetry:
   def prepare(fun: Abs): Abs = fun match
-    case Abs(_, arg0, Abs(_, arg1, expr)) =>
-      val reversed = subst(expr, Map(arg0 -> Var(arg1), arg1 -> Var(arg0)))
-      Abs(Set.empty, arg0, Abs(Set.empty, arg1, Util.implies(expr, Util.not(reversed))))
+    case Abs(_, ident0, Abs(_, ident1, expr)) =>
+      val reversed = subst(expr, Map(ident0 -> Var(ident1), ident1 -> Var(ident0)))
+      Abs(Set.empty, ident0, Abs(Set.empty, ident1, Util.implies(expr, Util.not(reversed))))
     case _ =>
       fun
 
   def check(name: String, fun: Abs, result: Symbolic.Result): Boolean = fun match
-    case Abs(_, arg0, Abs(_, arg1, _)) =>
+    case Abs(_, ident0, Abs(_, ident1, _)) =>
       result.reductions forall {
         case Symbolic.Reduction(Data(Constructor.True, _), _) =>
           true
         case Symbolic.Reduction(Data(Constructor.False, _), constraints) =>
-          constraints.pos.get(Var(arg0)) == constraints.pos.get(Var(arg1)) ||
+          constraints.pos.get(Var(ident0)) == constraints.pos.get(Var(ident1)) ||
             (constraints refutable (constraints.pos collect {
               case App(properties1, App(properties0, expr, arg0), arg1) -> Match(Constructor.True, List())
                   if properties0.contains(Antisymmetric) =>
@@ -74,10 +74,10 @@ object antisymmetry:
 
 object transitivity:
   def prepare(fun: Abs): Abs = fun match
-    case Abs(_, arg0, Abs(_, arg1, expr)) =>
-      val ab = subst(expr, Map(arg0 -> Var(Symbol("a")), arg1 -> Var(Symbol("b"))))
-      val bc = subst(expr, Map(arg0 -> Var(Symbol("b")), arg1 -> Var(Symbol("c"))))
-      val ac = subst(expr, Map(arg0 -> Var(Symbol("a")), arg1 -> Var(Symbol("c"))))
+    case Abs(_, ident0, Abs(_, ident1, expr)) =>
+      val ab = subst(expr, Map(ident0 -> Var(Symbol("a")), ident1 -> Var(Symbol("b"))))
+      val bc = subst(expr, Map(ident0 -> Var(Symbol("b")), ident1 -> Var(Symbol("c"))))
+      val ac = subst(expr, Map(ident0 -> Var(Symbol("a")), ident1 -> Var(Symbol("c"))))
       Abs(Set.empty, Symbol("a"), Abs(Set.empty, Symbol("b"), Abs(Set.empty, Symbol("c"), Util.implies(Util.and(ab, bc), ac))))
     case _ =>
       fun
@@ -93,9 +93,9 @@ object transitivity:
 
 object commutativity:
   def prepare(fun: Abs): Abs = fun match
-    case Abs(_, arg0, Abs(_, arg1, expr)) =>
-      val reversed = subst(expr, Map(arg0 -> Var(arg1), arg1 -> Var(arg0)))
-      Abs(Set.empty, arg0, Abs(Set.empty, arg1, Data(Constructor(Symbol("≟")), List(expr, reversed))))
+    case Abs(_, ident0, Abs(_, ident1, expr)) =>
+      val reversed = subst(expr, Map(ident0 -> Var(ident1), ident1 -> Var(ident0)))
+      Abs(Set.empty, ident0, Abs(Set.empty, ident1, Data(Constructor(Symbol("≟")), List(expr, reversed))))
     case _ =>
       fun
 
@@ -108,8 +108,8 @@ object commutativity:
     }
 
   def normalize(expr: Term): Term = expr match
-    case Abs(properties, arg, expr) =>
-      Abs(properties, arg, normalize(expr))
+    case Abs(properties, ident, expr) =>
+      Abs(properties, ident, normalize(expr))
     case App(properties1, App(properties0, expr, arg0), arg1) if properties0.contains(Commutative) =>
       val normalizedArg0 = normalize(arg0)
       val normalizedArg1 = normalize(arg1)

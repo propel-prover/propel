@@ -31,11 +31,11 @@ object Syntactic:
       case e: Syntactic => e
 
     def make(term: Term) = term match
-      case Abs(properties, arg, expr) =>
+      case Abs(properties, ident, expr) =>
         let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
-          val bound = exprInfo.bound + arg
-          val free = exprInfo.free - arg
-          Abs(term)(properties, arg, expr) -> Syntactic(bound, free, closed = free.isEmpty, value = true)
+          val bound = exprInfo.bound + ident
+          val free = exprInfo.free - ident
+          Abs(term)(properties, ident, expr) -> Syntactic(bound, free, closed = free.isEmpty, value = true)
         }
       case App(properties, expr, arg) =>
         let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>

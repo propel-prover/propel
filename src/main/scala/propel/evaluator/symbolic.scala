@@ -58,8 +58,8 @@ object Symbolic:
 
   private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
     replaceByConstraint(expr, constraints) match
-      case term @ Abs(properties, arg, expr) =>
-        Abs(term)(properties, arg, substConstraints(expr, constraints))
+      case term @ Abs(properties, ident, expr) =>
+        Abs(term)(properties, ident, substConstraints(expr, constraints))
       case term @ App(properties, expr, arg) =>
         App(term)(properties, substConstraints(expr, constraints), substConstraints(arg, constraints))
       case term @ Data(ctor, args) =>
@@ -89,8 +89,8 @@ object Symbolic:
 
     def eval(expr: Term, constraints: Constraints): Result =
       replaceByConstraint(expr, constraints.pos) match
-        case term @ Abs(properties, arg, expr) =>
-          eval(expr, constraints) map { Abs(term)(properties, arg, _) }
+        case term @ Abs(properties, ident, expr) =>
+          eval(expr, constraints) map { Abs(term)(properties, ident, _) }
         case term @ App(_, Abs(_, ident, expr), bound) =>
           eval(bound, constraints) flatMap { case Reduction(bound, constraints) =>
             eval(subst(expr, Map(ident -> bound)), constraints).reductions
