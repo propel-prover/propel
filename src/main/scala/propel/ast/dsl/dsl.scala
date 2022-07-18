@@ -82,7 +82,7 @@ def letrec[A: BindingExpr, B: TermExpr](binding: A)(expr: B): Term =
   val pattern = Match(Constructor(Symbol("Tuple")), idents map { Bind(_) })
   val substs = (idents map { ident => ident -> let(pattern -> app()(recName, "Unit"))(Var(ident)) }).toMap
   val rec = abs(recName, wildcardName)(subst(Data(Constructor(Symbol("Tuple")), exprs), substs))
-  let(pattern -> app()(fix, rec))(expr.make)
+  let(pattern -> app()(fix, rec, "Unit"))(expr.make)
 
 def cases[A: TermExpr, B: CaseExpr](scrutinee: A)(cases: B): Term =
   Cases(scrutinee.make, cases.make)

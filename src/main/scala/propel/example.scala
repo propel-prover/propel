@@ -83,7 +83,7 @@ def exampleAntisymmAndTransitive(program: Term) =
 
   val App(_,
     Abs(_, _, Cases(_, List(Match(_, List(Bind(Symbol(name)))) -> _))),
-    App(_, _, Abs(_ , _, Abs(_, _, Data(_, List(fun: Abs)))))) = program
+    App(_, App(_, _, Abs(_, _, Abs(_, _, Data(_, List(fun: Abs))))), _)) = program
 
   println(program.show)
 
@@ -122,7 +122,7 @@ def exampleCommutative(program: Term) =
 
   val App(_,
     Abs(_, _, Cases(_, List(Match(_, List(Bind(Symbol(name)))) -> _))),
-    App(_, _, Abs(_ , _, Abs(_, _, Data(_, List(fun: Abs)))))) = program
+    App(_, App(_, _, Abs(_, _, Abs(_, _, Data(_, List(fun: Abs))))), _)) = program
 
   println(program.show)
 
