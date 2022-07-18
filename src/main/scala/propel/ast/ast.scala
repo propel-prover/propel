@@ -53,7 +53,6 @@ sealed trait Term extends Enrichable[Term]:
     case App(properties, expr, arg) => App(properties, expr, arg)(enrichments)
     case Data(ctor, args) => Data(ctor, args)(enrichments)
     case Var(ident) => Var(ident)(enrichments)
-    case Let(ident, bound, expr) => Let(ident, bound, expr)(enrichments)
     case Cases(scrutinee, cases) => Cases(scrutinee, cases)(enrichments)
 
 object Term:
@@ -80,12 +79,6 @@ object Term:
   object Var:
     def apply(ident: Symbol): Var = impl.defaultApply
     def apply(template: Term)(ident: Symbol): Var = impl.defaultApply
-
-  case class Let private[Term] (ident: Symbol, bound: Term, expr: Term) (val enrichments: Enrichments) extends Term
-
-  object Let:
-    def apply(ident: Symbol, bound: Term, expr: Term): Let = impl.defaultApply
-    def apply(template: Term)(ident: Symbol, bound: Term, expr: Term): Let = impl.defaultApply
 
   case class Cases(scrutinee: Term, cases: List[(Pattern, Term)]) (val enrichments: Enrichments) extends Term
 

@@ -99,6 +99,18 @@ extension (expr: Term) def show: String =
           flatten(s"if ${condexpr.head} then", indented(thenexpr), "else", indented(elseexpr))
         else
           flatten(s"if ${condexpr.head} then ${thenexpr.head} else ${elseexpr.head}")
+      case App(_, Abs(_, ident0, Cases(Var(ident1), List(pattern -> expr))), bound: (Abs | Cases)) if ident0 == ident1 =>
+        val letbound = show(bound)
+        flatten(s"let ${pattern.show} = ${letbound.head}", indented(letbound.tail), "in", indented(show(expr)))
+      case App(_, Abs(_, ident0, Cases(Var(ident1), List(pattern -> expr))), bound) if ident0 == ident1 =>
+        val letbound = show(bound)
+        val letexpr = show(expr)
+        if letbound.lengthCompare(1) > 0 then
+          flatten(s"let ${pattern.show} =", indented(letbound), "in", indented(letexpr))
+        else if letexpr.lengthCompare(1) > 0 then
+          flatten(s"let ${pattern.show} = ${letbound.head} in", indented(letexpr))
+        else
+          flatten(s"let ${pattern.show} = ${letbound.head} in ${letexpr.head}")
       case Abs(properties, arg, expr) =>
         val absexpr = show(expr)
         val absexprproc = expr match
@@ -135,18 +147,6 @@ extension (expr: Term) def show: String =
           flatten(s"${annotation(properties)}${appexpr.mkString(" ")} ${apparg.mkString(" ")}")
       case Var(ident) =>
         flatten(ident.name)
-      case Let(ident, bound: (Abs | Cases), expr) =>
-        val letbound = show(bound)
-        flatten(s"let ${ident.name} = ${letbound.head}", indented(letbound.tail), "in", indented(show(expr)))
-      case Let(ident, bound, expr) =>
-        val letbound = show(bound)
-        val letexpr = show(expr)
-        if letbound.lengthCompare(1) > 0 then
-          flatten(s"let ${ident.name} =", indented(letbound), "in", indented(letexpr))
-        else if letexpr.lengthCompare(1) > 0 then
-          flatten(s"let ${ident.name} = ${letbound.head} in", indented(letexpr))
-        else
-          flatten(s"let ${ident.name} = ${letbound.head} in ${letexpr.head}")
       case Cases(scrutinee, cases) =>
         val casesscrutinee = showNested(scrutinee)
         val caselist = cases map { (pattern, expr) =>

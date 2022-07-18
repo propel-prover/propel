@@ -42,8 +42,6 @@ given Ordering[Term] =
     order[Data].by(_.ctor).orElseBy(_.args).compare(expr0, expr1)
   case (expr0: Var, expr1: Var) =>
     order[Var].by(_.ident).compare(expr0, expr1)
-  case (expr0: Let, expr1: Let) =>
-    order[Let].by(_.ident).orElseBy(_.bound).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: Cases, expr1: Cases) =>
     order[Cases].by(_.scrutinee).orElseBy(_.cases).compare(expr0, expr1)
   case (expr0: Product, expr1: Product) =>

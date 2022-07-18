@@ -1,5 +1,5 @@
 package propel
-package evaluator
+package ast
 
 import ast.*
 
@@ -9,7 +9,7 @@ package Util:
     if i < 0 then "₋" + subscript(-i) else subscript(i)
 
   def dropSubscript(s: String) =
-    (s.reverseIterator dropWhile { c => c >= '₀' && c <= '₋'}).mkString
+    (s.reverse dropWhile { c => c >= '₀' && c <= '₋'}).reverseIterator.mkString
 
   def implies(a: Term, b: Term) = Cases(a, List(
     Match(Constructor.True, List.empty) -> b,

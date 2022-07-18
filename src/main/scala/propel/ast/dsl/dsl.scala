@@ -14,6 +14,8 @@ type PatternExpr[T] = dsl.impl.PatternExpr.Base[T]
 
 type CaseExpr[T] = dsl.impl.CaseExpr[T]
 
+type BindingExpr[T] = dsl.impl.BindingExpr[T]
+
 
 def comm = Commutative
 
@@ -55,8 +57,47 @@ def app[A <: (Tuple | Term | String): TermExpr](properties: Property*)(expr: A):
     case _ => expr
   decorate(expr.make)
 
-def let[A: TermExpr, B: TermExpr](name: String, bound: A, expr: B): Term =
-  Let(Symbol(name), bound.make, expr.make)
+def let[A: PatternExpr, B: TermExpr, C: TermExpr](binding: (A, B))(expr: C): Term =
+  val (pattern, bound) = binding
+  val boundExpr = bound.make
+
+  val (_, info) = boundExpr.withInfo(Syntactic.Term)
+  val free = (info.free map { (ident, _) => ident.name }).toSet
+
+  def freshIdent(base: String, index: Int): String =
+    val name = base + Util.subscript(index)
+    if free.contains(name) then
+      freshIdent(base, index + 1)
+    else
+      name
+
+  val valName = freshIdent("val", 1)
+
+  app()(abs()(valName)(cases(valName)(pattern -> expr)), boundExpr)
+
+def letrec[A: BindingExpr, B: TermExpr](binding: A)(expr: B): Term =
+  val fix = abs("f")(abs("x")("f", abs("v")(("x", "x"), "v")), abs("x")("f", abs("v")(("x", "x"), "v")))
+
+  val (idents, exprs) = binding.make.unzip
+  val free = (exprs flatMap { expr =>
+    val (_, info) = expr.withInfo(Syntactic.Term)
+    info.free map { (ident, _) => ident.name }
+  }).toSet
+
+  def freshIdent(base: String, index: Int): String =
+    val name = base + Util.subscript(index)
+    if free.contains(name) then
+      freshIdent(base, index + 1)
+    else
+      name
+
+  val recName = freshIdent("rec", 1)
+  val wildcardName = freshIdent("_", 1)
+
+  val pattern = Match(Constructor(Symbol("Tuple")), idents map { Bind(_) })
+  val substs = (idents map { ident => ident -> let(pattern -> app()(recName, "Unit"))(Var(ident)) }).toMap
+  val rec = abs(recName, wildcardName)(subst(Data(Constructor(Symbol("Tuple")), exprs), substs))
+  let(pattern -> app()(fix, rec))(expr.make)
 
 def cases[A: TermExpr, B: CaseExpr](scrutinee: A)(cases: B): Term =
   Cases(scrutinee.make, cases.make)

@@ -66,8 +66,6 @@ object Symbolic:
         Data(term)(ctor, args map { substConstraints(_, constraints) })
       case term @ Var(_) =>
         term
-      case term @ Let(ident, bound, expr) =>
-        Let(term)(ident, substConstraints(bound, constraints), substConstraints(expr, constraints))
       case term @ Cases(scrutinee, cases) =>
         Cases(term)(substConstraints(scrutinee, constraints), cases map { (pattern, expr) => pattern -> substConstraints(expr, constraints) })
 
@@ -77,15 +75,6 @@ object Symbolic:
       case None => expr
 
   def eval(fun: Abs): Result =
-    def contains(expr: Term, ident: Symbol): Boolean = expr match
-      case Abs(_, _, expr) => contains(expr, ident)
-      case App(_, expr, arg) => contains(expr, ident) || contains(arg, ident)
-      case Data(_, args) => args exists { contains(_, ident) }
-      case Let(_, bound, expr) => contains(bound, ident) || contains(expr, ident)
-      case Cases(scrutinee, cases) => contains(scrutinee, ident) || (cases exists { (_, expr) => contains(expr, ident) })
-      case Var(`ident`) => true
-      case _ => false
-
     def complementConstraintsByProperties(constraints: PatternConstraints): Option[PatternConstraints] =
       PatternConstraints.make(properties.constraints.derive(constraints.toSet)) flatMap { _ unify constraints }
 
@@ -102,19 +91,16 @@ object Symbolic:
       replaceByConstraint(expr, constraints.pos) match
         case term @ Abs(properties, arg, expr) =>
           eval(expr, constraints) map { Abs(term)(properties, arg, _) }
+        case term @ App(_, Abs(_, ident, expr), bound) =>
+          eval(bound, constraints) flatMap { case Reduction(bound, constraints) =>
+            eval(subst(expr, Map(ident -> bound)), constraints).reductions
+          }
         case term @ App(properties, expr, arg) =>
           evals(List(expr, arg), constraints) map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }
         case term @ Data(ctor, args) =>
           evals(args, constraints) map { args => Data(term)(ctor, args) }
         case term @ Var(_) =>
           Result(List(Reduction(term, constraints)))
-        case term @ Let(ident, bound, expr) =>
-          if contains(bound, ident) then
-            evals(List(bound, expr), constraints) map { exprs => Let(term)(ident, exprs.head, exprs.tail.head) }
-          else
-            eval(bound, constraints) flatMap { case Reduction(bound, constraints) =>
-              eval(subst(expr, Map(ident -> bound)), constraints).reductions
-            }
         case Cases(scrutinee, cases) =>
           eval(scrutinee, constraints) flatMap { case Reduction(scrutinee, constraints) =>
             def process(cases: List[(Pattern, Term)], constraints: Constraints): List[Reduction] = cases match

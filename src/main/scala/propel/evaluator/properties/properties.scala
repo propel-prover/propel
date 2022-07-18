@@ -123,7 +123,5 @@ object commutativity:
       Data(ctor, args map normalize)
     case Var(ident) =>
       expr
-    case Let(ident, bound, expr) =>
-      Let(ident, normalize(bound), normalize(expr))
     case Cases(scrutinee, cases) =>
       Cases(normalize(scrutinee), cases map { (pattern, expr) => pattern -> normalize(expr) })

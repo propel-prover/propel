@@ -1,7 +1,6 @@
 package propel
-package evaluator
+package ast
 
-import ast.*
 import util.*
 
 type TermSubstitutions = Map[Symbol, Term]
@@ -56,11 +55,6 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
             case Some(Var(ident)) => Var(term)(ident)
             case Some(expr) => expr
             case _ => term
-        case Let(ident, bound, expr) if free contains ident =>
-          val fresh = freshIdent(ident, used)
-          Let(term)(ident, subst(bound, used, substs), subst(expr, used + fresh.name, substs + (ident -> Var(fresh))))
-        case Let(ident, bound, expr) =>
-          Let(term)(ident, subst(bound, used, substs), subst(expr, used, substs - ident))
         case Cases(scrutinee, cases) =>
           Cases(term)(
             subst(scrutinee, used, substs),

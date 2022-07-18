@@ -6,53 +6,47 @@ import evaluator.*
 
 
 def merge[A: TermExpr](expr: A) =
-    let(
-       "merge",
-       abs(comm)("a", "b") (
-         cases("Pair", "a", "b")(
-           ("Pair", "Nil", "Nil") -> "Nil",
-           ("Pair", ("Cons", "a", "as"), "Nil") -> ("Cons", "a", "as"),
-           ("Pair", "Nil", ("Cons", "b", "bs")) -> ("Cons", "b", "bs"),
-           ("Pair", ("Cons", "a", "as"), ("Cons", "b", "bs")) ->
-                `if`("=", "a", "b")
-                    ("Cons", "a", ("Cons", "b", ("merge", "as", "bs")))
-                    (`if`("<", "a", "b")                       
-                         ("Cons", "a", ("merge", "as", ("Cons", "b", "bs")))
-                         ("Cons", "b", ("merge", ("Cons", "a", "as"), "bs"))))
-       )
-       , expr)
+  letrec(
+    "merge" -> abs(comm)("a", "b")(
+      cases("Pair", "a", "b")(
+        ("Pair", "Nil", "Nil") -> "Nil",
+        ("Pair", ("Cons", "a", "as"), "Nil") -> ("Cons", "a", "as"),
+        ("Pair", "Nil", ("Cons", "b", "bs")) -> ("Cons", "b", "bs"),
+        ("Pair", ("Cons", "a", "as"), ("Cons", "b", "bs")) ->
+             `if`("=", "a", "b")
+                 ("Cons", "a", ("Cons", "b", ("merge", "as", "bs")))
+                 (`if`("<", "a", "b")                       
+                      ("Cons", "a", ("merge", "as", ("Cons", "b", "bs")))
+                      ("Cons", "b", ("merge", ("Cons", "a", "as"), "bs"))))))(
+    expr)
 
 def min[A: TermExpr](expr: A) =
-  let(
-    "min",
-    abs(comm)("a", "b")(cases("Pair", "a", "b")(
+  letrec(
+    "min" -> abs(comm)("a", "b")(cases("Pair", "a", "b")(
       ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(comm)("min", "a", "b")),
-      ("_") -> "Z")),
+      ("_") -> "Z")))(
     expr)
 
 def max[A: TermExpr](expr: A) =
-  let(
-    "max",
-    abs(comm)("a", "b")(cases("Pair", "a", "b")(
+  letrec(
+    "max" -> abs(comm)("a", "b")(cases("Pair", "a", "b")(
       ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(comm)("max", "a", "b")),
       ("Pair", "a", "Z") -> "a",
-      ("Pair", "Z", "a") -> "a")),
+      ("Pair", "Z", "a") -> "a")))(
     expr)
 
 def ordernat[A: TermExpr](expr: A) =
-  let(
-    "ordernat",
-    abs(antisym, trans)("a", "b")(let("pair", ("Pair", "a", "b"),
+  letrec(
+    "ordernat" -> abs(antisym, trans)("a", "b")(let("pair" -> ("Pair", "a", "b"))(
       cases("pair")(
         ("Pair", ("S", "x"), ("S", "y")) -> app(antisym, trans)("ordernat", "x", "y"),
         ("Pair", "Z", "_") -> True,
-        ("_") -> False))),
+        ("_") -> False))))(
     expr)
 
 def orderlist[A: TermExpr](expr: A) =
-  let(
-    "orderlist",
-    abs(antisym, trans)("a", "b")(let("pair", ("Pair", "a", "b"),
+  letrec(
+    "orderlist" -> abs(antisym, trans)("a", "b")(let("pair" -> ("Pair", "a", "b"))(
       cases("pair")(
         ("Pair", ("Cons", ("S", "x"), "xs"), ("Cons", ("S", "y"), "ys")) ->
           app(antisym, trans)("orderlist", ("Cons", "x", "xs"), ("Cons", "y", "ys")),
@@ -63,15 +57,14 @@ def orderlist[A: TermExpr](expr: A) =
         ("Pair", "Nil", "_") ->
           True,
         ("_") ->
-          False))),
+          False))))(
     expr)
 
 def map[A: TermExpr](expr: A) =
-  let(
-    "map",
-    abs(comm)("a", "b")(cases("Pair", "a", "b")(
+  letrec(
+    "map" -> abs(comm)("a", "b")(cases("Pair", "a", "b")(
       ("Pair", ("Cons", "x", "xs"), ("Cons", "y", "ys")) -> ("Cons", app(comm)("f", "x", "y"), app(comm)("map", "xs", "ys")),
-      ("_") -> "Nil")),
+      ("_") -> "Nil")))(
     expr)
 
 
@@ -86,7 +79,11 @@ def map[A: TermExpr](expr: A) =
 def exampleAntisymmAndTransitive(program: Term) =
   println()
   println("PROGRAM:")
-  val ast.Let(Symbol(name), fun: ast.Abs, _) = program
+
+  val ast.App(_,
+    ast.Abs(_, _, ast.Cases(_, List(ast.Match(_, List(ast.Bind(Symbol(name)))) -> _))),
+    ast.App(_, _, ast.Abs(_ , _, ast.Abs(_, _, ast.Data(_, List(fun: ast.Abs)))))) = program
+
   println(program.show)
 
   {
@@ -121,7 +118,11 @@ def exampleAntisymmAndTransitive(program: Term) =
 def exampleCommutative(program: Term) =
   println()
   println("PROGRAM:")
-  val ast.Let(Symbol(name), fun: ast.Abs, _) = program
+
+  val ast.App(_,
+    ast.Abs(_, _, ast.Cases(_, List(ast.Match(_, List(ast.Bind(Symbol(name)))) -> _))),
+    ast.App(_, _, ast.Abs(_ , _, ast.Abs(_, _, ast.Data(_, List(fun: ast.Abs)))))) = program
+
   println(program.show)
 
   {

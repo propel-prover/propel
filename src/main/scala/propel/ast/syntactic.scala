@@ -53,14 +53,6 @@ object Syntactic:
         }
       case Var(ident) =>
         term -> Syntactic(Set.empty, Map(ident -> 1), closed = false, value = false)
-      case Let(ident, boundexpr, expr) =>
-        let(boundexpr.withInfo(Syntactic.Term)) { (boundexpr, boundInfo) =>
-          let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
-            val bound = boundInfo.bound ++ exprInfo.bound + ident
-            val free = merge(List(boundInfo.free, exprInfo.free)) - ident
-            Let(term)(ident, boundexpr, expr) -> Syntactic(bound, free, closed = free.isEmpty, value = false)
-          }
-        }
       case Cases(scrutinee, cases) =>
         let(scrutinee.withInfo(Syntactic.Term)) { (scrutinee, scrutineeInfo) =>
           val (updatedcases, bound, free) = (cases map { (pattern, expr) =>
