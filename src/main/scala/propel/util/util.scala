@@ -19,6 +19,12 @@ extension [T, C, CC0[T] <: IterableOnce[T], CC1[T] <: IterableOps[T, CC1, C]](it
     if iterator.isEmpty then f.newBuilder.result() else iterator reduceLeft { _ ++ _ }
 
 extension [T, CC[T] <: IterableOnce[T]](iterable: CC[T])
+  def collectFirstDefined[U](f: T => Option[U]): Option[U] =
+    val iterator = iterable.iterator
+    var collected: Option[U] = None
+    while collected.isEmpty && iterator.hasNext do collected = f(iterator.next())
+    collected
+
   def mapIfDefined[U, To](f: T => Option[U])(using bf: BuildFrom[CC[T], U, To]): Option[To] =
     val iterator = iterable.iterator
     var builder: Builder[U, To] | Null = bf.newBuilder(iterable)

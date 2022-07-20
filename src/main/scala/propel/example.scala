@@ -3,6 +3,7 @@ package propel
 import ast.*
 import dsl.*
 import dsl.sugar.*
+import typer.*
 import evaluator.*
 
 
@@ -88,9 +89,13 @@ def exampleAntisymmAndTransitive(program: Term) =
 
   val Cases(
     App(_, App(_, _, Abs(_, _, _,Abs(_, _, _, Data(_, List(fun: Abs))))), _),
-    List(Match(_, List(Bind(Symbol(name)))) -> _)) = program
+    List(Match(_, List(Bind(Symbol(name)))) -> _)) = program.withInfo(Typing.Term)._1
 
   println(program.show)
+
+  println()
+  println("TYPE:")
+  println(fun.info(Typing.Term).flatMap(_.tpe.map(_.show)))
 
   {
     println()
@@ -127,13 +132,17 @@ def exampleCommutative(program: Term) =
 
   val Cases(
     App(_, App(_, _, Abs(_, _, _,Abs(_, _, _, Data(_, List(definition))))), _),
-    List(Match(_, List(Bind(Symbol(name)))) -> _)) = program
+    List(Match(_, List(Bind(Symbol(name)))) -> _)) = program.withInfo(Typing.Term)._1
 
   val fun = (definition: @unchecked) match
     case fun: Abs => fun
     case TypeAbs(_, TypeAbs(_, TypeAbs(_, Abs(_, _, _, fun: Abs)))) => fun
 
   println(program.show)
+
+  println()
+  println("TYPE:")
+  println(definition.info(Typing.Term).flatMap(_.tpe.map(_.show)))
 
   {
     println()
