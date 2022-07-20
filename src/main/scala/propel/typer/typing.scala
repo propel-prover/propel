@@ -42,7 +42,7 @@ object Typing:
                   arg.withThisInfo(Specified.Pattern)(Specified(tpe)).withInfo(Typing.Pattern)
                 }).unzip
                 if argInfos forall { _.tpe.nonEmpty } then
-                  Match(pattern)(ctor, typedArgs) -> Typing(Some(Sum(List(ctor -> tpes))))
+                  Match(pattern)(ctor, typedArgs) -> Typing(Some(Sum(List(ctor -> (argInfos map { _.tpe.get })))))
                 else
                   Match(pattern)(ctor, typedArgs) -> Typing(None)
               }
@@ -127,22 +127,27 @@ object Typing:
           let(scrutinee.withThisInfo(Context)(context).withInfo(Typing.Term)) { (scrutinee, scrutineeInfo) =>
             scrutineeInfo.tpe match
               case Some(scrutineeType) =>
-                val (typedCases, casesTypes) = (cases map { (pattern, expr) =>
+                val (typedCases, patternsTypes, exprsTypes) = (cases map { (pattern, expr) =>
                   val (typedPattern, patternInfo) =
                     pattern.withThisInfo(Specified.Pattern)(Specified(scrutineeType)).withInfo(Typing.Pattern)
 
                   if patternInfo.tpe.nonEmpty then
                     let(context.copy(vars = context.vars ++ vars(typedPattern))) { context =>
                       let(expr.withThisInfo(Context)(context).withInfo(Typing.Term)) { (expr, exprInfo) =>
-                        typedPattern -> expr -> exprInfo.tpe
+                        (typedPattern -> expr, patternInfo.tpe, exprInfo.tpe)
                       }
                     }
                   else
-                    typedPattern -> expr -> None
-                }).unzip
+                    (typedPattern -> expr, None, None)
+                }).unzip3
 
-                val tpe = casesTypes.sequenceIfDefined flatMap { _ reduceLeftIfDefined { join(_, _) } }
-                Cases(term)(scrutinee, typedCases) -> Typing(tpe)
+                val patternType = patternsTypes.sequenceIfDefined flatMap { _ reduceLeftIfDefined { join(_, _) } }
+
+                if patternType exists { conforms(scrutineeType, _) } then
+                  val exprType = exprsTypes.sequenceIfDefined flatMap { _ reduceLeftIfDefined { join(_, _) } }
+                  Cases(term)(scrutinee, typedCases) -> Typing(exprType)
+                else
+                  Cases(term)(scrutinee, cases) -> Typing(None)
 
               case _ =>
                 Cases(term)(scrutinee, cases) -> Typing(None)
