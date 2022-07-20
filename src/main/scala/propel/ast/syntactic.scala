@@ -3,13 +3,73 @@ package ast
 
 import util.*
 
-case class Syntactic(bound: Set[Symbol], free: Map[Symbol, Int], closed: Boolean, value: Boolean)
+
+case class Syntactic(
+  boundVars: Set[Symbol], freeVars: Map[Symbol, Int],
+  boundTypeVars: Set[Symbol], freeTypeVars: Set[Symbol],
+  closed: Boolean, value: Boolean)
+
 
 object Syntactic:
-  private def merge(free: List[Map[Symbol, Int]]) =
+  extension (free: List[Map[Symbol, Int]]) private def merge =
     free.foldLeft(Map.empty[Symbol, Int]) { (free0, free1) =>
       free0 ++ (free1 map { (ident, count) => ident -> (count + free0.getOrElse(ident, 0)) })
     }
+
+  extension [A, B, C, D, E](list: List[(A, B, C, D, E)]) private def unzip5 =
+    list.foldRight(List.empty[A], List.empty[B], List.empty[C], List.empty[D], List.empty[E]) {
+      case ((elementA, elementB, elementC, elementD, elementE), (listA, listB, listC, listD, listE)) =>
+       (elementA :: listA, elementB :: listB, elementC :: listC, elementD :: listD, elementE :: listE)
+    }
+
+
+  object Type extends Enrichment.Intrinsic[Type, Syntactic]:
+    val asInstance =
+      case e: Syntactic => e
+
+    def make(tpe: Type) = tpe match
+      case Function(arg, result) =>
+        let(arg.withInfo(Syntactic.Type)) { (arg, argInfo) =>
+          let(result.withInfo(Syntactic.Type)) { (result, resultInfo) =>
+            val boundTypeVars = argInfo.boundTypeVars ++ resultInfo.boundTypeVars
+            val freeTypeVars = argInfo.freeTypeVars ++ resultInfo.freeTypeVars
+            Function(tpe)(arg, result) -> Syntactic(
+              Set.empty, Map.empty, boundTypeVars, freeTypeVars,
+              closed = freeTypeVars.isEmpty, value = false)
+          }
+        }
+      case Universal(ident, result) =>
+        let(result.withInfo(Syntactic.Type)) { (result, resultInfo) =>
+          val boundTypeVars = resultInfo.boundTypeVars + ident
+          val freeTypeVars = resultInfo.freeTypeVars - ident
+          Universal(tpe)(ident, result) -> Syntactic(
+            Set.empty, Map.empty, boundTypeVars, freeTypeVars,
+            closed = freeTypeVars.isEmpty, value = false)
+        }
+      case Recursive(ident, result) =>
+        let(result.withInfo(Syntactic.Type)) { (result, resultInfo) =>
+          val boundTypeVars = resultInfo.boundTypeVars + ident
+          val freeTypeVars = resultInfo.freeTypeVars - ident
+          Recursive(tpe)(ident, result) -> Syntactic(
+            Set.empty, Map.empty, boundTypeVars, freeTypeVars,
+            closed = freeTypeVars.isEmpty, value = false)
+        }
+      case TypeVar(ident) =>
+        tpe -> Syntactic(
+          Set.empty, Map.empty, Set.empty, Set(ident),
+          closed = false, value = false)
+      case Sum(sum) =>
+        val (updatedsum, boundTypeVars, freeTypeVars) = (sum map { (ctor, args) =>
+          let(args.withInfo(Syntactic.Type)) { (args, argsInfos) =>
+            (ctor -> args,
+             argsInfos flatMap { _.boundTypeVars },
+             argsInfos flatMap { _.freeTypeVars })
+          }
+        }).unzip3
+
+        Sum(tpe)(updatedsum) -> Syntactic(
+          Set.empty, Map.empty, boundTypeVars.flatten.toSet, freeTypeVars.flatten.toSet,
+          closed = freeTypeVars.isEmpty, value = false)
 
 
   object Pattern extends Enrichment.Intrinsic[Pattern, Syntactic]:
@@ -19,11 +79,13 @@ object Syntactic:
     def make(pattern: Pattern) = pattern match
       case Match(ctor, args) =>
         let(args.withInfo(Syntactic.Pattern)) { (args, argsInfos) =>
-          val bound = argsInfos flatMap { _.bound }
-          Match(pattern)(ctor, args) -> Syntactic(bound.toSet, Map.empty, closed = true, value = false)
+          val boundVars = argsInfos flatMap { _.boundVars }
+          Match(pattern)(ctor, args) -> Syntactic(
+            boundVars.toSet, Map.empty, Set.empty, Set.empty, closed = true, value = false)
         }
       case Bind(ident) =>
-        pattern -> Syntactic(Set(ident), Map.empty, closed = true, value = false)
+        pattern -> Syntactic(
+          Set(ident), Map.empty, Set.empty, Set.empty, closed = true, value = false)
 
 
   object Term extends Enrichment.Intrinsic[Term, Syntactic]:
@@ -31,41 +93,81 @@ object Syntactic:
       case e: Syntactic => e
 
     def make(term: Term) = term match
-      case Abs(properties, ident, expr) =>
-        let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
-          val bound = exprInfo.bound + ident
-          val free = exprInfo.free - ident
-          Abs(term)(properties, ident, expr) -> Syntactic(bound, free, closed = free.isEmpty, value = true)
+      case Abs(properties, ident, tpe, expr) =>
+        let(tpe.withInfo(Syntactic.Type)) { (tpe, tpeInfo) =>
+          let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
+            val boundVars = exprInfo.boundVars ++ tpeInfo.boundVars + ident
+            val freeVars = exprInfo.freeVars ++ tpeInfo.freeVars - ident
+            val boundTypeVars = exprInfo.boundTypeVars ++ tpeInfo.boundTypeVars + ident
+            val freeTypeVars = exprInfo.freeTypeVars ++ tpeInfo.freeTypeVars - ident
+            Abs(term)(properties, ident, tpe, expr) -> Syntactic(
+              boundVars, freeVars, boundTypeVars, freeTypeVars,
+              closed = freeVars.isEmpty && freeTypeVars.isEmpty, value = true)
+          }
         }
       case App(properties, expr, arg) =>
         let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
           let(arg.withInfo(Syntactic.Term)) { (arg, argInfo) =>
-            val bound = exprInfo.bound ++ argInfo.bound
-            val free = merge(List(exprInfo.free, argInfo.free))
-            App(term)(properties, expr, arg) -> Syntactic(bound, free, closed = free.isEmpty, value = false)
+            val boundVars = exprInfo.boundVars ++ argInfo.boundVars
+            val freeVars = List(exprInfo.freeVars, argInfo.freeVars).merge
+            val boundTypeVars = exprInfo.boundTypeVars ++ argInfo.boundTypeVars
+            val freeTypeVars = exprInfo.freeTypeVars ++ argInfo.freeTypeVars
+            App(term)(properties, expr, arg) -> Syntactic(
+              boundVars, freeVars, boundTypeVars, freeTypeVars,
+              closed = freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
+          }
+        }
+      case TypeAbs(ident, expr) =>
+        let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
+          val boundTypeVars = exprInfo.boundTypeVars + ident
+          val freeTypeVars = exprInfo.freeTypeVars - ident
+          TypeAbs(term)(ident, expr) -> Syntactic(
+            exprInfo.boundVars, exprInfo.freeVars, boundTypeVars, freeTypeVars,
+            closed = exprInfo.freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
+        }
+      case TypeApp(expr, tpe) =>
+        let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
+          let(tpe.withInfo(Syntactic.Type)) { (tpe, tpeInfo) =>
+            val boundVars = exprInfo.boundVars ++ tpeInfo.boundVars
+            val freeVars = exprInfo.freeVars ++ tpeInfo.freeVars
+            val boundTypeVars = exprInfo.boundTypeVars ++ tpeInfo.boundTypeVars
+            val freeTypeVars = exprInfo.freeTypeVars ++ tpeInfo.freeTypeVars
+            TypeApp(term)(expr, tpe) -> Syntactic(
+              boundVars, freeVars, boundTypeVars, freeTypeVars,
+              closed = freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
           }
         }
       case Data(ctor, args) =>
         let(args.withInfo(Syntactic.Term)) { (args, argsInfos) =>
-          val bound = argsInfos flatMap { _.bound }
-          val free = merge(argsInfos map { _.free })
-          Data(term)(ctor, args) -> Syntactic(bound.toSet, free, closed = free.isEmpty, value = argsInfos forall { _.value })
+          val boundVars = argsInfos flatMap { _.boundVars }
+          val freeVars = (argsInfos map { _.freeVars }).merge
+          val boundTypeVars = argsInfos flatMap { _.boundTypeVars }
+          val freeTypeVars = argsInfos flatMap { _.freeTypeVars }
+          Data(term)(ctor, args) -> Syntactic(
+            boundVars.toSet, freeVars, boundTypeVars.toSet, freeTypeVars.toSet,
+            closed = freeVars.isEmpty && freeTypeVars.isEmpty, value = argsInfos forall { _.value })
         }
       case Var(ident) =>
-        term -> Syntactic(Set.empty, Map(ident -> 1), closed = false, value = false)
+        term -> Syntactic(
+          Set.empty, Map(ident -> 1), Set.empty, Set.empty,
+          closed = false, value = false)
       case Cases(scrutinee, cases) =>
         let(scrutinee.withInfo(Syntactic.Term)) { (scrutinee, scrutineeInfo) =>
-          val (updatedcases, bound, free) = (cases map { (pattern, expr) =>
+          val (updatedcases, boundVars, freeVars, boundTypeVars, freeTypeVars) = (cases map { (pattern, expr) =>
             let(pattern.withInfo(Syntactic.Pattern)) { (pattern, patternInfo) =>
               let(expr.withInfo(Syntactic.Term)) { (expr, exprInfo) =>
                 (pattern -> expr,
-                 exprInfo.bound ++ patternInfo.bound,
-                 exprInfo.free -- patternInfo.bound)
+                 exprInfo.boundVars ++ patternInfo.boundVars,
+                 exprInfo.freeVars -- patternInfo.boundVars,
+                 exprInfo.boundTypeVars,
+                 exprInfo.freeTypeVars)
               }
             }
-          }).unzip3
+          }).unzip5
 
-          let(merge(free)) { free =>
-            Cases(term)(scrutinee, updatedcases) -> Syntactic(bound.flatten.toSet, free, closed = free.isEmpty, value = false)
+          let(freeVars.merge, freeTypeVars.flatten.toSet) { (freeVars, freeTypeVars) =>
+            Cases(term)(scrutinee, updatedcases) -> Syntactic(
+              boundVars.flatten.toSet, freeVars, boundTypeVars.flatten.toSet, freeTypeVars,
+              closed = freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
           }
         }

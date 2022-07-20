@@ -54,14 +54,48 @@ object CaseExpr extends CaseExprBase:
 
 
 trait BindingExpr[T]:
-  extension (expr: T) def make: List[(Symbol, Term)]
+  extension (expr: T) def make: List[(Symbol, Type, Term)]
 
-trait BindingExprBase:
-  given base1[T: TermExpr]: BindingExpr[(String, T)] =
-    case (name, expr) => List(Symbol(name) -> expr.make)
+object BindingExpr:
+  given base[T: TermExpr]: BindingExpr[((String, Type), T)] =
+    case ((name, tpe), expr) => List((Symbol(name), tpe, expr.make))
+  given tuple1[T: TermExpr]: BindingExpr[((String, Type), T) *: EmptyTuple] =
+    case ((name, tpe), expr) *: EmptyTuple => List((Symbol(name), tpe, expr.make))
+  given tupleN[T: TermExpr, R <: Tuple: BindingExpr]: BindingExpr[((String, Type), T) *: R] =
+    case ((name, tpe), expr) *: rest => (Symbol(name), tpe, expr.make) :: rest.make
 
-object BindingExpr extends BindingExprBase:
-  given tuple1[T: TermExpr]: BindingExpr[(String, T) *: EmptyTuple] =
-    case (name, expr) *: EmptyTuple => List(Symbol(name) -> expr.make)
-  given tupleN[T: TermExpr, R <: Tuple: BindingExpr]: BindingExpr[(String, T) *: R] =
-    case (name, expr) *: rest => (Symbol(name) -> expr.make) :: rest.make
+
+trait TypeExpr[T]:
+  extension (expr: T) def make: Type
+
+object TypeExpr:
+  given baseExpr[T <: Type]: TypeExpr[T] = expr => expr
+  given stringExpr: TypeExpr[String] = expr => TypeVar(Symbol(expr))
+  given pairExpr[A: TypeExpr, B: TypeExpr]: TypeExpr[(A, B)] =
+    case arg -> result => Function(arg.make, result.make)
+
+
+trait SumTypeExpr[T]:
+  extension (expr: T) def make: List[(Constructor, List[Type])]
+
+trait SumTypeExprBase:
+  trait TypeList[T]:
+    extension (expr: T) def make: List[Type]
+
+  given typeTuple1[T: TypeExpr]: TypeList[T *: EmptyTuple] =
+    case expr *: EmptyTuple => List(expr.make)
+  given typeTupleN[T: TypeExpr, R <: Tuple: TypeList]: TypeList[T *: R] =
+    case expr *: rest => expr.make :: rest.make
+
+  given sumN[T <: Tuple: TypeList]: SumTypeExpr[String *: T] =
+    case (name *: exprs) => List(Constructor(Symbol(name)) -> exprs.make)
+  given sum0[R <: Tuple: SumTypeExpr]: SumTypeExpr[String] =
+    case name => List(Constructor(Symbol(name)) -> List.empty)
+
+object SumTypeExpr extends SumTypeExprBase:
+  given tuple0sum: SumTypeExpr[EmptyTuple] =
+    case EmptyTuple => List.empty
+  given tupleNsumN[T <: Tuple: TypeList, R <: Tuple: SumTypeExpr]: SumTypeExpr[(String *: T) *: R] =
+    case (name *: exprs) *: rest => Constructor(Symbol(name)) -> exprs.make :: rest.make
+  given tupleNsum0[R <: Tuple: SumTypeExpr]: SumTypeExpr[String *: R] =
+    case name *: rest => Constructor(Symbol(name)) -> List.empty :: rest.make

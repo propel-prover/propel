@@ -24,6 +24,42 @@ extension (properties: Properties) def show: String =
 extension (constructor: Constructor) def show: String =
   constructor.ident.name
 
+extension (tpe: Type) def show: String = tpe match
+  case Function(
+      arg @ (TypeVar(_) | Sum(List()) | Sum(List(_ -> List()))),
+      result @ (TypeVar(_) | Sum(List()) | Sum(List(_ -> List())) | Function(_, _))) =>
+    s"${arg.show} → ${result.show}"
+  case Function(arg @ (TypeVar(_) | Sum(List()) | Sum(List(_ -> List()))), result) =>
+    s"${arg.show} → (${result.show})"
+  case Function(arg, result @ (TypeVar(_) | Sum(List()) | Sum(List(_ -> List())) | Function(_, _))) =>
+    s"(${arg.show}) → ${result.show}"
+  case Function(arg, result) =>
+    s"(${arg.show}) → (${result.show})"
+  case Universal(ident, result: Universal) =>
+    s"∀ ${ident.name}${result.show.drop(1)}"
+  case Universal(ident, result) =>
+    s"∀ ${ident.name}. ${result.show}"
+  case Recursive(ident, result) =>
+    s"µ ${ident.name}. ${result.show}"
+  case TypeVar(ident) =>
+    ident.name
+  case Sum(List()) =>
+    "⊥"
+  case Sum(List(ctor -> List())) =>
+    s"(${ctor.ident.name})"
+  case Sum(sum) =>
+    val elements = sum map {
+      case (ctor, List()) =>
+        ctor.show
+      case (ctor, args) =>
+        val elements = args map {
+          case arg @ (TypeVar(_) | Sum(List()) | Sum(List(_ -> List()))) => arg.show
+          case arg => s"(${arg.show})"
+        }
+        s"${ctor.show} ${elements.mkString(" ")}"
+    }
+    elements.mkString(" + ")
+
 extension (pattern: Pattern) def show: String = pattern match
   case Match(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
     ctor.ident.name
@@ -102,10 +138,10 @@ extension (expr: Term) def show: String =
           flatten(s"if ${condexpr.head} then", indented(thenexpr), "else", indented(elseexpr))
         else
           flatten(s"if ${condexpr.head} then ${thenexpr.head} else ${elseexpr.head}")
-      case App(_, Abs(_, ident0, Cases(Var(ident1), List(pattern -> expr))), bound: (Abs | Cases)) if ident0 == ident1 =>
+      case Cases(bound: (Abs | Cases), List(pattern -> expr)) =>
         val letbound = show(bound)
         flatten(s"let ${pattern.show} = ${letbound.head}", indented(letbound.tail), "in", indented(show(expr)))
-      case App(_, Abs(_, ident0, Cases(Var(ident1), List(pattern -> expr))), bound) if ident0 == ident1 =>
+      case Cases(bound, List(pattern -> expr)) =>
         val letbound = show(bound)
         val letexpr = show(expr)
         if letbound.lengthCompare(1) > 0 then
@@ -114,23 +150,12 @@ extension (expr: Term) def show: String =
           flatten(s"let ${pattern.show} = ${letbound.head} in", indented(letexpr))
         else
           flatten(s"let ${pattern.show} = ${letbound.head} in ${letexpr.head}")
-      case Abs(properties, ident, expr) =>
+      case Abs(properties, ident, tpe, expr) =>
         val absexpr = show(expr)
         val absexprproc = expr match
           case expr: Abs if expr.properties.isEmpty => flatten(s" ${absexpr.head.drop(2)}", absexpr.tail)
           case _ => flatten(s". ${absexpr.head}", absexpr.tail)
-        flatten(s"λ ${annotation(properties)}${ident.name}${absexprproc.head}", indented(absexprproc.tail))
-      case Data(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
-        flatten(ctor.show)
-      case Data(ctor, List()) =>
-        parenthesize(flatten(ctor.show))
-      case Data(ctor, args) =>
-        val dataargss = args map showNested
-        val dataargs = dataargss.flatten
-        if dataargss exists { _.lengthCompare(1) > 0 } then
-          parenthesize(flatten(s"${ctor.show}", indented(dataargs)))
-        else
-          flatten(s"${ctor.show} ${dataargs.mkString(" ")}")
+        flatten(s"λ ${annotation(properties)}${ident.name}: ${tpe.show}${absexprproc.head}", indented(absexprproc.tail))
       case App(properties, expr, arg) =>
         val appexpr = expr match
           case _: App if properties.isEmpty =>
@@ -148,6 +173,29 @@ extension (expr: Term) def show: String =
           parenthesize(flatten(s"${annotation(properties)}${appexpr.head}", indented(appexpr.tail), indented(apparg)))
         else
           flatten(s"${annotation(properties)}${appexpr.mkString(" ")} ${apparg.mkString(" ")}")
+      case TypeAbs(tpe, expr) =>
+        val typeabsexpr = show(expr)
+        val typeabsexprproc = expr match
+          case expr: TypeAbs => flatten(s" ${typeabsexpr.head.drop(2)}", typeabsexpr.tail)
+          case _ => flatten(s". ${typeabsexpr.head}", typeabsexpr.tail)
+        flatten(s"Λ ${tpe.name}${typeabsexprproc.head}", indented(typeabsexprproc.tail))
+      case TypeApp(expr: TypeApp, tpe) =>
+        val typeappexpr = show(expr)
+        flatten(typeappexpr.init, s"${typeappexpr.last.init}, ${tpe.show}]")
+      case TypeApp(expr, tpe) =>
+        val typeappexpr = show(expr)
+        flatten(typeappexpr.init, s"${typeappexpr.last} [${tpe.show}]")
+      case Data(ctor, List()) if ctor == True || ctor == False || (ctor.ident.name.headOption exists { _.isUpper }) =>
+        flatten(ctor.show)
+      case Data(ctor, List()) =>
+        parenthesize(flatten(ctor.show))
+      case Data(ctor, args) =>
+        val dataargss = args map showNested
+        val dataargs = dataargss.flatten
+        if dataargss exists { _.lengthCompare(1) > 0 } then
+          parenthesize(flatten(s"${ctor.show}", indented(dataargs)))
+        else
+          flatten(s"${ctor.show} ${dataargs.mkString(" ")}")
       case Var(ident) =>
         flatten(ident.name)
       case Cases(scrutinee, cases) =>

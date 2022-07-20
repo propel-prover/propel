@@ -58,10 +58,14 @@ object Symbolic:
 
   private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
     replaceByConstraint(expr, constraints) match
-      case term @ Abs(properties, ident, expr) =>
-        Abs(term)(properties, ident, substConstraints(expr, constraints))
+      case term @ Abs(properties, ident, tpe, expr) =>
+        Abs(term)(properties, ident, tpe, substConstraints(expr, constraints))
       case term @ App(properties, expr, arg) =>
         App(term)(properties, substConstraints(expr, constraints), substConstraints(arg, constraints))
+      case term @ TypeAbs(ident, expr) =>
+        TypeAbs(term)(ident, substConstraints(expr, constraints))
+      case term @ TypeApp(expr, tpe) =>
+        TypeApp(term)(substConstraints(expr, constraints), tpe)
       case term @ Data(ctor, args) =>
         Data(term)(ctor, args map { substConstraints(_, constraints) })
       case term @ Var(_) =>
@@ -89,14 +93,19 @@ object Symbolic:
 
     def eval(expr: Term, constraints: Constraints): Result =
       replaceByConstraint(expr, constraints.pos) match
-        case term @ Abs(properties, ident, expr) =>
-          eval(expr, constraints) map { Abs(term)(properties, ident, _) }
-        case term @ App(_, Abs(_, ident, expr), bound) =>
-          eval(bound, constraints) flatMap { case Reduction(bound, constraints) =>
-            eval(subst(expr, Map(ident -> bound)), constraints).reductions
-          }
+        case term @ Abs(properties, ident, tpe, expr) =>
+          eval(expr, constraints) map { Abs(term)(properties, ident, tpe, _) }
         case term @ App(properties, expr, arg) =>
           evals(List(expr, arg), constraints) map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }
+        case term @ TypeAbs(ident, expr) =>
+          eval(expr, constraints) map { TypeAbs(term)(ident, _) }
+        case term @ TypeApp(expr, tpe) =>
+          eval(expr, constraints) flatMap {
+            case Reduction(TypeAbs(ident, expr), constraints) =>
+              eval(subst(expr, Map(ident -> tpe)), constraints).reductions
+            case Reduction(expr, constraints) =>
+              List(Reduction(TypeApp(term)(expr, tpe), constraints))
+          }
         case term @ Data(ctor, args) =>
           evals(args, constraints) map { args => Data(term)(ctor, args) }
         case term @ Var(_) =>

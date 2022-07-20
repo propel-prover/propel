@@ -6,18 +6,26 @@ import util.*
 
 object Concrete:
   def eval(term: Term): Term = term match
-    case Abs(_, _, _) =>
+    case Abs(_, _, _, _) =>
       term
     case App(properties, expr, arg) =>
       let(eval(arg)) { arg =>
         let(arg.withInfo(Syntactic.Term)) { (arg, argInfo) =>
           eval(expr) match
-            case Abs(_, ident, expr) if argInfo.closed && argInfo.value =>
+            case Abs(_, ident, _, expr) if argInfo.closed && argInfo.value =>
               eval(subst(expr, Map(ident -> arg)))
             case expr =>
               App(term)(properties, expr, arg)
         }
       }
+    case TypeAbs(_, _) =>
+      term
+    case TypeApp(expr, tpe) =>
+      eval(expr) match
+        case TypeAbs(ident, expr) =>
+          eval(subst(expr, Map(ident -> tpe)))
+        case expr =>
+          TypeApp(term)(expr, tpe)
     case Data(ctor, args) =>
       Data(term)(ctor, args map eval)
     case Var(_)=>

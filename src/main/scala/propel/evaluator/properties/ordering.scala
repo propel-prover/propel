@@ -33,11 +33,29 @@ given Ordering[Pattern] =
   case (pattern0: Product, pattern1: Product) =>
     pattern0.productPrefix compare pattern1.productPrefix
 
+given Ordering[Type] =
+  case (tpe0: Function, tpe1: Function) =>
+    order[Function].by(_.arg).orElseBy(_.result).compare(tpe0, tpe1)
+  case (tpe0: Universal, tpe1: Universal) =>
+    order[Universal].by(_.ident).orElseBy(_.result).compare(tpe0, tpe1)
+  case (tpe0: Recursive, tpe1: Recursive) =>
+    order[Recursive].by(_.ident).orElseBy(_.result).compare(tpe0, tpe1)
+  case (tpe0: TypeVar, tpe1: TypeVar) =>
+    order[TypeVar].by(_.ident).compare(tpe0, tpe1)
+  case (tpe0: Sum, tpe1: Sum) =>
+    order[Sum].by(_.sum).compare(tpe0, tpe1)
+  case (tpe0: Product, tpe1: Product) =>
+    tpe0.productPrefix compare tpe1.productPrefix
+
 given Ordering[Term] =
   case (expr0: Abs, expr1: Abs) =>
-    order[Abs].by(_.ident).orElseBy(_.expr).compare(expr0, expr1)
+    order[Abs].by(_.ident).orElseBy(_.tpe).orElseBy(_.expr).compare(expr0, expr1)
   case (expr0: App, expr1: App) =>
     order[App].by(_.expr).orElseBy(_.arg).compare(expr0, expr1)
+  case (expr0: TypeAbs, expr1: TypeAbs) =>
+    order[TypeAbs].by(_.ident).orElseBy(_.expr).compare(expr0, expr1)
+  case (expr0: TypeApp, expr1: TypeApp) =>
+    order[TypeApp].by(_.expr).orElseBy(_.tpe).compare(expr0, expr1)
   case (expr0: Data, expr1: Data) =>
     order[Data].by(_.ctor).orElseBy(_.args).compare(expr0, expr1)
   case (expr0: Var, expr1: Var) =>

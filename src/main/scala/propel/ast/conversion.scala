@@ -34,12 +34,16 @@ object AlphaConversion:
         Bind(pattern)(fresh) -> Map(ident -> fresh)
 
     def renameTerm(term: Term, subst: Map[Symbol, Symbol]): Term = term match
-      case Abs(properties, ident, expr) =>
+      case Abs(properties, ident, tpe, expr) =>
         val fresh = Util.freshIdent(ident, names.used)
         names.used += fresh.name
-        Abs(term)(properties, fresh, renameTerm(expr, subst + (ident -> fresh)))
+        Abs(term)(properties, fresh, tpe, renameTerm(expr, subst + (ident -> fresh)))
       case App(properties, expr, arg) =>
         App(term)(properties, renameTerm(expr, subst), renameTerm(arg, subst))
+      case TypeAbs(ident, expr) =>
+        TypeAbs(term)(ident, renameTerm(expr, subst))
+      case TypeApp(expr, tpe) =>
+        TypeApp(term)(renameTerm(expr, subst), tpe)
       case Data(ctor, args) =>
         Data(term)(ctor, args map { renameTerm(_, subst) })
       case Var(ident) =>
