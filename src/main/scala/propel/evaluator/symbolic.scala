@@ -2,27 +2,50 @@ package propel
 package evaluator
 
 import ast.*
+import typer.*
 import scala.annotation.targetName
 
 object Symbolic:
   case class Constraints private (pos: PatternConstraints, neg: Set[PatternConstraints]):
     def refutable(constraints: Constraints): Boolean =
-      constraints.pos unify this.pos forall { Constraints.refutable(_, constraints.neg ++ this.neg) }
+      constraints.pos unify this.pos forall { pos =>
+        val neg = constraints.neg ++ this.neg
+        Constraints.refutablePosNeg(pos, neg) || Constraints.refutableNegTyped(neg)
+      }
     def refutable(pos: PatternConstraints): Boolean =
-      pos unify this.pos forall { Constraints.refutable(_, this.neg) }
+      pos unify this.pos forall { Constraints.refutablePosNeg(_, this.neg) }
     def refutable(pos: IterableOnce[(Term, Pattern)]): Boolean =
-      PatternConstraints.make(pos) flatMap { _ unify this.pos } forall { Constraints.refutable(_, this.neg) }
+      PatternConstraints.make(pos) flatMap { _ unify this.pos } forall { Constraints.refutablePosNeg(_, this.neg) }
 
   object Constraints:
     def empty =
       Constraints(PatternConstraints.empty, Set.empty)
     def make(pos: PatternConstraints, neg: Set[PatternConstraints]): Option[Constraints] =
-      Option.when(!refutable(pos, neg))(Constraints(pos, neg))
+      Option.when(!refutablePosNeg(pos, neg) && !refutableNegTyped(neg))(Constraints(pos, neg))
 
-    private def refutable(pos: PatternConstraints, neg: Set[PatternConstraints]) =
+    private def refutablePosNeg(pos: PatternConstraints, neg: Set[PatternConstraints]) =
       neg exists {
         _ forall { (expr, pattern) =>
           pos.get(expr) exists { !Unification.refutable(_, pattern) }
+        }
+      }
+
+    private def refutableNegTyped(neg: Set[PatternConstraints]) =
+      val negTermConstraints = neg.foldLeft(List(Map.empty[Term, List[Pattern]])) { (negTermConstraints, neg) =>
+        (neg flatMap { (expr, pattern) =>
+          negTermConstraints map { _.updatedWith(expr) { _ map { pattern :: _ } orElse Some(List(pattern)) } }
+        }).toList
+      }
+
+      negTermConstraints forall {
+        _ exists { (expr, patterns) =>
+          expr.typed match
+            case (_, Some(tpe)) =>
+              patterns.foldLeft(tpe) { diff(_, _) getOrElse tpe } match
+                case Sum(List()) => true
+                case _ => false
+            case _ =>
+              false
         }
       }
 
