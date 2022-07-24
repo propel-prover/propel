@@ -54,7 +54,7 @@ object Symbolic:
   extension (pattern: Pattern)
     private def asTerm: Term = pattern match
       case Match(ctor, args) => Data(ctor, args map { _.asTerm })
-      case Bind(ident) => Var(ident)
+      case Bind(ident) => Var(pattern)(ident)
 
   private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
     replaceByConstraint(expr, constraints) match

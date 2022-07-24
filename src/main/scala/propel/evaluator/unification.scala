@@ -103,9 +103,9 @@ object Unification:
       case Bind(ident0) -> Bind(ident1) if ident0 == ident1 =>
         Some(pattern0, Map.empty)
       case _ -> Bind(ident) =>
-        Some(pattern0, Map(Var(ident) -> pattern0))
+        Some(pattern0, Map(Var(pattern1)(ident) -> pattern0))
       case Bind(ident) -> _ =>
-        Some(pattern1, Map(Var(ident) -> pattern1))
+        Some(pattern1, Map(Var(pattern0)(ident) -> pattern1))
 
   def refutable(pattern0: Pattern, pattern1: Pattern): Boolean =
     unify(pattern0, pattern1).isEmpty

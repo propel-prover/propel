@@ -2,80 +2,93 @@ package propel
 package ast
 
 import util.*
+import scala.reflect.Typeable
 
-transparent trait Enrichable[Enriched <: Enrichable[Enriched]]:
-  this: Enriched =>
-
-  import Enrichments.Enrichment.*
-
+transparent trait Enrichable[+Enriched <: Enrichable[Enriched]]:
   def enrichments: Enrichments
 
-  def info[E](enrichment: Enrichment[E]): Option[E] =
-    enrichments.iterator map { _.enrichment } collectFirst enrichment.asInstance
+  protected def withEnrichments(enrichments: Enrichments): Enriched
 
-  def withoutInfo(enrichment: Enrichment[?]): Enriched =
-    val asInstance = enrichment.asInstance
-    var removed = false
-    val filtered = enrichments filterNot { instance =>
-      val isInstance = asInstance isDefinedAt instance.enrichment
-      if isInstance then removed = true
-      isInstance
-    }
-    if removed then withEnrichment(this, filtered) else this
+object Enrichable:
+  type Any = Enrichable[?]
 
-  def withInfo[E](enrichment: Enrichment.Intrinsic[Enriched, E]): (Enriched, E) =
-    info(enrichment) match
-      case Some(enrichment) =>
-        this -> enrichment
-      case _ =>
-        let(enrichment.make(this)) { (enriched, enrichment) =>
-          withEnrichment(enriched, Intrinsic(enrichment) :: enrichments) -> enrichment
-        }
+  extension [Enriched <: Enrichable[Enriched]](self: Enriched)
+    def info[E](enrichment: Enrichment.Base[?, E]): Option[E] =
+      self.enrichments.iterator collectFirstDefined enrichment.asEnrichment
 
-  def withInfo[E](enrichment: Enrichment.Extrinsic[Enriched, E])(make: => E): (Enriched, E) =
-    info(enrichment) match
-      case Some(enrichment) =>
-        this -> enrichment
-      case _ =>
-        let(make) { enrichment =>
-          withEnrichment(this, Extrinsic(enrichment) :: enrichments) -> enrichment
-        }
+    def withoutInfo(enrichment: Enrichment.Base[?, ?]): Enriched =
+      var removed = false
+      val filtered = self.enrichments filterNot { instance =>
+        val isInstance = enrichment.asEnrichment(instance).isDefined
+        if isInstance then removed = true
+        isInstance
+      }
+      if removed then self.withEnrichments(filtered) else self
 
-  def withThisInfo[E](enrichment: Enrichment.Extrinsic[Enriched, E])(make: => E): Enriched =
-    withoutInfo(enrichment).withInfo(enrichment)(make)._1
+    def withIntrinsicInfo[E <: Enrichment[?]]
+        (enrichment: Enrichment.Intrinsic[Enriched, E]): (Enriched, E) =
+      self.info(enrichment) match
+        case Some(enrichment) =>
+          self -> enrichment
+        case _ =>
+          let(enrichment.make(self)) { (enriched, enrichment) =>
+            enriched.withEnrichments(enrichment :: enriched.enrichments) -> enrichment
+          }
 
-  protected def withEnrichment(enriched: Enriched, enrichments: Enrichments): Enriched
+    def withExtrinsicInfo[E <: Enrichment[F], F <: Enrichment.Extrinsic[_ >: Enriched, E] & Singleton: ValueOf]
+        (enrichment: E): Enriched =
+      let(self.withoutInfo(valueOf[F])) { self =>
+        self.withEnrichments(enrichment :: self.enrichments)
+      }
+  end extension
+
+  extension [Enriched <: Enrichable[Enriched]](self: List[Enriched])
+    def info[E](enrichment: Enrichment.Base[?, E]): List[Option[E]] =
+      self map { _.info(enrichment) }
+    def withoutInfo(enrichment: Enrichment.Base[?, ?]): List[Enriched] =
+      self map { _.withoutInfo(enrichment) }
+    def withIntrinsicInfo[E <: Enrichment[?]]
+        (enrichment: Enrichment.Intrinsic[Enriched, E]): (List[Enriched], List[E]) =
+      (self map { _.withIntrinsicInfo(enrichment) }).unzip
+    def withExtrinsicInfo[E <: Enrichment[F], F <: Enrichment.Extrinsic[Enriched, E] & Singleton: ValueOf]
+        (enrichment: E): List[Enriched] =
+      self map { _.withExtrinsicInfo(enrichment) }
+  end extension
+end Enrichable
 
 
-sealed trait Enrichment[E]:
-  val asInstance: PartialFunction[Any, E]
+trait Enrichment[F <: Singleton](private val enrichment: F):
+  private inline def enrichmentAny: Any = enrichment
 
 object Enrichment:
-  trait Extrinsic[Enriched <: Enrichable[Enriched], E] extends Enrichment[E]
+  type Any = Enrichment[?]
 
-  trait Intrinsic[Enriched <: Enrichable[Enriched], E] extends Enrichment[E]:
+  extension (self: Enrichment[?])
+    def enrichment = self.enrichmentAny
+
+  sealed trait Base[Enriched <: Enrichable[Enriched]: Typeable, E: Typeable]:
+    def asEnrichment(enrichment: Enrichment.Any): Option[E] = enrichment match
+      case enrichment: E => Some(enrichment)
+      case _ => None
+
+    def asEnriched(enriched: Enrichable.Any): Option[Enriched] = enriched match
+      case enriched: Enriched => Some(enriched)
+      case _ => None
+
+  trait Extrinsic[Enriched <: Enrichable[Enriched], E] extends Base[Enriched, E]
+
+  trait Intrinsic[Enriched <: Enrichable[Enriched], E] extends Base[Enriched, E]:
     def make(enriched: Enriched): (Enriched, E)
-
-    extension [Enriched <: Enrichable[Enriched]](exprs: List[Enrichable[Enriched]])
-      def info[E](enrichment: Enrichment[E]): List[Option[E]] =
-        exprs map { _.info(enrichment) }
-      def withoutInfo(enrichment: Enrichment[?]): List[Enriched] =
-        exprs map { _.withoutInfo(enrichment) }
-      def withInfo[E](enrichment: Intrinsic[Enriched, E]): (List[Enriched], List[E]) =
-        (exprs map { _.withInfo(enrichment) }).unzip
-      def withInfo[E](enrichment: Extrinsic[Enriched, E])(make: => E): (List[Enriched], List[E]) =
-        (exprs map { _.withInfo(enrichment)(make) }).unzip
-      def withThisInfo[E](enrichment: Extrinsic[Enriched, E])(make: => E): List[Enriched] =
-        exprs map { _.withThisInfo(enrichment)(make) }
+end Enrichment
 
 
-type Enrichments = List[Enrichments.Enrichment]
+type Enrichments = List[Enrichment.Any]
 
 object Enrichments:
-  enum Enrichment:
-    def enrichment: Any
-    case Extrinsic(enrichment: Any)
-    case Intrinsic(enrichment: Any)
-
-  def filter(enrichments: Enrichments) =
-    enrichments collect { case enrichment: Enrichment.Extrinsic => enrichment }
+  def filter(template: Enrichable.Any, enrichments: Enrichments): Enrichments =
+    enrichments flatMap { instance =>
+      val keep = instance.enrichment match
+        case enrichment: Enrichment.Extrinsic[?, ?] => enrichment.asEnriched(template).isDefined
+        case _ => false
+      Option.when(keep)(instance)
+    }

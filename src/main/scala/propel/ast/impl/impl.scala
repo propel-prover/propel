@@ -27,6 +27,7 @@ def defaultApplyImpl[T: Type](using Quotes) =
 
     case List(List(template), args) =>
       val seq = TypeRepr.of[Seq[?]]
+      val enrichments = TypeRepr.of[Enrichable[?]].typeSymbol.methodMember("enrichments").head
       val eqSeq = Ref(Symbol.requiredMethod("propel.ast.impl.eqSeq"))
       val filter = Ref(Symbol.requiredMethod("propel.ast.Enrichments.filter"))
       val isInstanceOf = defn.AnyClass.methodMember("isInstanceOf").head
@@ -34,6 +35,8 @@ def defaultApplyImpl[T: Type](using Quotes) =
       val eq = defn.AnyRefClass.methodMember("eq").head
       val && = defn.BooleanClass.methodMember("&&").head
       val templateTree = Ref(template)
+
+      val constructWithArgs = New(classTree).select(classSymbol.primaryConstructor).appliedToArgs(args map { Ref(_) })
 
       Block(
         List(
@@ -48,13 +51,15 @@ def defaultApplyImpl[T: Type](using Quotes) =
                   other.select(other.symbol.fieldMember(arg.name)).select(eq).appliedTo(argTree)
               } reduceLeft { _.select(&&).appliedTo(_) }
 
-              If(cond, Return(other, apply), Literal(UnitConstant()))
+              If(
+                cond,
+                Return(other, apply),
+                constructWithArgs.appliedTo(filter.appliedTo(other, other.select(enrichments))))
             },
             Literal(UnitConstant()))),
-        New(classTree)
-          .select(classSymbol.primaryConstructor)
-          .appliedToArgs(args map { Ref(_) })
-          .appliedTo(filter.appliedTo(templateTree.select(template.methodMember("enrichments").head)))).asExprOf[T]
+        ValDef.let(Symbol.spliceOwner, "dummy", constructWithArgs.appliedTo('{ Nil }.asTerm)) { dummy =>
+          constructWithArgs.appliedTo(filter.appliedTo(dummy, templateTree.select(enrichments)))
+        }).asExprOf[T]
 
 def eqSeq(l0: Seq[?], l1: Seq[?]): Boolean =
   (l0 eq l1) ||

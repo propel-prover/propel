@@ -11,8 +11,8 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
   if substs.isEmpty then
     expr
   else
-    val substsTermInfos = substs.view mapValues { _.withInfo(Syntactic.Term) }
-    let(expr.withInfo(Syntactic.Term), (substsTermInfos.view mapValues { (term, _) => term }).toMap) { case ((expr, exprInfo), substs) =>
+    val substsTermInfos = substs.view mapValues { _.withIntrinsicInfo(Syntactic.Term) }
+    let(expr.withIntrinsicInfo(Syntactic.Term), (substsTermInfos.view mapValues { (term, _) => term }).toMap) { case ((expr, exprInfo), substs) =>
       val free = (substsTermInfos.values flatMap { (_, info) => info.freeVars.keySet }).toSet
       val used = exprInfo.boundVars ++ (exprInfo.freeVars map { (ident, _) => ident }) ++ free map { _.name }
 
@@ -94,8 +94,8 @@ def subst(tpe: Type, substs: TypeSubstitutions): Type =
   if substs.isEmpty then
     tpe
   else
-    val substsTypeInfos = substs.view mapValues { _.withInfo(Syntactic.Type) }
-    let(tpe.withInfo(Syntactic.Type), (substsTypeInfos.view mapValues { (tpe, _) => tpe }).toMap) { case ((tpe, tpeInfo), substs) =>
+    val substsTypeInfos = substs.view mapValues { _.withIntrinsicInfo(Syntactic.Type) }
+    let(tpe.withIntrinsicInfo(Syntactic.Type), (substsTypeInfos.view mapValues { (tpe, _) => tpe }).toMap) { case ((tpe, tpeInfo), substs) =>
       val free = (substsTypeInfos.values flatMap { (_, info) => info.freeTypeVars }).toSet
       val used = tpeInfo.boundTypeVars ++ tpeInfo.freeTypeVars ++ free map { _.name }
 
@@ -129,8 +129,8 @@ def subst(expr: Term, substs: TypeSubstitutions): Term =
   if substs.isEmpty then
     expr
   else
-    val substsTypeInfos = substs.view mapValues { _.withInfo(Syntactic.Type) }
-    let(expr.withInfo(Syntactic.Term), (substsTypeInfos.view mapValues { (tpe, _) => tpe }).toMap) { case ((tpe, tpeInfo), substs) =>
+    val substsTypeInfos = substs.view mapValues { _.withIntrinsicInfo(Syntactic.Type) }
+    let(expr.withIntrinsicInfo(Syntactic.Term), (substsTypeInfos.view mapValues { (tpe, _) => tpe }).toMap) { case ((tpe, tpeInfo), substs) =>
       val free = (substsTypeInfos.values flatMap { (_, info) => info.freeTypeVars }).toSet
       val used = tpeInfo.boundTypeVars ++ tpeInfo.freeTypeVars ++ free map { _.name }
 

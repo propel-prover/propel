@@ -30,7 +30,7 @@ object Constructor:
 
 
 sealed trait Pattern extends Enrichable[Pattern]:
-  protected def withEnrichment(pattern: Pattern, enrichments: Enrichments) = pattern match
+  protected def withEnrichments(enrichments: Enrichments) = this match
     case Match(ctor, args) => Match(ctor, args)(enrichments)
     case Bind(ident) => Bind(ident)(enrichments)
 
@@ -39,17 +39,17 @@ object Pattern:
 
   object Match:
     def apply(ctor: Constructor, args: List[Pattern]): Match = impl.defaultApply
-    def apply(template: Pattern)(ctor: Constructor, args: List[Pattern]): Match = impl.defaultApply
+    def apply(template: Enrichable.Any)(ctor: Constructor, args: List[Pattern]): Match = impl.defaultApply
 
   case class Bind private[Pattern] (ident: Symbol) (val enrichments: Enrichments) extends Pattern
 
   object Bind:
     def apply(ident: Symbol): Bind = impl.defaultApply
-    def apply(template: Pattern)(ident: Symbol): Bind = impl.defaultApply
+    def apply(template: Enrichable.Any)(ident: Symbol): Bind = impl.defaultApply
 
 
 sealed trait Type extends Enrichable[Type]:
-  protected def withEnrichment(tpe: Type, enrichments: Enrichments) = tpe match
+  protected def withEnrichments(enrichments: Enrichments) = this match
     case Function(arg, result) => Function(arg, result)(enrichments)
     case Universal(ident, result) => Universal(ident, result)(enrichments)
     case Recursive(ident, result) => Recursive(ident, result)(enrichments)
@@ -61,35 +61,35 @@ object Type:
 
   object Function:
     def apply(arg: Type, result: Type): Function = impl.defaultApply
-    def apply(template: Type)(arg: Type, result: Type): Function = impl.defaultApply
+    def apply(template: Enrichable.Any)(arg: Type, result: Type): Function = impl.defaultApply
 
   case class Universal private[Type] (ident: Symbol, result: Type) (val enrichments: Enrichments) extends Type
 
   object Universal:
     def apply(ident: Symbol, result: Type): Universal = impl.defaultApply
-    def apply(template: Type)(ident: Symbol, result: Type): Universal = impl.defaultApply
+    def apply(template: Enrichable.Any)(ident: Symbol, result: Type): Universal = impl.defaultApply
 
   case class Recursive private[Type] (ident: Symbol, result: Type) (val enrichments: Enrichments) extends Type
 
   object Recursive:
     def apply(ident: Symbol, result: Type): Recursive = impl.defaultApply
-    def apply(template: Type)(ident: Symbol, result: Type): Recursive = impl.defaultApply
+    def apply(template: Enrichable.Any)(ident: Symbol, result: Type): Recursive = impl.defaultApply
 
   case class TypeVar private[Type] (ident: Symbol) (val enrichments: Enrichments) extends Type
 
   object TypeVar:
     def apply(ident: Symbol): TypeVar = impl.defaultApply
-    def apply(template: Type)(ident: Symbol): TypeVar = impl.defaultApply
+    def apply(template: Enrichable.Any)(ident: Symbol): TypeVar = impl.defaultApply
 
   case class Sum private[Type] (sum: List[(Constructor, List[Type])]) (val enrichments: Enrichments) extends Type
 
   object Sum:
     def apply(sum: List[(Constructor, List[Type])]): Sum = impl.defaultApply
-    def apply(template: Type)(sum: List[(Constructor, List[Type])]): Sum = impl.defaultApply
+    def apply(template: Enrichable.Any)(sum: List[(Constructor, List[Type])]): Sum = impl.defaultApply
 
 
 sealed trait Term extends Enrichable[Term]:
-  protected def withEnrichment(expr: Term, enrichments: Enrichments) = expr match
+  protected def withEnrichments(enrichments: Enrichments) = this match
     case Abs(properties, ident, tpe, expr) => Abs(properties, ident, tpe, expr)(enrichments)
     case App(properties, expr, arg) => App(properties, expr, arg)(enrichments)
     case TypeAbs(ident, expr) => TypeAbs(ident, expr)(enrichments)
@@ -103,40 +103,40 @@ object Term:
 
   object Abs:
     def apply(properties: Properties, ident: Symbol, tpe: Type, expr: Term): Abs = impl.defaultApply
-    def apply(template: Term)(properties: Properties, ident: Symbol, tpe: Type, expr: Term): Abs = impl.defaultApply
+    def apply(template: Enrichable.Any)(properties: Properties, ident: Symbol, tpe: Type, expr: Term): Abs = impl.defaultApply
 
   case class App private[Term] (properties: Properties, expr: Term, arg: Term) (val enrichments: Enrichments) extends Term
 
   object App:
     def apply(properties: Properties, expr: Term, arg: Term): App = impl.defaultApply
-    def apply(template: Term)(properties: Properties, expr: Term, arg: Term): App = impl.defaultApply
+    def apply(template: Enrichable.Any)(properties: Properties, expr: Term, arg: Term): App = impl.defaultApply
 
   case class TypeAbs private[Term] (ident: Symbol, expr: Term) (val enrichments: Enrichments) extends Term
 
   object TypeAbs:
     def apply(ident: Symbol, expr: Term): TypeAbs = impl.defaultApply
-    def apply(template: Term)(ident: Symbol, expr: Term): TypeAbs = impl.defaultApply
+    def apply(template: Enrichable.Any)(ident: Symbol, expr: Term): TypeAbs = impl.defaultApply
 
   case class TypeApp private[Term] (expr: Term, tpe: Type) (val enrichments: Enrichments) extends Term
 
   object TypeApp:
     def apply(expr: Term, tpe: Type): TypeApp = impl.defaultApply
-    def apply(template: Term)(expr: Term, tpe: Type): TypeApp = impl.defaultApply
+    def apply(template: Enrichable.Any)(expr: Term, tpe: Type): TypeApp = impl.defaultApply
 
   case class Data private[Term] (ctor: Constructor, args: List[Term]) (val enrichments: Enrichments) extends Term
 
   object Data:
     def apply(ctor: Constructor, args: List[Term]): Data = impl.defaultApply
-    def apply(template: Term)(ctor: Constructor, args: List[Term]): Data = impl.defaultApply
+    def apply(template: Enrichable.Any)(ctor: Constructor, args: List[Term]): Data = impl.defaultApply
 
   case class Var private[Term] (ident: Symbol) (val enrichments: Enrichments) extends Term
 
   object Var:
     def apply(ident: Symbol): Var = impl.defaultApply
-    def apply(template: Term)(ident: Symbol): Var = impl.defaultApply
+    def apply(template: Enrichable.Any)(ident: Symbol): Var = impl.defaultApply
 
   case class Cases(scrutinee: Term, cases: List[(Pattern, Term)]) (val enrichments: Enrichments) extends Term
 
   object Cases:
     def apply(scrutinee: Term, cases: List[(Pattern, Term)]): Cases = impl.defaultApply
-    def apply(template: Term)(scrutinee: Term, cases: List[(Pattern, Term)]): Cases = impl.defaultApply
+    def apply(template: Enrichable.Any)(scrutinee: Term, cases: List[(Pattern, Term)]): Cases = impl.defaultApply

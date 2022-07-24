@@ -77,7 +77,7 @@ def letrec[A: BindingExpr, B: TermExpr](binding: A)(expr: B): Term =
 
   val (idents, tpes, exprs) = binding.make.unzip3
   val free = (exprs flatMap { expr =>
-    val (_, info) = expr.withInfo(Syntactic.Term)
+    val (_, info) = expr.withIntrinsicInfo(Syntactic.Term)
     info.freeVars map { (ident, _) => ident.name }
   }).toSet
 

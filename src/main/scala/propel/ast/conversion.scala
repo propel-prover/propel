@@ -47,7 +47,7 @@ object AlphaConversion:
       case Data(ctor, args) =>
         Data(term)(ctor, args map { renameTerm(_, subst) })
       case Var(ident) =>
-        subst.get(ident) map { Var(_) } getOrElse term
+        subst.get(ident) map { Var(term)(_) } getOrElse term
       case Cases(scrutinee, cases) =>
         let(renameTerm(scrutinee, subst)) { scrutinee =>
           val renamedCases = cases map { (pattern, expr) =>
