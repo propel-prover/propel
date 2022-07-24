@@ -12,7 +12,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
   private object Context extends Enrichment.Extrinsic[Term, Context]
 
 
-  case class Specified(tpe: Type) extends Enrichment(Specified)
+  case class Specified(tpe: Either[Set[Symbol], Type]) extends Enrichment(Specified)
 
   object Specified extends Enrichment.Extrinsic[Pattern | Term, Specified]
 
@@ -26,14 +26,15 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
       case Match(ctor: Constructor, args: List[Pattern]) =>
         let(pattern.info(Specified)) { specified =>
           val unfolded = specified flatMap {
-            case Specified(tpe: Recursive) => unfold(tpe)
-            case Specified(tpe) => Some(tpe)
+            case Specified(Right(tpe: Recursive)) => unfold(tpe)
+            case Specified(Right(tpe)) => Some(tpe)
+            case _ => None
           }
           val result = (unfolded collect {
             case Sum(sum) =>
               sum collectFirst { case (`ctor`, tpes) if tpes.size == args.size =>
                 val (typedArgs, argInfos) = (args zip tpes map { (arg, tpe) =>
-                  arg.withExtrinsicInfo(Specified(tpe)).withIntrinsicInfo(Typing.Pattern)
+                  arg.withExtrinsicInfo(Specified(Right(tpe))).withIntrinsicInfo(Typing.Pattern)
                 }).unzip
                 if argInfos forall { _.tpe.nonEmpty } then
                   Match(pattern)(ctor, typedArgs) -> Typing(Some(Sum(List(ctor -> (argInfos map { _.tpe.get })))))
@@ -45,7 +46,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
         }
 
       case Bind(ident: Symbol) =>
-        pattern -> Typing(pattern.info(Specified) map { _.tpe })
+        pattern -> Typing(pattern.info(Specified) collect { case Specified(Right(tpe)) => tpe })
   end Pattern
 
   object Term extends Enrichment.Intrinsic[Term, Typing]:
@@ -56,20 +57,26 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
       def vars(pattern: Pattern): Map[Symbol, Type] = pattern match
         case Match(_, args: List[Pattern]) => (args flatMap vars).toMap
         case Bind(ident) => pattern.info(Specified) match
-          case Some(Specified(tpe)) => Map(ident -> tpe)
-          case None => Map.empty
+          case Some(Specified(Right(tpe))) => Map(ident -> tpe)
+          case _ => Map.empty
 
       term match
         case Abs(properties, ident, tpe, expr) =>
           let(tpe.withIntrinsicInfo(Syntactic.Type)) { (tpe, tpeInfo) =>
-            if wellDefined(tpe) && (tpeInfo.freeTypeVars subsetOf context.typeVars) then
-              let(context.copy(vars = context.vars + (ident -> tpe))) { context =>
-                let(expr.withExtrinsicInfo(context).withIntrinsicInfo(Typing.Term)) { (expr, exprInfo) =>
-                  Abs(term)(properties, ident, tpe, expr) -> Typing(exprInfo.tpe map { Function(tpe, _) })
-                }
+            let(context.copy(vars = context.vars + (ident -> tpe))) { context =>
+              let(expr.withExtrinsicInfo(context).withIntrinsicInfo(Typing.Term)) { (expr, exprInfo) =>
+                val typeVars = term.info(Specified) match
+                  case Some(Specified(Left(tpe))) => context.typeVars ++ tpe
+                  case _ => context.typeVars
+
+                val specified = Specified(Left(typeVars))
+
+                if wellDefined(tpe) && (tpeInfo.freeTypeVars -- typeVars).isEmpty then
+                  Abs(term)(properties, ident, tpe, expr).withExtrinsicInfo(specified) -> Typing(exprInfo.tpe map { Function(tpe, _) })
+                else
+                  term.withExtrinsicInfo(specified) -> Typing(None)
               }
-            else
-              term -> Typing(None)
+            }
           }
         case App(properties, expr, arg) =>
           let(expr.withExtrinsicInfo(context).withIntrinsicInfo(Typing.Term)) { (expr, exprInfo) =>
@@ -92,19 +99,25 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
           }
         case TypeApp(expr, tpe) =>
           let(expr.withExtrinsicInfo(context).withIntrinsicInfo(Typing.Term)) { (expr, exprInfo) =>
-            val unfolded = exprInfo.tpe flatMap {
-              case tpe: Recursive => unfold(tpe)
-              case tpe => Some(tpe)
-            }
-            val result = unfolded collect {
-              case Universal(ident, result) => subst(result, Map(ident -> tpe))
-            }
-
             let(tpe.withIntrinsicInfo(Syntactic.Type)) { (tpe, tpeInfo) =>
-              if wellDefined(tpe) && (tpeInfo.freeTypeVars subsetOf context.typeVars) then
-                TypeApp(term)(expr, tpe) -> Typing(result)
+              val typeVars = term.info(Specified) match
+                case Some(Specified(Left(tpe))) => context.typeVars ++ tpe
+                case _ => context.typeVars
+
+              val specified = Specified(Left(typeVars))
+
+              val unfolded = exprInfo.tpe flatMap {
+                case tpe: Recursive => unfold(tpe)
+                case tpe => Some(tpe)
+              }
+              val result = unfolded collect {
+                case Universal(ident, result) => subst(result, Map(ident -> tpe))
+              }
+
+              if wellDefined(tpe) && (tpeInfo.freeTypeVars -- typeVars).isEmpty then
+                TypeApp(term)(expr, tpe).withExtrinsicInfo(specified) -> Typing(result)
               else
-                TypeApp(term)(expr, tpe) -> Typing(None)
+                TypeApp(term)(expr, tpe).withExtrinsicInfo(specified) -> Typing(None)
             }
           }
         case Data(ctor, args) =>
@@ -113,15 +126,15 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
             Data(term)(ctor, args) -> Typing(argsTypes map { tpes => fold(Sum(List(ctor -> tpes))) })
           }
         case Var(ident) =>
-          val tpe = context.vars get ident orElse { term.info(Specified) map { _.tpe } }
-          (tpe map { tpe => term.withExtrinsicInfo(Specified(tpe)) } getOrElse term) -> Typing(tpe)
+          val tpe = context.vars get ident orElse { term.info(Specified) collect { case Specified(Right(tpe)) => tpe } }
+          (tpe map { tpe => term.withExtrinsicInfo(Specified(Right(tpe))) } getOrElse term) -> Typing(tpe)
         case Cases(scrutinee, cases) =>
           let(scrutinee.withExtrinsicInfo(context).withIntrinsicInfo(Typing.Term)) { (scrutinee, scrutineeInfo) =>
             scrutineeInfo.tpe match
               case Some(scrutineeType) =>
                 val (typedCases, patternsTypes, exprsTypes) = (cases map { (pattern, expr) =>
                   val (typedPattern, patternInfo) =
-                    pattern.withExtrinsicInfo(Specified(scrutineeType)).withIntrinsicInfo(Typing.Pattern)
+                    pattern.withExtrinsicInfo(Specified(Right(scrutineeType))).withIntrinsicInfo(Typing.Pattern)
 
                   if patternInfo.tpe.nonEmpty then
                     let(context.copy(vars = context.vars ++ vars(typedPattern))) { context =>
