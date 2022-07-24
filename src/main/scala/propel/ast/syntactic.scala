@@ -3,6 +3,15 @@ package ast
 
 import util.*
 
+extension (expr: Type)
+  inline def syntactic: (Type, Syntactic) = expr.withIntrinsicInfo(Syntactic.Type)
+
+extension (expr: Pattern)
+  inline def syntactic: (Pattern, Syntactic) = expr.withIntrinsicInfo(Syntactic.Pattern)
+
+extension (expr: Term)
+  inline def syntactic: (Term, Syntactic) = expr.withIntrinsicInfo(Syntactic.Term)
+
 case class Syntactic(
   boundVars: Set[Symbol], freeVars: Map[Symbol, Int],
   boundTypeVars: Set[Symbol], freeTypeVars: Set[Symbol],
@@ -28,8 +37,8 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
   object Type extends Enrichment.Intrinsic[Type, Syntactic]:
     def make(tpe: Type) = tpe match
       case Function(arg, result) =>
-        let(arg.withIntrinsicInfo(Syntactic.Type)) { (arg, argInfo) =>
-          let(result.withIntrinsicInfo(Syntactic.Type)) { (result, resultInfo) =>
+        let(arg.syntactic) { (arg, argInfo) =>
+          let(result.syntactic) { (result, resultInfo) =>
             val boundTypeVars = argInfo.boundTypeVars ++ resultInfo.boundTypeVars
             val freeTypeVars = argInfo.freeTypeVars ++ resultInfo.freeTypeVars
             Function(tpe)(arg, result) -> Syntactic(
@@ -38,7 +47,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           }
         }
       case Universal(ident, result) =>
-        let(result.withIntrinsicInfo(Syntactic.Type)) { (result, resultInfo) =>
+        let(result.syntactic) { (result, resultInfo) =>
           val boundTypeVars = resultInfo.boundTypeVars + ident
           val freeTypeVars = resultInfo.freeTypeVars - ident
           Universal(tpe)(ident, result) -> Syntactic(
@@ -46,7 +55,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
             closed = freeTypeVars.isEmpty, value = false)
         }
       case Recursive(ident, result) =>
-        let(result.withIntrinsicInfo(Syntactic.Type)) { (result, resultInfo) =>
+        let(result.syntactic) { (result, resultInfo) =>
           val boundTypeVars = resultInfo.boundTypeVars + ident
           val freeTypeVars = resultInfo.freeTypeVars - ident
           Recursive(tpe)(ident, result) -> Syntactic(
@@ -59,7 +68,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           closed = false, value = false)
       case Sum(sum) =>
         val (updatedsum, boundTypeVars, freeTypeVars) = (sum map { (ctor, args) =>
-          let(args.withIntrinsicInfo(Syntactic.Type)) { (args, argsInfos) =>
+          let((args map { _.syntactic }).unzip) { (args, argsInfos) =>
             (ctor -> args,
              argsInfos flatMap { _.boundTypeVars },
              argsInfos flatMap { _.freeTypeVars })
@@ -74,7 +83,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
   object Pattern extends Enrichment.Intrinsic[Pattern, Syntactic]:
     def make(pattern: Pattern) = pattern match
       case Match(ctor, args) =>
-        let(args.withIntrinsicInfo(Syntactic.Pattern)) { (args, argsInfos) =>
+        let((args map { _.syntactic }).unzip) { (args, argsInfos) =>
           val boundVars = argsInfos flatMap { _.boundVars }
           Match(pattern)(ctor, args) -> Syntactic(
             boundVars.toSet, Map.empty, Set.empty, Set.empty, closed = true, value = false)
@@ -87,8 +96,8 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
   object Term extends Enrichment.Intrinsic[Term, Syntactic]:
     def make(term: Term) = term match
       case Abs(properties, ident, tpe, expr) =>
-        let(tpe.withIntrinsicInfo(Syntactic.Type)) { (tpe, tpeInfo) =>
-          let(expr.withIntrinsicInfo(Syntactic.Term)) { (expr, exprInfo) =>
+        let(tpe.syntactic) { (tpe, tpeInfo) =>
+          let(expr.syntactic) { (expr, exprInfo) =>
             val boundVars = exprInfo.boundVars ++ tpeInfo.boundVars + ident
             val freeVars = exprInfo.freeVars ++ tpeInfo.freeVars - ident
             val boundTypeVars = exprInfo.boundTypeVars ++ tpeInfo.boundTypeVars + ident
@@ -99,8 +108,8 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           }
         }
       case App(properties, expr, arg) =>
-        let(expr.withIntrinsicInfo(Syntactic.Term)) { (expr, exprInfo) =>
-          let(arg.withIntrinsicInfo(Syntactic.Term)) { (arg, argInfo) =>
+        let(expr.syntactic) { (expr, exprInfo) =>
+          let(arg.syntactic) { (arg, argInfo) =>
             val boundVars = exprInfo.boundVars ++ argInfo.boundVars
             val freeVars = List(exprInfo.freeVars, argInfo.freeVars).merge
             val boundTypeVars = exprInfo.boundTypeVars ++ argInfo.boundTypeVars
@@ -111,7 +120,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           }
         }
       case TypeAbs(ident, expr) =>
-        let(expr.withIntrinsicInfo(Syntactic.Term)) { (expr, exprInfo) =>
+        let(expr.syntactic) { (expr, exprInfo) =>
           val boundTypeVars = exprInfo.boundTypeVars + ident
           val freeTypeVars = exprInfo.freeTypeVars - ident
           TypeAbs(term)(ident, expr) -> Syntactic(
@@ -119,8 +128,8 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
             closed = exprInfo.freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
         }
       case TypeApp(expr, tpe) =>
-        let(expr.withIntrinsicInfo(Syntactic.Term)) { (expr, exprInfo) =>
-          let(tpe.withIntrinsicInfo(Syntactic.Type)) { (tpe, tpeInfo) =>
+        let(expr.syntactic) { (expr, exprInfo) =>
+          let(tpe.syntactic) { (tpe, tpeInfo) =>
             val boundVars = exprInfo.boundVars ++ tpeInfo.boundVars
             val freeVars = exprInfo.freeVars ++ tpeInfo.freeVars
             val boundTypeVars = exprInfo.boundTypeVars ++ tpeInfo.boundTypeVars
@@ -131,7 +140,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           }
         }
       case Data(ctor, args) =>
-        let(args.withIntrinsicInfo(Syntactic.Term)) { (args, argsInfos) =>
+        let((args map { _.syntactic }).unzip) { (args, argsInfos) =>
           val boundVars = argsInfos flatMap { _.boundVars }
           val freeVars = (argsInfos map { _.freeVars }).merge
           val boundTypeVars = argsInfos flatMap { _.boundTypeVars }
@@ -145,10 +154,10 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           Set.empty, Map(ident -> 1), Set.empty, Set.empty,
           closed = false, value = false)
       case Cases(scrutinee, cases) =>
-        let(scrutinee.withIntrinsicInfo(Syntactic.Term)) { (scrutinee, scrutineeInfo) =>
+        let(scrutinee.syntactic) { (scrutinee, scrutineeInfo) =>
           val (updatedcases, boundVars, freeVars, boundTypeVars, freeTypeVars) = (cases map { (pattern, expr) =>
-            let(pattern.withIntrinsicInfo(Syntactic.Pattern)) { (pattern, patternInfo) =>
-              let(expr.withIntrinsicInfo(Syntactic.Term)) { (expr, exprInfo) =>
+            let(pattern.syntactic) { (pattern, patternInfo) =>
+              let(expr.syntactic) { (expr, exprInfo) =>
                 (pattern -> expr,
                  exprInfo.boundVars ++ patternInfo.boundVars,
                  exprInfo.freeVars -- patternInfo.boundVars,

@@ -16,10 +16,10 @@ object Enrichable:
     def info[E](enrichment: Enrichment.Base[?, E]): Option[E] =
       self.enrichments.iterator collectFirstDefined enrichment.asEnrichment
 
-    def withoutInfo(enrichment: Enrichment.Base[?, ?]): Enriched =
+    def withoutInfo(enrichments: Enrichment.Base[?, ?]*): Enriched =
       var removed = false
       val filtered = self.enrichments filterNot { instance =>
-        val isInstance = enrichment.asEnrichment(instance).isDefined
+        val isInstance = enrichments exists { _.asEnrichment(instance).isDefined }
         if isInstance then removed = true
         isInstance
       }
