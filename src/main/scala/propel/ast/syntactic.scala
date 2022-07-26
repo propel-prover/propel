@@ -125,7 +125,7 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
           val freeTypeVars = exprInfo.freeTypeVars - ident
           TypeAbs(term)(ident, expr) -> Syntactic(
             exprInfo.boundVars, exprInfo.freeVars, boundTypeVars, freeTypeVars,
-            closed = exprInfo.freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
+            closed = exprInfo.freeVars.isEmpty && freeTypeVars.isEmpty, value = true)
         }
       case TypeApp(expr, tpe) =>
         let(expr.syntactic) { (expr, exprInfo) =>
