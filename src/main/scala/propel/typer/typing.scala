@@ -2,6 +2,7 @@ package propel
 package typer
 
 import ast.*
+import printing.*
 import util.*
 
 
@@ -38,6 +39,35 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
   object Specified extends Enrichment.Extrinsic[Pattern | Term, Specified]
 
 
+  extension (pattern: Pattern)
+    private def withFruitlessPatternError(tpe: Type) = pattern.withExtrinsicInfo(Error(
+      s"Type Error\n\nFruitless pattern ${pattern.show} for type ${tpe.show}."))
+    private def withUnkownTypeError = pattern.withExtrinsicInfo(Error(
+      s"Type Error\n\nType not known for pattern ${pattern.show}."))
+
+  extension (expr: Term)
+    private def withIllformedTypeError(tpe: Type) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nIll-formed type: ${tpe.show}\n\nThis may be caused by conflicting sum type elements."))
+    private def withIlltypedApplication(abs: Type, arg: Type) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nValue of type ${arg.show} cannot be applied to value of type ${abs.show}."))
+    private def withIlltypedTypeApplication(typeAbs: Type, arg: Type) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nType ${arg.show} cannot be applied to type ${typeAbs.show}."))
+    private def withUnboundVarError(variable: Symbol) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nUnbound variable: ${variable.name}"))
+    private def withUnboundTypeVarsError(typeVars: Set[Symbol]) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nUnbound type variables${
+        if typeVars.isEmpty then "." else s": ${(typeVars map { _.name }).mkString(", ")}"
+      }"))
+    private def withUnjoinableTypesError(tpes: List[Type]) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nTypes of branches cannot be joined${
+        if tpes.isEmpty then "." else s":\n${(tpes map { tpe => s"  • ${tpe.show}" }).mkString("\n")}"
+      }"))
+    private def withNonexhaustiveCasesError(patterns: List[Pattern]) = expr.withExtrinsicInfo(Error(
+      s"Type Error\n\nNon-exhaustive case distinction.${
+        if patterns.isEmpty then "" else s"\n\nThe following cases are not covered:\n${(patterns map { pattern => s"  • ${pattern.show}" }).mkString("\n")}"
+      }"))
+
+
   def strip(construct: Pattern | Term) = construct match
     case construct: Pattern => Pattern.strip(construct)
     case construct: Term => Term.strip(construct)
@@ -49,14 +79,15 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
   object Pattern extends Enrichment.Intrinsic[Pattern, Typing]:
     def strip(pattern: Pattern) = pattern.withoutInfo(Typing, Specified, Context)
 
-    def make(pattern: Pattern) = pattern match
-      case Match(ctor, args) =>
-        let(pattern.info(Specified)) { specified =>
-          val unfolded = specified flatMap {
-            case Specified(Right(tpe: Recursive)) => unfold(tpe)
-            case Specified(Right(tpe)) => Some(tpe)
-            case _ => None
+    def make(pattern: Pattern) =
+      val tpe = pattern.info(Specified) flatMap { _.tpe.toOption }
+      pattern match
+        case Match(ctor, args) =>
+          val unfolded = tpe flatMap {
+            case tpe: Recursive => unfold(tpe)
+            case tpe => Some(tpe)
           }
+
           val result = (unfolded collect {
             case Sum(sum) =>
               sum collectFirst { case (`ctor`, tpes) if tpes.size == args.size =>
@@ -69,11 +100,19 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                   Match(pattern)(ctor, typedArgs) -> Typing(None)
               }
           }).flatten
-          result getOrElse Match(pattern)(ctor, args) -> Typing(None)
-        }
 
-      case Bind(ident) =>
-        pattern -> Typing(pattern.info(Specified) collect { case Specified(Right(tpe)) => tpe })
+          result getOrElse {
+            if tpe.nonEmpty then
+              Match(pattern)(ctor, args).withFruitlessPatternError(tpe.get) -> Typing(None)
+            else
+              Match(pattern)(ctor, args).withUnkownTypeError -> Typing(None)
+          }
+
+        case Bind(ident) =>
+          if tpe.nonEmpty then
+            pattern -> Typing(tpe)
+          else
+            pattern.withUnkownTypeError -> Typing(None)
   end Pattern
 
   object Term extends Enrichment.Intrinsic[Term, Typing]:
@@ -98,12 +137,15 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                   case Some(Specified(Left(tpe))) => context.typeVars ++ tpe
                   case _ => context.typeVars
 
-                val specified = Specified(Left(typeVars))
+                val unboundTypeVars = tpeSyntactic.freeTypeVars -- typeVars
+                val abs = Abs(term)(properties, ident, tpe, expr).withExtrinsicInfo(Specified(Left(typeVars)))
 
-                if wellDefined(tpe) && (tpeSyntactic.freeTypeVars -- typeVars).isEmpty then
-                  Abs(term)(properties, ident, tpe, expr).withExtrinsicInfo(specified) -> Typing(exprType map { Function(tpe, _) })
+                if !wellFormed(tpe) then
+                  abs.withIllformedTypeError(tpe) -> Typing(None)
+                else if unboundTypeVars.nonEmpty then
+                  abs.withUnboundTypeVarsError(unboundTypeVars) -> Typing(None)
                 else
-                  term.withExtrinsicInfo(specified) -> Typing(None)
+                  abs -> Typing(exprType map { Function(tpe, _) })
               }
             }
           }
@@ -117,7 +159,13 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
               val result = unfolded collect {
                 case Function(arg, result) if argType exists { conforms(_, arg) } => result
               }
-              App(term)(properties, expr, arg) -> Typing(result)
+              
+              val app = App(term)(properties, expr, arg)
+
+              if result.isEmpty && exprType.nonEmpty && argType.nonEmpty then
+                app.withIlltypedApplication(exprType.get, argType.get) -> Typing(result)
+              else
+                app -> Typing(result)
             }
           }
         case TypeAbs(ident, expr) =>
@@ -133,8 +181,6 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                 case Some(Specified(Left(tpe))) => context.typeVars ++ tpe
                 case _ => context.typeVars
 
-              val specified = Specified(Left(typeVars))
-
               val unfolded = exprType flatMap {
                 case tpe: Recursive => unfold(tpe)
                 case tpe => Some(tpe)
@@ -143,10 +189,17 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                 case Universal(ident, result) => subst(result, Map(ident -> tpe))
               }
 
-              if wellDefined(tpe) && (tpeSyntactic.freeTypeVars -- typeVars).isEmpty then
-                TypeApp(term)(expr, tpe).withExtrinsicInfo(specified) -> Typing(result)
+              val unboundTypeVars = tpeSyntactic.freeTypeVars -- typeVars
+              val typeApp = TypeApp(term)(expr, tpe).withExtrinsicInfo(Specified(Left(typeVars)))
+
+              if !wellFormed(tpe) then
+                typeApp.withIllformedTypeError(tpe) -> Typing(None)
+              else if unboundTypeVars.nonEmpty then
+                typeApp.withUnboundTypeVarsError(unboundTypeVars) -> Typing(None)
+              else if result.isEmpty && exprType.nonEmpty then
+                typeApp.withIlltypedTypeApplication(exprType.get, tpe) -> Typing(result)
               else
-                TypeApp(term)(expr, tpe).withExtrinsicInfo(specified) -> Typing(None)
+                typeApp -> Typing(result)
             }
           }
         case Data(ctor, args) =>
@@ -156,32 +209,40 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
           }
         case Var(ident) =>
           val tpe = context.vars get ident orElse { term.info(Specified) collect { case Specified(Right(tpe)) => tpe } }
-          (tpe map { tpe => term.withExtrinsicInfo(Specified(Right(tpe))) } getOrElse term) -> Typing(tpe)
+          tpe match
+            case some @ Some(tpe) => term.withExtrinsicInfo(Specified(Right(tpe))) -> Typing(some)
+            case _ => term.withUnboundVarError(ident) -> Typing(None)
         case Cases(scrutinee, cases) =>
           let(scrutinee.withExtrinsicInfo(context).typed) { (scrutinee, scrutineeType) =>
             scrutineeType match
               case Some(scrutineeType) =>
-                val (typedCases, patternsTypes, exprsTypes) = (cases map { (pattern, expr) =>
+                val (typedCases, exprsTypes) = (cases map { (pattern, expr) =>
                   val (typedPattern, patternType) =
                     pattern.withExtrinsicInfo(Specified(Right(scrutineeType))).typed
 
                   if patternType.nonEmpty then
                     let(context.copy(vars = context.vars ++ vars(typedPattern))) { context =>
                       let(expr.withExtrinsicInfo(context).typed) { (expr, exprType) =>
-                        (typedPattern -> expr, patternType, exprType)
+                        typedPattern -> expr -> exprType
                       }
                     }
                   else
-                    (typedPattern -> expr, None, None)
-                }).unzip3
+                    typedPattern -> expr -> None
+                }).unzip
 
-                val patternType = patternsTypes.sequenceIfDefined flatMap { _ reduceLeftIfDefined { join(_, _) } }
+                val (casePatterns, _) = cases.unzip
 
-                if patternType exists { conforms(scrutineeType, _) } then
-                  val exprType = exprsTypes.sequenceIfDefined flatMap { _ reduceLeftIfDefined { join(_, _) } }
-                  Cases(term)(scrutinee, typedCases) -> Typing(exprType)
-                else
-                  Cases(term)(scrutinee, cases) -> Typing(None)
+                let(exprsTypes.sequenceIfDefined) { exprsTypes =>
+                  val cases = Cases(term)(scrutinee, typedCases)
+
+                  casePatterns.foldLeft(scrutineeType) { (tpe, pattern) => diff(tpe, pattern) getOrElse tpe } match
+                    case Sum(List()) => exprsTypes match
+                      case Some(exprsTypes) => exprsTypes reduceLeftIfDefined { join(_, _) } match
+                        case exprType @ Some(_) => cases -> Typing(exprType)
+                        case _ => cases.withUnjoinableTypesError(exprsTypes) -> Typing(None)
+                      case _ => cases -> Typing(None)
+                    case tpe => cases.withNonexhaustiveCasesError(patterns(tpe)) -> Typing(None)
+                }
 
               case _ =>
                 Cases(term)(scrutinee, cases) -> Typing(None)

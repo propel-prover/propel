@@ -5,6 +5,12 @@ import ast.*
 import util.*
 
 object Concrete:
+  extension (expr: Term)
+    private def withStuckTermError = expr.withExtrinsicInfo(Error(
+      "Reduction Error\n\nStuck term encountered."))
+    private def withUnsubstitutedVarError = expr.withExtrinsicInfo(Error(
+      "Reduction Error\n\nUnsubstituted variable encountered."))
+
   def eval(term: Term): Term = term match
     case Abs(_, _, _, _) =>
       term
@@ -15,7 +21,7 @@ object Concrete:
             case Abs(_, ident, _, expr) if argInfo.closed && argInfo.value =>
               eval(subst(expr, Map(ident -> arg)))
             case expr =>
-              App(term)(properties, expr, arg)
+              App(term)(properties, expr, arg).withStuckTermError
         }
       }
     case TypeAbs(_, _) =>
@@ -25,16 +31,16 @@ object Concrete:
         case TypeAbs(ident, expr) =>
           eval(subst(expr, Map(ident -> tpe)))
         case expr =>
-          TypeApp(term)(expr, tpe)
+          TypeApp(term)(expr, tpe).withStuckTermError
     case Data(ctor, args) =>
       Data(term)(ctor, args map eval)
     case Var(_)=>
-      term
+      term.withUnsubstitutedVarError
     case Cases(scrutinee, cases) =>
       let(eval(scrutinee)) { scrutinee =>
         def process(processingCases: List[(Pattern, Term)]): Term = processingCases match
           case Nil =>
-            Cases(term)(scrutinee, cases)
+            Cases(term)(scrutinee, cases).withStuckTermError
           case (pattern, expr) :: tail =>
             Unification.unify(pattern, scrutinee) match
               case Unification.Full(substs) =>
@@ -45,7 +51,7 @@ object Concrete:
                   Cases(term)(scrutinee, List(pattern -> expr))
 
               case Unification.Irrefutable(_, _) =>
-                Cases(term)(scrutinee, List(pattern -> expr))
+                Cases(term)(scrutinee, List(pattern -> expr)).withStuckTermError
 
               case _ =>
                 process(tail)

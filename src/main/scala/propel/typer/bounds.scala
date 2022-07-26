@@ -19,7 +19,7 @@ def normalize(tpe: Type): Option[Type] =
 def simplify(tpe: Type): Option[Type] =
   bound(tpe, tpe, 3)
 
-inline def wellDefined(tpe: Type): Boolean =
+inline def wellFormed(tpe: Type): Boolean =
   normalize(tpe).isDefined
 
 def equivalent(tpe0: Type, tpe1: Type): Boolean =

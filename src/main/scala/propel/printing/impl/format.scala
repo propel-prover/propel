@@ -1,8 +1,9 @@
 package propel
-package dsl
+package printing
 package impl
 
 import ast.*
+import Constructor.*
 import Format.*
 
 
@@ -33,6 +34,19 @@ extension (format: List[Format])
 extension (format: List[List[Format]])
   @annotation.targetName("formatListListAsString")
   def asString: String = (format map { _.asString }).mkString("\n")
+
+  def range(construct: Type | Pattern | Term): Option[((Int, Int), (Int, Int))] =
+    var start = Option.empty[(Int, Int)]
+    var end = Option.empty[(Int, Int)]
+    format.zipWithIndex foreach { (format, line) =>
+      var column = 0
+      format foreach {
+        case format: Start if (format.construct eq construct) && start.isEmpty => start = Some(line, column)
+        case format: End if format.construct eq construct => end = Some(line, column)
+        case format => column += format.asString.length
+      }
+    }
+    start flatMap { start => end map { (start, _) } }
 
 
 extension (tpe: Type) def format: List[Format] =
