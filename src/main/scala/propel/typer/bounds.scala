@@ -13,8 +13,11 @@ inline def meet(tpe0: Type, tpe1: Type): Option[Type] =
 inline def conforms(sub: Type, base: Type): Boolean =
   join(sub, base) exists { equivalent(_, base) }
 
-inline def normalize(tpe: Type): Option[Type] =
-  join(tpe, tpe)
+def normalize(tpe: Type): Option[Type] =
+  bound(tpe, tpe, 2)
+
+def simplify(tpe: Type): Option[Type] =
+  bound(tpe, tpe, 3)
 
 inline def wellDefined(tpe: Type): Boolean =
   normalize(tpe).isDefined
@@ -107,11 +110,16 @@ private object Sums:
       }
 
     if sum0 eq sum1 then
-      bound(sum0, direction)
-    if direction == 1 then
+      if direction == 1 || direction == -1 then
+        bound(sum0, direction)
+      else
+        normalize(sum0, direction)
+    else if direction == 1 then
       bound(sum0 ++ sum1, direction)
-    else
+    else if direction == -1 then
       bound((sum0 filter { contains(sum1, _) }) ++ (sum1 filter { contains(sum0, _) }), direction)
+    else
+      normalize(sum0 ++ sum1, direction)
 
   def bound(sum: Sum, direction: Int): Option[Sum] =
     sum match
@@ -130,4 +138,32 @@ private object Sums:
 
       case _ =>
         Some(Nil)
+
+  def normalize(args: Sum, direction: Int): Option[Sum] = args match
+    case (element0 @ (ctor -> args0)) :: tail0 =>
+      def processTail(args: Sum): Option[Option[Sum]] = args match
+        case (element1 @ (`ctor` -> args1)) :: tail1 =>
+          val sum0 = List(ctor -> args0)
+          val sum1 = List(ctor -> args1)
+          val tpe = bound(sum0, sum1, if direction > 0 then 1 else -1)
+          if tpe exists { equivalent(_, sum1) } then
+            Some(None)
+          else if tpe exists { equivalent(_, sum0) } then
+            processTail(tail1)
+          else if direction == 2 || direction == -2 then
+            None
+          else
+            processTail(tail1) map { _ map { element1 :: _ } }
+        case head :: tail =>
+          processTail(tail) map { _ map { head :: _ } }
+        case _ =>
+          Some(Some(Nil))
+
+      processTail(tail0) match
+        case Some(Some(tail)) => normalize(tail, direction) map { element0 :: _ }
+        case Some(_) => normalize(tail0, direction)
+        case _ => None
+
+    case Nil =>
+      Some(Nil)
 end Sums

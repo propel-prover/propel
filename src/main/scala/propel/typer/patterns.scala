@@ -6,25 +6,37 @@ import util.*
 
 def diff(tpe: Type, pattern: Pattern): Option[Type] = tpe -> pattern match
   case _ -> Bind(_) =>
-    Some(tpe)
+    Some(Sum(List()))
   case (tpe: Recursive) -> _ =>
     unfold(tpe) flatMap { diff(_, pattern) } map fold
   case Sum(sum) -> Match(ctor, matchArgs) =>
-    val elements = sum flatMap {
+    val elements = sum map {
       case `ctor` -> sumArgs if sumArgs.size == matchArgs.size =>
-        let(sumArgs zip matchArgs map diff) { args =>
-          if args exists { _.isEmpty } then
-            Some(None)
-          else if (args collectFirst { case Some(Sum(List())) => }).isDefined ||
-                  (args zip sumArgs forall { _.get eq _ }) then
-            None
-          else
-            Some(Some(ctor -> args.flatten))
+        def process(sumArgs: List[Type], matchArgs: List[Pattern]): Option[List[List[Type]]] = (sumArgs, matchArgs) match
+          case (List(sumArg), List(matchArg)) =>
+            diff(sumArg, matchArg) map { arg => List(List(arg)) }
+          case (sumArg :: sumArgs, matchArg :: matchArgs) =>
+            diff(sumArg, matchArg) flatMap { arg =>
+              process(sumArgs, matchArgs) map { tails =>
+                (arg :: sumArgs) :: (tails map { sumArg :: _ })
+              }
+            }
+          case _ =>
+            Some(List.empty)
+
+        process(sumArgs, matchArgs) map {
+          _ flatMap { args =>
+            if (args collectFirst { case Sum(List()) => }).isDefined then
+              None
+            else
+              Some(ctor -> args)
+          }
         }
+
       case element =>
-        Some(Some(element))
+        Some(List(element))
     }
-    elements.sequenceIfDefined map { Sum(_) }
+    elements.sequenceIfDefined flatMap { sum => simplify(Sum(sum.flatten)) }
   case _ =>
     None
 

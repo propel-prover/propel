@@ -41,7 +41,7 @@ object Symbolic:
         _ exists { (expr, patterns) =>
           expr.typed match
             case (_, Some(tpe)) =>
-              patterns.foldLeft(tpe) { diff(_, _) getOrElse tpe } match
+              patterns.foldLeft(tpe) { (tpe, pattern) => diff(tpe, pattern) getOrElse tpe } match
                 case Sum(List()) => true
                 case _ => false
             case _ =>
