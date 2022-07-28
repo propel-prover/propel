@@ -11,39 +11,42 @@ inline def meet(tpe0: Type, tpe1: Type): Option[Type] =
   bound(tpe0, tpe1, -1)
 
 inline def conforms(sub: Type, base: Type): Boolean =
-  join(sub, base) exists { equivalent(_, base) }
+  join(sub, base) exists { equal(_, base) }
 
-def normalize(tpe: Type): Option[Type] =
+inline def normalize(tpe: Type): Option[Type] =
   bound(tpe, tpe, 2)
 
-def simplify(tpe: Type): Option[Type] =
+inline def simplify(tpe: Type): Option[Type] =
   bound(tpe, tpe, 3)
 
 inline def wellFormed(tpe: Type): Boolean =
   normalize(tpe).isDefined
 
-def equivalent(tpe0: Type, tpe1: Type): Boolean =
+inline def equivalent(tpe0: Type, tpe1: Type): Boolean =
+  normalize(tpe0) exists { tpe0 => normalize(tpe1) exists { equal(tpe0, _) } }
+
+def equal(tpe0: Type, tpe1: Type): Boolean =
   if tpe0 ne tpe1 then tpe0 -> tpe1 match
     case Function(arg0, result0) -> Function(arg1, result1) =>
-      equivalent(arg0, arg1) && equivalent(result0, result1)
+      equal(arg0, arg1) && equal(result0, result1)
     case Universal(ident0, result0) -> Universal(ident1, result1) =>
       if ident0 == ident1 then
-        equivalent(result0, result1)
+        equal(result0, result1)
       else
-        equivalent(result0, subst(result1, Map(ident1 -> TypeVar(ident0))))
+        equal(result0, subst(result1, Map(ident1 -> TypeVar(ident0))))
     case Recursive(ident0, result0) -> Recursive(ident1, result1) =>
       if ident0 == ident1 then
-        equivalent(result0, result1)
+        equal(result0, result1)
       else
-        equivalent(result0, subst(result1, Map(ident1 -> TypeVar(ident0))))
+        equal(result0, subst(result1, Map(ident1 -> TypeVar(ident0))))
     case TypeVar(ident0) -> TypeVar(ident1) =>
       ident0 == ident1
     case Sum(sum0) -> Sum(sum1) =>
-      Sums.equivalent(sum0, sum1)
+      Sums.equal(sum0, sum1)
     case (tpe0: Recursive) -> _ =>
-      unfold(tpe0) exists { equivalent(_, tpe1) }
+      unfold(tpe0) exists { equal(_, tpe1) }
     case _ -> (tpe1: Recursive) =>
-      unfold(tpe1) exists { equivalent(tpe0, _) }
+      unfold(tpe1) exists { equal(tpe0, _) }
     case _ =>
       false
   else
@@ -78,15 +81,15 @@ private object Sums:
   type Sum = List[Element]
   type FlaggedSum = List[(Element, Boolean)]
 
-  def equivalent(element0: Element, element1: Element): Boolean =
+  def equal(element0: Element, element1: Element): Boolean =
     val (ctor0, args0) = element0
     val (ctor1, args1) = element1
-    ctor0 == ctor1 && (args0.size == args1.size) && (args0 zip args1 forall { typer.equivalent(_, _) })
+    ctor0 == ctor1 && (args0.size == args1.size) && (args0 zip args1 forall { typer.equal(_, _) })
 
-  def equivalent(sum0: Sum, sum1: Sum): Boolean =
+  def equal(sum0: Sum, sum1: Sum): Boolean =
     def flag(sum: FlaggedSum, element: Element): (FlaggedSum, Boolean) = sum match
       case sumElement -> sumElementFlagged :: tail =>
-        let(equivalent(sumElement, element), flag(tail, element)) { case (equivalent, (tail, flagged)) =>
+        let(equal(sumElement, element), flag(tail, element)) { case (equivalent, (tail, flagged)) =>
           (sumElement -> (equivalent || sumElementFlagged) :: tail) -> (equivalent || flagged)
         }
       case _ =>
@@ -146,9 +149,9 @@ private object Sums:
           val sum0 = List(ctor -> args0)
           val sum1 = List(ctor -> args1)
           val tpe = bound(sum0, sum1, if direction > 0 then 1 else -1)
-          if tpe exists { equivalent(_, sum1) } then
+          if tpe exists { equal(_, sum1) } then
             Some(None)
-          else if tpe exists { equivalent(_, sum0) } then
+          else if tpe exists { equal(_, sum0) } then
             processTail(tail1)
           else if direction == 2 || direction == -2 then
             None
