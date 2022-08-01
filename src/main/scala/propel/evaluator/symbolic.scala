@@ -7,21 +7,14 @@ import scala.annotation.targetName
 
 object Symbolic:
   case class Constraints private (pos: PatternConstraints, neg: Set[PatternConstraints]):
-    def refutable(constraints: Constraints): Boolean =
-      constraints.pos unify this.pos forall { pos =>
-        val neg = constraints.neg ++ this.neg
-        Constraints.refutablePosNeg(pos, neg) || Constraints.refutableNegTyped(neg)
-      }
-    def refutable(pos: PatternConstraints): Boolean =
-      pos unify this.pos forall { Constraints.refutablePosNeg(_, this.neg) }
-    def refutable(pos: IterableOnce[(Term, Pattern)]): Boolean =
-      PatternConstraints.make(pos) flatMap { _ unify this.pos } forall { Constraints.refutablePosNeg(_, this.neg) }
+    def withPosConstraints(pos: PatternConstraints): Option[Constraints] =
+      this.pos unify pos collect { case pos if !refutablePosNeg(pos, this.neg) => Constraints(pos, this.neg) }
 
-  object Constraints:
-    def empty =
-      Constraints(PatternConstraints.empty, Set.empty)
-    def make(pos: PatternConstraints, neg: Set[PatternConstraints]): Option[Constraints] =
-      Option.when(!refutablePosNeg(pos, neg) && !refutableNegTyped(neg))(Constraints(pos, neg))
+    def withNegConstraints(neg: PatternConstraints): Option[Constraints] =
+      withNegConstraints(Set(neg))
+
+    def withNegConstraints(neg: Set[PatternConstraints]): Option[Constraints] =
+      Option.when(!refutablePosNeg(this.pos, neg) && !refutableNegTyped(neg))(Constraints(this.pos, this.neg ++ neg))
 
     private def refutablePosNeg(pos: PatternConstraints, neg: Set[PatternConstraints]) =
       neg exists {
@@ -48,14 +41,20 @@ object Symbolic:
               false
         }
       }
+  end Constraints
+
+  object Constraints:
+    def empty = Constraints(PatternConstraints.empty, Set.empty)
+
 
   case class Result(reductions: List[Reduction]) extends AnyVal
 
-  case class Reduction(expr: Term, constraints: Constraints)
+  case class Reduction(expr: Term, constraints: Constraints, equalities: Equalities)
 
   private case class Results(reductions: List[Reductions]) extends AnyVal
 
-  private case class Reductions(exprs: List[Term], constraints: Constraints)
+  private case class Reductions(exprs: List[Term], constraints: Constraints, equalities: Equalities)
+
 
   extension (result: Result)
     @targetName("flatMapResult")
@@ -71,96 +70,91 @@ object Symbolic:
     private inline def flatMap(f: Reductions => List[Reductions]): Results = results.copy(results.reductions flatMap f)
 
   extension (reductions: Reductions)
-    private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints)
+    private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints, reductions.equalities)
     private inline def flatMap(f: Term => List[Term]): Reductions = reductions.copy(exprs = reductions.exprs flatMap f)
 
-  extension (pattern: Pattern)
-    private def asTerm: Term = pattern match
-      case Match(ctor, args) => Data(ctor, args map { _.asTerm })
-      case Bind(ident) => Var(pattern)(ident)
-
-  private def substConstraints(expr: Term, constraints: PatternConstraints): Term =
-    replaceByConstraint(expr, constraints) match
+  private def substEqualities(expr: Term, equalities: Equalities): Term =
+    replaceByEqualities(expr, equalities) match
       case term @ Abs(properties, ident, tpe, expr) =>
-        Abs(term)(properties, ident, tpe, substConstraints(expr, constraints))
+        Abs(term)(properties, ident, tpe, substEqualities(expr, equalities))
       case term @ App(properties, expr, arg) =>
-        App(term)(properties, substConstraints(expr, constraints), substConstraints(arg, constraints))
+        App(term)(properties, substEqualities(expr, equalities), substEqualities(arg, equalities))
       case term @ TypeAbs(ident, expr) =>
-        TypeAbs(term)(ident, substConstraints(expr, constraints))
+        TypeAbs(term)(ident, substEqualities(expr, equalities))
       case term @ TypeApp(expr, tpe) =>
-        TypeApp(term)(substConstraints(expr, constraints), tpe)
+        TypeApp(term)(substEqualities(expr, equalities), tpe)
       case term @ Data(ctor, args) =>
-        Data(term)(ctor, args map { substConstraints(_, constraints) })
+        Data(term)(ctor, args map { substEqualities(_, equalities) })
       case term @ Var(_) =>
         term
       case term @ Cases(scrutinee, cases) =>
-        Cases(term)(substConstraints(scrutinee, constraints), cases map { (pattern, expr) => pattern -> substConstraints(expr, constraints) })
+        Cases(term)(substEqualities(scrutinee, equalities), cases map { (pattern, expr) => pattern -> substEqualities(expr, equalities) })
 
-  private def replaceByConstraint(expr: Term, constraints: PatternConstraints): Term =
-    constraints.get(expr) match
-      case Some(pattern) => replaceByConstraint(pattern.asTerm, constraints)
+  private def replaceByEqualities(expr: Term, equalities: Equalities): Term =
+    equalities.pos.get(expr) match
+      case Some(expr) => replaceByEqualities(expr, equalities)
       case None => expr
 
-  def eval(fun: Abs): Result =
-    def complementConstraintsByProperties(constraints: PatternConstraints): Option[PatternConstraints] =
-      PatternConstraints.make(properties.constraints.derive(constraints.toSet)) flatMap { _ unify constraints }
-
-    def evals(exprs: List[Term], constraints: Constraints): Results =
-      exprs.foldLeft(Results(List(Reductions(List.empty, constraints)))) { (results, expr) =>
-        results flatMap { case Reductions(exprs, constraints) =>
-          eval(expr, constraints).reductions map { case Reduction(expr, constraints) =>
-            Reductions(exprs :+ expr, constraints)
+  def eval(fun: Abs, equalities: Equalities = Equalities.empty): Result =
+    def evals(exprs: List[Term], constraints: Constraints, equalities: Equalities): Results =
+      exprs.foldLeft(Results(List(Reductions(List.empty, constraints, equalities)))) { (results, expr) =>
+        results flatMap { case Reductions(exprs, constraints, equalities) =>
+          eval(expr, constraints, equalities).reductions map { case Reduction(expr, constraints, equalities) =>
+            Reductions(exprs :+ expr, constraints, equalities)
           }
         }
       }
 
-    def eval(expr: Term, constraints: Constraints): Result =
-      replaceByConstraint(expr, constraints.pos) match
+    def eval(expr: Term, constraints: Constraints, equalities: Equalities): Result =
+      replaceByEqualities(expr, equalities) match
         case term @ Abs(properties, ident, tpe, expr) =>
-          eval(expr, constraints) map { Abs(term)(properties, ident, tpe, _) }
+          eval(expr, constraints, equalities) map { Abs(term)(properties, ident, tpe, _) }
         case term @ App(properties, expr, arg) =>
-          evals(List(expr, arg), constraints) map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }
+          evals(List(expr, arg), constraints, equalities) map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }
         case term @ TypeAbs(ident, expr) =>
-          eval(expr, constraints) map { TypeAbs(term)(ident, _) }
+          eval(expr, constraints, equalities) map { TypeAbs(term)(ident, _) }
         case term @ TypeApp(expr, tpe) =>
-          eval(expr, constraints) flatMap {
-            case Reduction(TypeAbs(ident, expr), constraints) =>
-              eval(subst(expr, Map(ident -> tpe)), constraints).reductions
-            case Reduction(expr, constraints) =>
-              List(Reduction(TypeApp(term)(expr, tpe), constraints))
+          eval(expr, constraints, equalities) flatMap {
+            case Reduction(TypeAbs(ident, expr), constraints, equalities) =>
+              eval(subst(expr, Map(ident -> tpe)), constraints, equalities).reductions
+            case Reduction(expr, constraints, equalities) =>
+              List(Reduction(TypeApp(term)(expr, tpe), constraints, equalities))
           }
         case term @ Data(ctor, args) =>
-          evals(args, constraints) map { args => Data(term)(ctor, args) }
+          evals(args, constraints, equalities) map { args => Data(term)(ctor, args) }
         case term @ Var(_) =>
-          Result(List(Reduction(term, constraints)))
+          Result(List(Reduction(term, constraints, equalities)))
         case Cases(scrutinee, cases) =>
-          eval(scrutinee, constraints) flatMap { case Reduction(scrutinee, constraints) =>
-            def process(cases: List[(Pattern, Term)], constraints: Constraints): List[Reduction] = cases match
+          eval(scrutinee, constraints, equalities) flatMap { case Reduction(scrutinee, constraints, equalities) =>
+            def process(cases: List[(Pattern, Term)], constraints: Constraints, equalities: Equalities): List[Reduction] = cases match
               case Nil => Nil
               case (pattern, expr) :: tail =>
                 Unification.unify(pattern, scrutinee) match
                   case Unification.Full(substs) =>
-                    eval(subst(expr, substs), constraints).reductions
+                    eval(subst(expr, substs), constraints, equalities).reductions
 
                   case Unification.Irrefutable(substs, posConstraints) =>
-                    val Constraints(pos, neg) = constraints
-                    Unification.unify(posConstraints, pos) flatMap complementConstraintsByProperties flatMap { Constraints.make(_, neg) } match
-                      case Some(constraints) =>
-                        eval(subst(expr, substs), constraints).reductions ++ {
-                          Constraints.make(pos, neg + posConstraints) map {
-                            process(tail, _)
-                          } getOrElse List.empty
+                    val consts = constraints.withPosConstraints(posConstraints)
+                    val equals = equalities.withEqualities(posConstraints) flatMap properties.equalities.derive
+                    (consts, equals) match
+                      case (Some(consts), Some(equals)) =>
+                        eval(subst(expr, substs), consts, equals).reductions ++ {
+                          val consts = constraints.withNegConstraints(posConstraints)
+                          val equals = equalities.withUnequalities(posConstraints)
+                          (consts, equals) match
+                            case (Some(consts), Some(equals)) => process(tail, consts, equals)
+                            case _ => List.empty
                         }
                       case _ =>
-                        process(tail, constraints)
+                        process(tail, constraints, equalities)
 
                   case _ =>
-                    process(tail, constraints)
+                    process(tail, constraints, equalities)
 
-            process(cases, constraints)
+            process(cases, constraints, equalities)
           }
 
-    val result = eval(fun.expr, Constraints.empty)
-    Result(result.reductions map { reduction => reduction map { substConstraints(_, reduction.constraints.pos) } })
+    val result = eval(fun.expr, Constraints.empty, equalities)
+    Result(result.reductions map { reduction => reduction map { substEqualities(_, reduction.equalities) } })
   end eval
 end Symbolic

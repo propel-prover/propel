@@ -4,45 +4,11 @@ package properties
 
 import ast.*
 
-object constraints:
-  def derive(constraints: Set[(Term, Pattern)]): Set[(Term, Pattern)] =
-    def start(
-        constraints: Set[(Term, Pattern)],
-        constraintsOld: Set[(Term, Pattern)],
-        constraintsNew: Set[(Term, Pattern)]): Set[(Term, Pattern)] =
-      if constraintsNew.nonEmpty then
-        val derivedCompound =
-          deriveCompound(constraintsOld, constraintsNew) ++
-          deriveCompound(constraintsNew, constraintsNew)
-        val derived = deriveSimple(constraintsNew ++ derivedCompound) -- constraints
-        derived ++ start(constraints ++ derived, constraintsNew, derived)
-      else
-        Set.empty
-
-    val derivedSimple = deriveSimple(constraints) -- constraints
-    val aggregatedSimple = constraints ++ derivedSimple
-
-    val derivedCompound = deriveCompound(aggregatedSimple, aggregatedSimple) -- aggregatedSimple
-    val aggregatedCompound = aggregatedSimple ++ derivedCompound
-
-    val derived = derivedSimple ++ derivedCompound
-    derived ++ start(aggregatedCompound, aggregatedCompound, derived)
-
-  def deriveSimple(constraints: Set[(Term, Pattern)]): Set[(Term, Pattern)] =
-    Set.empty
-
-  def deriveCompound(constraints0: Set[(Term, Pattern)], constraints1: Set[(Term, Pattern)]): Set[(Term, Pattern)] =
-    (constraints0 collect {
-      case App(properties2, App(properties1, expr, arg1), arg2) -> Match(Constructor.True, List())
-          if properties1.contains(Transitive) =>
-        constraints1 collect {
-          case App(properties, App(`properties1`, expr, `arg2`), arg3) -> Match(Constructor.True, List()) =>
-            App(properties, App(properties1, expr, arg1), arg3) -> Match(Constructor.True, List())
-          case App(properties, App(`properties1`, expr, arg0), `arg1`) -> Match(Constructor.True, List()) =>
-            App(properties, App(properties1, expr, arg0), arg2) -> Match(Constructor.True, List())
-        }
-    }).flatten
-end constraints
+object equalities:
+  def derive(equalities: Equalities): Option[Equalities] =
+    equalities.withEqualities(antisymmetry.derive(equalities) ++ transitivity.derive(equalities)) flatMap { updated =>
+      if updated != equalities then derive(updated) else Some(updated)
+    }
 
 
 object antisymmetry:
@@ -53,23 +19,20 @@ object antisymmetry:
     case _ =>
       fun
 
-  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean = fun match
-    case Abs(_, ident0, _, Abs(_, ident1, _, _)) =>
-      result.reductions forall {
-        case Symbolic.Reduction(Data(Constructor.True, _), _) =>
-          true
-        case Symbolic.Reduction(Data(Constructor.False, _), constraints) =>
-          constraints.pos.get(Var(ident0)) == constraints.pos.get(Var(ident1)) ||
-            (constraints refutable (constraints.pos collect {
-              case App(properties1, App(properties0, expr, arg0), arg1) -> Match(Constructor.True, List())
-                  if properties0.contains(Antisymmetric) =>
-                App(properties1, App(properties0, expr, arg1), arg0) -> Match(Constructor.False, List())
-            }))
-        case _ =>
-          false
-      }
-    case _ =>
-      false
+  def derive(equalities: Equalities): List[(Term, Term)] =
+    equalities.pos.toList collect {
+      case App(properties1, App(properties0, expr, arg0), arg1) -> Data(Constructor.True, List())
+          if properties0.contains(Antisymmetric) && equalities.equal(arg0, arg1) == Equality.Unequal =>
+        App(properties1, App(properties0, expr, arg1), arg0) -> Data(Constructor.False, List())
+    }
+
+  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
+    result.reductions forall {
+      case Symbolic.Reduction(Data(Constructor.True, _), _, _) =>
+        true
+      case _ =>
+        false
+    }
 
 
 object transitivity:
@@ -82,9 +45,23 @@ object transitivity:
     case _ =>
       fun
 
+  def derive(equalities: Equalities): List[(Term, Term)] =
+    (equalities.pos.toList collect {
+      case App(properties2, App(properties1, expr0, arg1), arg2) -> Data(Constructor.True, List())
+          if properties1.contains(Transitive) =>
+        equalities.pos.toList collect {
+          case App(properties, App(`properties1`, expr1, `arg2`), arg3) -> Data(Constructor.True, List())
+              if equivalent(expr0, expr1) =>
+            App(properties, App(properties1, expr1, arg1), arg3) -> Data(Constructor.True, List())
+          case App(properties, App(`properties1`, expr1, arg0), `arg1`) -> Data(Constructor.True, List())
+              if equivalent(expr0, expr1) =>
+            App(properties, App(properties1, expr1, arg0), arg2) -> Data(Constructor.True, List())
+        }
+    }).flatten
+
   def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
     result.reductions forall {
-      case Symbolic.Reduction(Data(Constructor.True, _), _) =>
+      case Symbolic.Reduction(Data(Constructor.True, _), _, _) =>
         true
       case _ =>
         false
@@ -101,7 +78,7 @@ object commutativity:
 
   def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
     result.reductions forall {
-      case Symbolic.Reduction(Data(Constructor(Symbol("≟")), List(arg0, arg1)), _) =>
+      case Symbolic.Reduction(Data(Constructor(Symbol("≟")), List(arg0, arg1)), _, _) =>
         normalize(arg0) == normalize(arg1)
       case _ =>
         false

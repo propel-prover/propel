@@ -105,11 +105,11 @@ def exampleAntisymmAndTransitive(program: Term) =
   {
     println()
     println(s"ANTISYMM CHECK for $name:")
-    val prepared @ Abs(_, _, _, body: Abs) =
+    val prepared @ Abs(_, ident0, _, body @ Abs(_, ident1, _, _)) =
       AlphaConversion.uniqueNames(properties.antisymmetry.prepare(fun)).expr
     println(body.show)
 
-    val result = eval(name, body)
+    val result = eval(name, body, Equalities.make(List(List(Var(ident0) -> Var(ident1)))).get)
 
     println()
     println(s"ANTISYMM CHECK for $name:")
@@ -168,7 +168,7 @@ def exampleCommutative(program: Term) =
   }
 
 
-def eval(name: String, body: Abs) =
+def eval(name: String, body: Abs, equalities: Equalities = Equalities.empty) =
   def parenthesize(value: Term | Pattern) = value match
     case value @ (Bind(_) | Match(_, List())) => value.show
     case value @ (Var(_) | Data(_, List())) => value.show
@@ -178,16 +178,22 @@ def eval(name: String, body: Abs) =
   println()
   println(s"SYMBOL EVAL for $name:")
 
-  val result = Symbolic.eval(body)
+  val result = Symbolic.eval(body, equalities)
 
-  println((result.reductions map { case Symbolic.Reduction(expr, Symbolic.Constraints(pos, neg)) =>
-    "• " + expr.show + "\n" +
+  println((result.reductions map { case Symbolic.Reduction(expr, Symbolic.Constraints(pos, neg), eqs @ Equalities(eq, ne)) =>
+    "• " + expr.show + "\n  Pattern Constraints\n" +
     (pos map { (expr, pattern) =>
       parenthesize(expr) + "≔" + parenthesize(pattern)
-    }).mkString("  pos: {", ", ", "}\n") +
+    }).toList.sorted.mkString("   pos: {", ", ", "}\n") +
     (neg map { neg =>
-      (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).mkString("{", ", ", "}")
-    }).mkString("  neg: {", ", ", "}")
+      (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).toList.sorted.mkString("{", ", ", "}")
+    }).toList.sorted.mkString("   neg: {", ", ", "}\n  Equalities\n") +
+    (eq map { (expr0, expr1) =>
+      parenthesize(expr0) + "≡" + parenthesize(expr1)
+    }).toList.sorted.mkString("   pos: {", ", ", "}\n") +
+    (ne map { neg =>
+      (neg map { (expr0, expr1) => parenthesize(expr0) + "≡" + parenthesize(expr1) }).toList.sorted.mkString("{", ", ", "}")
+    }).toList.sorted.mkString("   neg: {", ", ", "}")
   }).mkString("\n\n"))
 
   result
