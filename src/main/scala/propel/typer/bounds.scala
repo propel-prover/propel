@@ -22,9 +22,6 @@ inline def simplify(tpe: Type): Option[Type] =
 inline def wellFormed(tpe: Type): Boolean =
   normalize(tpe).isDefined
 
-inline def equivalent(tpe0: Type, tpe1: Type): Boolean =
-  normalize(tpe0) exists { tpe0 => normalize(tpe1) exists { equal(tpe0, _) } }
-
 def equal(tpe0: Type, tpe1: Type): Boolean =
   if tpe0 ne tpe1 then tpe0 -> tpe1 match
     case Function(arg0, result0) -> Function(arg1, result1) =>
@@ -89,8 +86,8 @@ private object Sums:
   def equal(sum0: Sum, sum1: Sum): Boolean =
     def flag(sum: FlaggedSum, element: Element): (FlaggedSum, Boolean) = sum match
       case sumElement -> sumElementFlagged :: tail =>
-        let(equal(sumElement, element), flag(tail, element)) { case (equivalent, (tail, flagged)) =>
-          (sumElement -> (equivalent || sumElementFlagged) :: tail) -> (equivalent || flagged)
+        let(equal(sumElement, element), flag(tail, element)) { case (equal, (tail, flagged)) =>
+          (sumElement -> (equal || sumElementFlagged) :: tail) -> (equal || flagged)
         }
       case _ =>
         Nil -> false
