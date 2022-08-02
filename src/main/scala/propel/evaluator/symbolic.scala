@@ -14,7 +14,8 @@ object Symbolic:
       withNegConstraints(Set(neg))
 
     def withNegConstraints(neg: Set[PatternConstraints]): Option[Constraints] =
-      Option.when(!refutablePosNeg(this.pos, neg) && !refutableNegTyped(neg))(Constraints(this.pos, this.neg ++ neg))
+      val negConstraints = this.neg ++ neg
+      Option.when(!refutablePosNeg(this.pos, neg) && !refutableNegTyped(negConstraints))(Constraints(this.pos, negConstraints))
 
     private def refutablePosNeg(pos: PatternConstraints, neg: Set[PatternConstraints]) =
       neg exists {
