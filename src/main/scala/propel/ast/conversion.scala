@@ -29,13 +29,13 @@ object AlphaConversion:
           Match(pattern)(ctor, args) -> substs.fold(Map.empty) { _ ++ _ }
         }
       case Bind(ident) =>
-        val fresh = Util.freshIdent(ident, names.used)
+        val fresh = Naming.freshIdent(ident, names.used)
         names.used += fresh.name
         Bind(pattern)(fresh) -> Map(ident -> fresh)
 
     def renameTerm(term: Term, subst: Map[Symbol, Symbol]): Term = term match
       case Abs(properties, ident, tpe, expr) =>
-        val fresh = Util.freshIdent(ident, names.used)
+        val fresh = Naming.freshIdent(ident, names.used)
         names.used += fresh.name
         Abs(term)(properties, fresh, tpe, renameTerm(expr, subst + (ident -> fresh)))
       case App(properties, expr, arg) =>

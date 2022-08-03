@@ -2,7 +2,6 @@ package propel
 package evaluator
 
 import ast.*
-import scala.annotation.targetName
 
 enum Equality:
   case Equal
@@ -90,6 +89,9 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
   def withEqualities(pos: PatternConstraints): Option[Equalities] =
     withEqualities(pos.iterator map { _ -> _.asTerm })
+
+  def withEqualities(pos: (Term, Term)): Option[Equalities] =
+    withEqualities(Iterator(pos))
 
   def withEqualities(pos: IterableOnce[(Term, Term)]): Option[Equalities] =
     val iterator = pos.iterator
@@ -197,14 +199,9 @@ end Equalities
 object Equalities:
   def empty =
     Equalities(Map.empty, Set.empty)
-
   def make(pos: IterableOnce[(Term, Term)], neg: IterableOnce[IterableOnce[(Term, Term)]]) =
     empty.withEqualities(pos) flatMap { _.withUnequalities(neg) }
-
-  @targetName("makePos")
-  def make(pos: IterableOnce[(Term, Term)]) =
+  def pos(pos: IterableOnce[(Term, Term)]) =
     empty.withEqualities(pos)
-
-  @targetName("makeNeg")
-  def make(neg: IterableOnce[IterableOnce[(Term, Term)]]) =
+  def neg(neg: IterableOnce[IterableOnce[(Term, Term)]]) =
     empty.withUnequalities(neg)

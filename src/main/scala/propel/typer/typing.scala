@@ -9,6 +9,10 @@ import util.*
 extension (expr: Term)
   inline def typed: (Term, Option[Type]) =
     let(expr.withIntrinsicInfo(Typing.Term)) { case expr -> Typing(tpe) => expr -> tpe }
+  inline def termType: Option[Type] =
+    let(expr.withIntrinsicInfo(Typing.Term)) { case _ -> Typing(tpe) => tpe }
+  inline def typedTerm: Term =
+    let(expr.withIntrinsicInfo(Typing.Term)) { case expr -> _ => expr }
   def untyped: Term = Typing.Term.strip(expr) match
     case term @ Abs(properties, ident, tpe, expr) => Abs(term)(properties, ident, tpe, expr.untyped)
     case term @ App(properties, expr, arg) => App(term)(properties, expr.untyped, arg.untyped)
@@ -21,6 +25,10 @@ extension (expr: Term)
 extension (pattern: Pattern)
   inline def typed: (Pattern, Option[Type]) =
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case pattern -> Typing(tpe) => pattern -> tpe }
+  inline def termType: Option[Type] =
+    let(pattern.withIntrinsicInfo(Typing.Pattern)) { case _ -> Typing(tpe) => tpe }
+  inline def typedPattern: Pattern =
+    let(pattern.withIntrinsicInfo(Typing.Pattern)) { case pattern -> _ => pattern }
   def untyped: Pattern = Typing.Pattern.strip(pattern) match
     case pattern @ Match(ctor, args) => Match(pattern)(ctor, args map { _.untyped })
     case pattern @ Bind(_) => pattern

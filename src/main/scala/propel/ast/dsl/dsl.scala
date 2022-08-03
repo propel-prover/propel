@@ -81,8 +81,8 @@ def letrec[A: BindingExpr, B: TermExpr](binding: A)(expr: B): Term =
     info.freeVars map { (ident, _) => ident.name }
   }).toSet
 
-  val recName = Util.freshIdent("rec", free)
-  val wildcardName = Util.freshIdent("_", free)
+  val recName = Naming.freshIdent("rec", free)
+  val wildcardName = Naming.freshIdent("_", free)
 
   val tuple = Constructor(Symbol("Tuple"))
   val pattern = Match(tuple, idents map { Bind(_) })

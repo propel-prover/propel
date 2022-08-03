@@ -4,105 +4,83 @@ package properties
 
 import ast.*
 
-object equalities:
-  def derive(equalities: Equalities): Option[Equalities] =
-    equalities.withEqualities(antisymmetry.derive(equalities) ++ transitivity.derive(equalities)) flatMap { updated =>
-      if updated != equalities then derive(updated) else Some(updated)
-    }
+
+val propertiesChecking = Map(
+  Antisymmetric -> antisymmetry,
+  Transitive -> transitivity,
+  Commutative -> commutativity)
+
+val derivingSimple = (propertiesChecking.values collect { case property: PropertyChecking.Simple => property.deriveSimple }).toList
+
+val derivingCompound = (propertiesChecking.values collect { case property: PropertyChecking.Compound => property.deriveCompound }).toList
+
+val normalizing = (propertiesChecking.values collect { case property: PropertyChecking.Normal => property.normalize }).toList
 
 
-object antisymmetry:
-  def prepare(fun: Abs): Abs = fun match
-    case Abs(_, ident0, tpe0, Abs(_, ident1, tpe1, expr)) =>
-      val reversed = subst(expr, Map(ident0 -> Var(ident1), ident1 -> Var(ident0)))
-      Abs(Set.empty, ident0, tpe0, Abs(Set.empty, ident1, tpe0, Util.implies(expr, Util.not(reversed))))
-    case _ =>
-      fun
+object antisymmetry
+    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    with PropertyChecking.Simple with PropertyChecking.Compound:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val ab = subst(expr, Map(ident0 -> varA, ident1 -> varB))
+    val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
+    implies(ab, not(ba)) -> Equalities.neg(List(List(varA -> varB))).get
 
-  def derive(equalities: Equalities): List[(Term, Term)] =
-    equalities.pos.toList collect {
-      case App(properties1, App(properties0, expr, arg0), arg1) -> Data(Constructor.True, List())
-          if properties0.contains(Antisymmetric) && equalities.equal(arg0, arg1) == Equality.Unequal =>
-        App(properties1, App(properties0, expr, arg1), arg0) -> Data(Constructor.False, List())
-    }
-
-  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
-    result.reductions forall {
-      case Symbolic.Reduction(Data(Constructor.True, _), _, _) =>
-        true
-      case _ =>
-        false
-    }
-
-
-object transitivity:
-  def prepare(fun: Abs): Abs = fun match
-    case Abs(_, ident0, tpe0, Abs(_, ident1, tpe1, expr)) =>
-      val ab = subst(expr, Map(ident0 -> Var(Symbol("a")), ident1 -> Var(Symbol("b"))))
-      val bc = subst(expr, Map(ident0 -> Var(Symbol("b")), ident1 -> Var(Symbol("c"))))
-      val ac = subst(expr, Map(ident0 -> Var(Symbol("a")), ident1 -> Var(Symbol("c"))))
-      Abs(Set.empty, Symbol("a"), tpe0, Abs(Set.empty, Symbol("b"), tpe0, Abs(Set.empty, Symbol("c"), tpe0, Util.implies(Util.and(ab, bc), ac))))
-    case _ =>
-      fun
-
-  def derive(equalities: Equalities): List[(Term, Term)] =
-    (equalities.pos.toList collect {
-      case App(properties2, App(properties1, expr0, arg1), arg2) -> Data(Constructor.True, List())
-          if properties1.contains(Transitive) =>
-        equalities.pos.toList collect {
-          case App(properties, App(`properties1`, expr1, `arg2`), arg3) -> Data(Constructor.True, List())
-              if equivalent(expr0, expr1) =>
-            App(properties, App(properties1, expr1, arg1), arg3) -> Data(Constructor.True, List())
-          case App(properties, App(`properties1`, expr1, arg0), `arg1`) -> Data(Constructor.True, List())
-              if equivalent(expr0, expr1) =>
-            App(properties, App(properties1, expr1, arg0), arg2) -> Data(Constructor.True, List())
-        }
-    }).flatten
-
-  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
-    result.reductions forall {
-      case Symbolic.Reduction(Data(Constructor.True, _), _, _) =>
-        true
-      case _ =>
-        false
-    }
+  def deriveCompound(equalities: Equalities) =
+    case (App(_, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
+          App(_, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
+        if properties0.contains(Antisymmetric) &&
+           properties1.contains(Antisymmetric) &&
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           equalities.equal(arg0a, arg1b) == Equality.Equal &&
+           equalities.equal(arg0b, arg1a) == Equality.Equal &&
+           equalities.equal(arg0a, arg0b) != Equality.Equal =>
+      arg0a -> arg0b
+          
+  def deriveSimple(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
+        if properties.contains(Antisymmetric) &&
+           equalities.equal(arg0, arg1) == Equality.Unequal =>
+      App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())
+end antisymmetry
 
 
-object commutativity:
-  def prepare(fun: Abs): Abs = fun match
-    case Abs(_, ident0, tpe0, Abs(_, ident1, tpe1, expr)) =>
-      val reversed = subst(expr, Map(ident0 -> Var(ident1), ident1 -> Var(ident0)))
-      Abs(Set.empty, ident0, tpe0, Abs(Set.empty, ident1, tpe0, Data(Constructor(Symbol("≟")), List(expr, reversed))))
-    case _ =>
-      fun
+object transitivity
+    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    with PropertyChecking.Compound:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val ab = subst(expr, Map(ident0 -> varA, ident1 -> varB))
+    val bc = subst(expr, Map(ident0 -> varB, ident1 -> varC))
+    val ac = subst(expr, Map(ident0 -> varA, ident1 -> varC))
+    implies(and(ab, bc), ac) -> Equalities.empty
 
-  def check(name: String, fun: Abs, result: Symbolic.Result): Boolean =
-    result.reductions forall {
-      case Symbolic.Reduction(Data(Constructor(Symbol("≟")), List(arg0, arg1)), _, _) =>
-        normalize(arg0) == normalize(arg1)
-      case _ =>
-        false
-    }
+  def deriveCompound(equalities: Equalities) =
+    case (App(props0, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
+          App(props1, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
+        if properties0.contains(Transitive) &&
+           properties1.contains(Transitive) &&
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           equalities.equal(arg0b, arg1a) == Equality.Equal =>
+      App(props0, App(properties0, expr0, arg0a), arg1b) -> Data(Constructor.True, List())
+    case (App(props0, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
+          App(props1, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
+        if properties0.contains(Transitive) &&
+           properties1.contains(Transitive) &&
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           equalities.equal(arg1b, arg0a) == Equality.Equal =>
+      App(props0, App(properties0, expr0, arg1a), arg0b) -> Data(Constructor.True, List())
+end transitivity
 
-  def normalize(term: Term): Term = term match
-    case Abs(properties, ident, tpe, expr) =>
-      Abs(term)(properties, ident, tpe, normalize(expr))
-    case App(properties1, App(properties0, expr, arg0), arg1) if properties0.contains(Commutative) =>
-      val normalizedArg0 = normalize(arg0)
-      val normalizedArg1 = normalize(arg1)
-      if normalizedArg0 < normalizedArg1 then
-        App(term)(properties1, App(properties0, normalize(expr), normalizedArg0), normalizedArg1)
-      else
-        App(term)(properties1, App(properties0, normalize(expr), normalizedArg1), normalizedArg0)
-    case App(properties, expr, arg) =>
-      App(term)(properties, normalize(expr), normalize(arg))
-    case TypeAbs(ident, expr) =>
-      TypeAbs(term)(ident, normalize(expr))
-    case TypeApp(expr, tpe) =>
-      TypeApp(term)(normalize(expr), tpe)
-    case Data(ctor, args) =>
-      Data(term)(ctor, args map normalize)
-    case Var(_) =>
-      term
-    case Cases(scrutinee, cases) =>
-      Cases(term)(normalize(scrutinee), cases map { (pattern, expr) => pattern -> normalize(expr) })
+
+object commutativity
+    extends PropertyChecking with PropertyChecking.FunctionEqualResult
+    with PropertyChecking.Normal:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val ab = subst(expr, Map(ident0 -> varA, ident1 -> varB))
+    val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
+    Data(equalDataConstructor, List(ab, ba)) -> Equalities.empty
+
+  def normalize(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1)
+        if properties.contains(Commutative) && arg1 < arg0 =>
+      App(props, App(properties, expr, arg1), arg0)
+end commutativity

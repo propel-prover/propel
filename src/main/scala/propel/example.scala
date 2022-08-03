@@ -67,133 +67,29 @@ def orderlist[A: TermExpr](expr: A) =
 
 def map[A: TermExpr](expr: A) =
   letrec(
-    "map" -> forall("T", "U", "R")(("T" -> ("U" -> "R")) -> (list("T") -> (list("U") -> list("R")))) ->
-      tpabs("T", "U", "R")(abs(comm)("f" -> tp("T" -> ("U" -> "R")), "a" -> list("T"), "b" -> list("U"))(cases("Pair", "a", "b")(
+    "map" -> forall("T")(("T" -> ("T" -> "T")) -> (list("T") -> (list("T") -> list("T")))) ->
+      tpabs("T")(abs("f" -> tp("T" -> ("T" -> "T")))(abs(comm)("a" -> list("T"), "b" -> list("T"))(cases("Pair", "a", "b")(
         ("Pair", ("Cons", "x", "xs"), ("Cons", "y", "ys")) ->
-          ("Cons", app(comm)("f", "x", "y"), app(comm)((tpapp("map")(tp("T"), tp("U"), tp("R")), "f"), "xs", "ys")),
+          ("Cons", app(comm)("f", "x", "y"), app(comm)((tpapp("map")(tp("T")), "f"), "xs", "ys")),
         ("_") ->
-          "Nil"))))(
+          "Nil")))))(
     expr)
 
 
 @main def example =
-  exampleAntisymmAndTransitive(ordernat("Z"))
-  exampleAntisymmAndTransitive(orderlist("Z"))
-  exampleCommutative(min("Z"))
-  exampleCommutative(max("Z"))
-  exampleCommutative(map("Z"))
+  def check(expr: Term) =
+    val result = properties.check(expr, printDebugInfo = true)
+    val errors = result.showErrors
+    if errors.nonEmpty then
+      println()
+      println(errors)
 
-
-def exampleAntisymmAndTransitive(program: Term) =
+  check(ordernat("Z"))
   println()
-  println("PROGRAM:")
-
-  val (typedProgram @ Cases(
-    App(_, App(_, _, Abs(_, _, _,Abs(_, _, _, Data(_, List(fun: Abs))))), _),
-    List(Match(_, List(Bind(Symbol(name)))) -> _)), tpe) = program.typed
-
-  println(program.show)
-
-  if tpe.isEmpty then
-    println()
-    println(typedProgram.showErrors)
-
+  check(orderlist("Z"))
   println()
-  println("TYPE:")
-  println(fun.info(Typing.Term).flatMap(_.tpe.map(_.show)))
-
-  {
-    println()
-    println(s"ANTISYMM CHECK for $name:")
-    val prepared @ Abs(_, ident0, _, body @ Abs(_, ident1, _, _)) =
-      AlphaConversion.uniqueNames(properties.antisymmetry.prepare(fun)).expr
-    println(body.show)
-
-    val result = eval(name, body, Equalities.make(List(List(Var(ident0) -> Var(ident1)))).get)
-
-    println()
-    println(s"ANTISYMM CHECK for $name:")
-    println(if properties.antisymmetry.check(name, prepared, result) then "✔ true" else "✘ false")
-  }
-
-  {
-    println()
-    println(s"TRANS CHECK for $name:")
-    val prepared @ Abs(_, _, _, Abs(_, _, _, body: Abs)) =
-      AlphaConversion.uniqueNames(properties.transitivity.prepare(fun)).expr
-    println(body.show)
-
-    val result = eval(name, body)
-
-    println()
-    println(s"TRANS CHECK for $name:")
-    println(if properties.transitivity.check(name, prepared, result) then "✔ true" else "✘ false")
-  }
-
-
-def exampleCommutative(program: Term) =
+  check(min("Z"))
   println()
-  println("PROGRAM:")
-
-  val (typedProgram @ Cases(
-    App(_, App(_, _, Abs(_, _, _,Abs(_, _, _, Data(_, List(definition))))), _),
-    List(Match(_, List(Bind(Symbol(name)))) -> _)), tpe) = program.typed
-
-  val fun = (definition: @unchecked) match
-    case fun: Abs => fun
-    case TypeAbs(_, TypeAbs(_, TypeAbs(_, Abs(_, _, _, fun: Abs)))) => fun
-
-  println(program.show)
-
-  if tpe.isEmpty then
-    println()
-    println(typedProgram.showErrors)
-
+  check(max("Z"))
   println()
-  println("TYPE:")
-  println(definition.info(Typing.Term).flatMap(_.tpe.map(_.show)))
-
-  {
-    println()
-    println(s"COMM CHECK for $name:")
-    val prepared @ Abs(_, _, _, body: Abs) =
-      AlphaConversion.uniqueNames(properties.commutativity.prepare(fun)).expr
-    println(body.show)
-
-    val result = eval(name, body)
-
-    println()
-    println(s"COMM CHECK for $name:")
-    println(if properties.commutativity.check(name, prepared, result) then "✔ true" else "✘ false")
-  }
-
-
-def eval(name: String, body: Abs, equalities: Equalities = Equalities.empty) =
-  def parenthesize(value: Term | Pattern) = value match
-    case value @ (Bind(_) | Match(_, List())) => value.show
-    case value @ (Var(_) | Data(_, List())) => value.show
-    case value: Term => s"(${value.show})"
-    case value: Pattern => s"(${value.show})"
-
-  println()
-  println(s"SYMBOL EVAL for $name:")
-
-  val result = Symbolic.eval(body, equalities)
-
-  println((result.reductions map { case Symbolic.Reduction(expr, Symbolic.Constraints(pos, neg), eqs @ Equalities(eq, ne)) =>
-    "• " + expr.show + "\n  Pattern Constraints\n" +
-    (pos map { (expr, pattern) =>
-      parenthesize(expr) + "≔" + parenthesize(pattern)
-    }).toList.sorted.mkString("   pos: {", ", ", "}\n") +
-    (neg map { neg =>
-      (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).toList.sorted.mkString("{", ", ", "}")
-    }).toList.sorted.mkString("   neg: {", ", ", "}\n  Equalities\n") +
-    (eq map { (expr0, expr1) =>
-      parenthesize(expr0) + "≡" + parenthesize(expr1)
-    }).toList.sorted.mkString("   pos: {", ", ", "}\n") +
-    (ne map { neg =>
-      (neg map { (expr0, expr1) => parenthesize(expr0) + "≡" + parenthesize(expr1) }).toList.sorted.mkString("{", ", ", "}")
-    }).toList.sorted.mkString("   neg: {", ", ", "}")
-  }).mkString("\n\n"))
-
-  result
+  check(map("Z"))

@@ -26,14 +26,14 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
           }
           let(converted) { (args, substs, bindings, used) => (Match(pattern)(ctor, args.reverse), substs, bindings, used) }
         case Bind(ident) if free contains ident =>
-          val fresh = Util.freshIdent(ident, used)
+          val fresh = Naming.freshIdent(ident, used)
           (Bind(pattern)(fresh), Map(ident -> Var(fresh)), Set.empty, used + fresh.name)
         case Bind(ident) =>
           (pattern, Map.empty, Set(ident), used)
 
       def subst(term: Term, used: Set[String], substs: TermSubstitutions): Term = term match
         case Abs(properties, ident, tpe, expr) if free contains ident =>
-          val fresh = Util.freshIdent(ident, used)
+          val fresh = Naming.freshIdent(ident, used)
           Abs(term)(properties, fresh, tpe, subst(expr, used + fresh.name, substs + (ident -> Var(fresh))))
         case Abs(properties, ident, tpe, expr) =>
           Abs(term)(properties, ident, tpe, subst(expr, used, substs - ident))
@@ -103,12 +103,12 @@ def subst(tpe: Type, substs: TypeSubstitutions): Type =
         case Function(arg, result) =>
           Function(tpe)(subst(arg, used, substs), subst(result, used, substs))
         case Universal(ident, result) if free contains ident =>
-          val fresh = Util.freshIdent(ident, used)
+          val fresh = Naming.freshIdent(ident, used)
           Universal(tpe)(fresh, subst(result, used + fresh.name, substs + (ident -> TypeVar(fresh))))
         case Universal(ident, result) =>
           Universal(tpe)(ident, subst(result, used, substs - ident))
         case Recursive(ident, result) if free contains ident =>
-          val fresh = Util.freshIdent(ident, used)
+          val fresh = Naming.freshIdent(ident, used)
           Recursive(tpe)(fresh, subst(result, used + fresh.name, substs + (ident -> TypeVar(fresh))))
         case Recursive(ident, result) =>
           Recursive(tpe)(ident, subst(result, used, substs - ident))
@@ -138,7 +138,7 @@ def subst(expr: Term, substs: TypeSubstitutions): Term =
         case Abs(properties, ident, tpe, expr) =>
           Abs(term)(properties, ident, ast.subst(tpe, substs), subst(expr, used, substs))
         case TypeAbs(ident, expr) if free contains ident =>
-          val fresh = Util.freshIdent(ident, used)
+          val fresh = Naming.freshIdent(ident, used)
           TypeAbs(term)(fresh, subst(expr, used + fresh.name, substs + (ident -> TypeVar(fresh))))
         case TypeAbs(ident, expr) =>
           TypeAbs(term)(ident, subst(expr, used, substs - ident))

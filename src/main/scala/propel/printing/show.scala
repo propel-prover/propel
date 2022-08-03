@@ -53,3 +53,26 @@ extension (error: (Type | Pattern | Term, Error)) def show(tree: Type | Pattern 
 
 extension (construct: Type | Pattern | Term) def showErrors: String =
   (construct.errors map { _.show(construct) }).mkString(s"${System.lineSeparator}${System.lineSeparator}")
+
+extension (result: evaluator.Symbolic.Result) def show: String =
+  def parenthesize(value: Term | Pattern) = value match
+    case value @ (Bind(_) | Match(_, List())) => value.show
+    case value @ (Var(_) | Data(_, List())) => value.show
+    case value: Term => s"(${value.show})"
+    case value: Pattern => s"(${value.show})"
+
+  (result.reductions map { case evaluator.Symbolic.Reduction(expr, constraints, equalities) =>
+    "• " + expr.show + "\n  Pattern Constraints\n" +
+    (constraints.pos map { (expr, pattern) =>
+      parenthesize(expr) + "≔" + parenthesize(pattern)
+    }).toList.sorted.mkString("   pos: {", ", ", "}\n") +
+    (constraints.neg map { neg =>
+      (neg map { (expr, pattern) => parenthesize(expr) + "≔" + parenthesize(pattern) }).toList.sorted.mkString("{", ", ", "}")
+    }).toList.sorted.mkString("   neg: {", ", ", "}\n  Equalities\n") +
+    (equalities.pos map { (expr0, expr1) =>
+      parenthesize(expr0) + "≡" + parenthesize(expr1)
+    }).toList.sorted.mkString("   pos: {", ", ", "}\n") +
+    (equalities.neg map { neg =>
+      (neg map { (expr0, expr1) => parenthesize(expr0) + "≡" + parenthesize(expr1) }).toList.sorted.mkString("{", ", ", "}")
+    }).toList.sorted.mkString("   neg: {", ", ", "}")
+  }).mkString("\n\n")
