@@ -74,6 +74,23 @@ object Symbolic:
     private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints, reductions.equalities)
     private inline def flatMap(f: Term => List[Term]): Reductions = reductions.copy(exprs = reductions.exprs flatMap f)
 
+  private def normalize(expr: Term, equalities: Equalities): Term =
+    properties.normalize(expr, equalities) match
+      case term @ Abs(properties, ident, tpe, expr) =>
+        Abs(term)(properties, ident, tpe, normalize(expr, equalities))
+      case term @ App(properties, expr, arg) =>
+        App(term)(properties, normalize(expr, equalities), normalize(arg, equalities))
+      case term @ TypeAbs(ident, expr) =>
+        TypeAbs(term)(ident, normalize(expr, equalities))
+      case term @ TypeApp(expr, tpe) =>
+        TypeApp(term)(normalize(expr, equalities), tpe)
+      case term @ Data(ctor, args) =>
+        Data(term)(ctor, args map { normalize(_, equalities) })
+      case term @ Var(_) =>
+        term
+      case term @ Cases(scrutinee, cases) =>
+        Cases(term)(normalize(scrutinee, equalities), cases map { (pattern, expr) => pattern -> normalize(expr, equalities) })
+
   private def substEqualities(expr: Term, equalities: Equalities): Term =
     replaceByEqualities(expr, equalities) match
       case term @ Abs(properties, ident, tpe, expr) =>
@@ -157,6 +174,8 @@ object Symbolic:
           }
 
     val result = eval(expr, Constraints.empty, equalities)
-    Result(result.reductions map { reduction => reduction map { substEqualities(_, reduction.equalities) } })
+    Result(result.reductions map { reduction =>
+      reduction map { expr => normalize(substEqualities(expr, reduction.equalities), reduction.equalities) }
+    })
   end eval
 end Symbolic

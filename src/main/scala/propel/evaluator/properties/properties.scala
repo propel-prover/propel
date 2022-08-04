@@ -8,7 +8,8 @@ import ast.*
 val propertiesChecking = Map(
   Antisymmetric -> antisymmetry,
   Transitive -> transitivity,
-  Commutative -> commutativity)
+  Commutative -> commutativity,
+  Associative -> associativity)
 
 val derivingSimple = (propertiesChecking.values collect { case property: PropertyChecking.Simple => property.deriveSimple }).toList
 
@@ -84,3 +85,27 @@ object commutativity
         if properties.contains(Commutative) && arg1 < arg0 =>
       App(props, App(properties, expr, arg1), arg0)
 end commutativity
+
+
+object associativity
+    extends PropertyChecking with PropertyChecking.FunctionEqualResult
+    with PropertyChecking.Normal:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val a_bc = subst(expr, Map(ident0 -> varA, ident1 -> subst(expr, Map(ident0 -> varB, ident1 -> varC))))
+    val ab_c = subst(expr, Map(ident0 -> subst(expr, Map(ident0 -> varA, ident1 -> varB)), ident1 -> varC))
+    Data(equalDataConstructor, List(a_bc, ab_c)) -> Equalities.empty
+
+  def normalize(equalities: Equalities) =
+    case App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
+        if properties0.contains(Associative) &&
+           properties1.contains(Associative) &&
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           arg2 < arg0 =>
+      App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
+    case App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
+        if properties0.contains(Associative) &&
+           properties1.contains(Associative) &&
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           arg0 < arg2 =>
+      App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
+end associativity

@@ -26,15 +26,15 @@ def merge[A: TermExpr](expr: A) =
 
 def min[A: TermExpr](expr: A) =
   letrec(
-    "min" -> tp(nat -> (nat -> nat)) -> abs(comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
-      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(comm)("min", "a", "b")),
+    "min" -> tp(nat -> (nat -> nat)) -> abs(assoc, comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
+      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(assoc, comm)("min", "a", "b")),
       ("_") -> "Z")))(
     expr)
 
 def max[A: TermExpr](expr: A) =
   letrec(
-    "max" -> tp(nat -> (nat -> nat)) -> abs(comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
-      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(comm)("max", "a", "b")),
+    "max" -> tp(nat -> (nat -> nat)) -> abs(assoc, comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
+      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(assoc, comm)("max", "a", "b")),
       ("Pair", "a", "Z") -> "a",
       ("Pair", "Z", "a") -> "a")))(
     expr)
@@ -75,6 +75,15 @@ def map[A: TermExpr](expr: A) =
           "Nil")))))(
     expr)
 
+def plus[A: TermExpr](expr: A) =
+  letrec(
+    "+" -> tp(nat -> (nat -> nat)) ->
+      abs(assoc, comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
+        ("Pair", "Z", "b") -> "b",
+        ("Pair", "a", "Z") -> "a",
+        ("Pair", ("S", "a"), ("S", "b")) -> ("S", ("S", app(assoc, comm)("+", "a", "b")))))) (
+    expr)
+
 
 @main def example =
   def check(expr: Term) =
@@ -93,3 +102,5 @@ def map[A: TermExpr](expr: A) =
   check(max("Z"))
   println()
   check(map("Z"))
+  println()
+  check(plus("Z"))
