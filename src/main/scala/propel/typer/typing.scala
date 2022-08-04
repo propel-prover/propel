@@ -13,14 +13,8 @@ extension (expr: Term)
     let(expr.withIntrinsicInfo(Typing.Term)) { case _ -> Typing(tpe) => tpe }
   inline def typedTerm: Term =
     let(expr.withIntrinsicInfo(Typing.Term)) { case expr -> _ => expr }
-  def untyped: Term = Typing.Term.strip(expr) match
-    case term @ Abs(properties, ident, tpe, expr) => Abs(term)(properties, ident, tpe, expr.untyped)
-    case term @ App(properties, expr, arg) => App(term)(properties, expr.untyped, arg.untyped)
-    case term @ TypeAbs(ident, expr) => TypeAbs(term)(ident, expr.untyped)
-    case term @ TypeApp(expr, tpe) => TypeApp(term)(expr.untyped, tpe)
-    case term @ Data(ctor, args) => Data(term)(ctor, args map { _.untyped })
-    case term @ Var(_) => term
-    case term @ Cases(scrutinee, cases) => Cases(term)(scrutinee.untyped, cases map { (pattern, expr) => pattern.untyped -> expr.untyped })
+  inline def untyped: Term =
+    Typing.Term.strip(expr)
 
 extension (pattern: Pattern)
   inline def typed: (Pattern, Option[Type]) =
@@ -29,10 +23,8 @@ extension (pattern: Pattern)
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case _ -> Typing(tpe) => tpe }
   inline def typedPattern: Pattern =
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case pattern -> _ => pattern }
-  def untyped: Pattern = Typing.Pattern.strip(pattern) match
-    case pattern @ Match(ctor, args) => Match(pattern)(ctor, args map { _.untyped })
-    case pattern @ Bind(_) => pattern
-
+  inline def untyped: Pattern =
+    Typing.Pattern.strip(pattern)
 
 case class Typing(tpe: Option[Type]) extends Enrichment(Typing)
 
@@ -85,7 +77,9 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
     case construct: Term => Term.make(construct)
 
   object Pattern extends Enrichment.Intrinsic[Pattern, Typing]:
-    def strip(pattern: Pattern) = pattern.withoutInfo(Typing, Specified, Context)
+    def strip(pattern: Pattern): Pattern = pattern.withoutInfo(Typing, Specified, Context) match
+      case pattern @ Match(ctor, args) => Match(pattern)(ctor, args map strip)
+      case pattern @ Bind(_) => pattern
 
     def make(pattern: Pattern) =
       val tpe = pattern.info(Specified) flatMap { _.tpe.toOption }
@@ -124,7 +118,16 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
   end Pattern
 
   object Term extends Enrichment.Intrinsic[Term, Typing]:
-    def strip(expr: Term) = expr.withoutInfo(Typing, Specified, Context)
+    def strip(expr: Term): Term = expr.withoutInfo(Typing, Specified, Context) match
+      case term @ Abs(properties, ident, tpe, expr) => Abs(term)(properties, ident, tpe, strip(expr))
+      case term @ App(properties, expr, arg) => App(term)(properties, strip(expr), strip(arg))
+      case term @ TypeAbs(ident, expr) => TypeAbs(term)(ident, strip(expr))
+      case term @ TypeApp(expr, tpe) => TypeApp(term)(strip(expr), tpe)
+      case term @ Data(ctor, args) => Data(term)(ctor, args map strip)
+      case term @ Var(_) => term
+      case term @ Cases(scrutinee, cases) => Cases(term)(strip(scrutinee), cases map { (pattern, expr) =>
+        Pattern.strip(pattern) -> strip(expr)
+      })
 
     def make(expr: Term) =
       val context = expr.info(Context) getOrElse Context(Map.empty, Set.empty)

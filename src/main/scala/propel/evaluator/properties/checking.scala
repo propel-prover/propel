@@ -80,9 +80,9 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
               if printDebugInfo then
                 println()
                 if successful then
-                  println(indent(4, s"✔ ${property.show} property proven".toUpperCase))
+                  println(indent(4, s"✔ ${property.show} property proven".toUpperCase.nn))
                 else
-                  println(indent(4, s"✘ ${property.show} property could not be proven".toUpperCase))
+                  println(indent(4, s"✘ ${property.show} property could not be proven".toUpperCase.nn))
 
               Option.when(!successful)(propertyDeductionError(property))
       }

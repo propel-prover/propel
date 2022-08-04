@@ -16,7 +16,7 @@ object Concrete:
       term
     case App(properties, expr, arg) =>
       let(eval(arg)) { arg =>
-        let(arg.withIntrinsicInfo(Syntactic.Term)) { (arg, argInfo) =>
+        let(arg.syntactic) { (arg, argInfo) =>
           eval(expr) match
             case Abs(_, ident, _, expr) if argInfo.closed && argInfo.value =>
               eval(subst(expr, Map(ident -> arg)))
@@ -44,7 +44,7 @@ object Concrete:
           case (pattern, expr) :: tail =>
             Unification.unify(pattern, scrutinee) match
               case Unification.Full(substs) =>
-                val substsInfos = substs.view mapValues { _.withIntrinsicInfo(Syntactic.Term) }
+                val substsInfos = substs.view mapValues { _.syntactic }
                 if substsInfos.values forall { (_, info) => info.closed && info.value } then
                   eval(subst(expr, (substsInfos mapValues { (expr, _) => expr }).toMap))
                 else

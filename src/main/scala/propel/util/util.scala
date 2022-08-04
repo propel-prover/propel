@@ -29,7 +29,7 @@ extension [T, CC[T] <: IterableOnce[T]](iterable: CC[T])
     val iterator = iterable.iterator
     var builder: Builder[U, To] | Null = bf.newBuilder(iterable)
     val size = iterable.knownSize
-    if size != -1 then builder.sizeHint(size)
+    if size != -1 && builder != null then builder.sizeHint(size)
     while builder != null && iterator.hasNext do
       val mapped = f(iterator.next())
       if mapped.isEmpty then builder = null else builder.addOne(mapped.get)
