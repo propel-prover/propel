@@ -169,7 +169,8 @@ object Syntactic extends Enrichment.Intrinsic[Type | Pattern | Term, Syntactic]:
 
           let(freeVars.merge, freeTypeVars.flatten.toSet) { (freeVars, freeTypeVars) =>
             Cases(term)(scrutinee, updatedcases) -> Syntactic(
-              boundVars.flatten.toSet, freeVars, boundTypeVars.flatten.toSet, freeTypeVars,
+              scrutineeInfo.boundVars ++ boundVars.flatten.toSet, List(scrutineeInfo.freeVars, freeVars).merge,
+              scrutineeInfo.boundTypeVars ++ boundTypeVars.flatten.toSet, scrutineeInfo.freeTypeVars ++ freeTypeVars,
               closed = freeVars.isEmpty && freeTypeVars.isEmpty, value = false)
           }
         }
