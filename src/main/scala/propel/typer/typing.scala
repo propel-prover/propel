@@ -16,6 +16,7 @@ extension (expr: Term)
   inline def untyped: Term =
     Typing.Term.strip(expr)
 
+
 extension (pattern: Pattern)
   inline def typed: (Pattern, Option[Type]) =
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case pattern -> Typing(tpe) => pattern -> tpe }
@@ -26,10 +27,11 @@ extension (pattern: Pattern)
   inline def untyped: Pattern =
     Typing.Pattern.strip(pattern)
 
+
 case class Typing(tpe: Option[Type]) extends Enrichment(Typing)
 
 object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
-  private case class Context(vars: Map[Symbol, Type], typeVars: Set[Symbol]) extends Enrichment(Context)
+  private case class Context(vars: Map[Symbol, Type], typeVars: Set[Symbol], expected: Option[Type]) extends Enrichment(Context)
 
   private object Context extends Enrichment.Extrinsic[Term, Context]
 
@@ -118,7 +120,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
   end Pattern
 
   object Term extends Enrichment.Intrinsic[Term, Typing]:
-    def strip(expr: Term): Term = expr.withoutInfo(Typing, Specified, Context) match
+    def strip(expr: Term): Term = expr.withoutInfo(Typing, Specified, Context, Abstraction) match
       case term @ Abs(properties, ident, tpe, expr) => Abs(term)(properties, ident, tpe, strip(expr))
       case term @ App(properties, expr, arg) => App(term)(properties, strip(expr), strip(arg))
       case term @ TypeAbs(ident, expr) => TypeAbs(term)(ident, strip(expr))
@@ -130,7 +132,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
       })
 
     def make(expr: Term) =
-      val context = expr.info(Context) getOrElse Context(Map.empty, Set.empty)
+      val context = expr.info(Context) getOrElse Context(Map.empty, Set.empty, Option.empty)
       val term = expr.withoutInfo(Context)
 
       def vars(pattern: Pattern): Map[Symbol, Type] = pattern match
@@ -139,10 +141,14 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
           case Some(Specified(Right(tpe))) => Map(ident -> tpe)
           case _ => Map.empty
 
-      term match
+      val (resultExpr, resultTyping) = term match
         case Abs(properties, ident, tpe, expr) =>
-          let(tpe.syntactic) { (tpe, tpeSyntactic) =>
-            let(context.copy(vars = context.vars + (ident -> tpe))) { context =>
+          val (expectedType, expectedArgType, expectedResultType) = context.expected match
+            case Some(expected @ Function(arg, result)) => (Some(expected), Some(arg), Some(result))
+            case _ => (None, None, None)
+
+          let(Abstraction.assign(expectedArgType, tpe).syntactic) { (tpe, tpeSyntactic) =>
+            let(context.copy(vars = context.vars + (ident -> tpe), expected = expectedResultType)) { context =>
               let(expr.withExtrinsicInfo(context).typed) { (expr, exprType) =>
                 val typeVars = term.info(Specified) match
                   case Some(Specified(Left(tpe))) => context.typeVars ++ tpe
@@ -156,13 +162,18 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                 else if unboundTypeVars.nonEmpty then
                   abs.withUnboundTypeVarsError(unboundTypeVars) -> Typing(None)
                 else
-                  abs -> Typing(exprType map { Function(tpe, _) })
+                  abs -> Typing(exprType map { exprType =>
+                    Abstraction.assign(expectedType, Function(tpe, exprType))
+                  })
               }
             }
           }
+
         case App(properties, expr, arg) =>
-          let(expr.withExtrinsicInfo(context).typed) { (expr, exprType) =>
-            let(arg.withExtrinsicInfo(context).typed) { (arg, argType) =>
+          let(expr.withExtrinsicInfo(context.copy(expected = None)).typed) { (expr, exprType) =>
+            val expectedArgType = exprType collect { case Function(arg, _) => arg }
+
+            let(arg.withExtrinsicInfo(context.copy(expected = expectedArgType)).typed) { (arg, argType) =>
               val unfolded = exprType flatMap {
                 case tpe: Recursive => unfold(tpe)
                 case tpe => Some(tpe)
@@ -170,7 +181,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
               val result = unfolded collect {
                 case Function(arg, result) if argType exists { conforms(_, arg) } => result
               }
-              
+
               val app = App(term)(properties, expr, arg)
 
               if result.isEmpty && exprType.nonEmpty && argType.nonEmpty then
@@ -179,15 +190,23 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                 app -> Typing(result)
             }
           }
+
         case TypeAbs(ident, expr) =>
-          let(context.copy(typeVars = context.typeVars + ident)) { context =>
+          val (expectedType, expectedResultType) = context.expected match
+            case Some(expected @ Universal(_, result)) => (Some(expected), Some(result))
+            case _ => (None, None)
+
+          let(context.copy(typeVars = context.typeVars + ident, expected = expectedResultType)) { context =>
             let(expr.withExtrinsicInfo(context).typed) { (expr, exprType) =>
-              TypeAbs(term)(ident, expr) -> Typing(exprType map { Universal(ident, _) })
+              TypeAbs(term)(ident, expr) -> Typing(exprType map { exprType =>
+                Abstraction.assign(expectedType, Universal(ident, exprType))
+              })
             }
           }
+
         case TypeApp(expr, tpe) =>
-          let(expr.withExtrinsicInfo(context).typed) { (expr, exprType) =>
-            let(tpe.syntactic) { (tpe, tpeSyntactic) =>
+          let(expr.withExtrinsicInfo(context.copy(expected = None)).typed) { (expr, exprType) =>
+            let(Abstraction.assign(tpe).syntactic) { (tpe, tpeSyntactic) =>
               val typeVars = term.info(Specified) match
                 case Some(Specified(Left(tpe))) => context.typeVars ++ tpe
                 case _ => context.typeVars
@@ -213,16 +232,27 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
                 typeApp -> Typing(result)
             }
           }
+
         case Data(ctor, args) =>
-          let((args.withExtrinsicInfo(context) map { _.typed }).unzip) { (args, argsInfos) =>
+          val expectedArgTypes = (context.expected collect { case Sum(sum) =>
+            sum collectFirst { case `ctor` -> argsTypes if argsTypes.size == args.size => argsTypes map { Some(_) } }
+          }).flatten
+
+          val typedArgs = expectedArgTypes getOrElse List.fill(args.size)(None) zip args map { (expectedArgType, arg) =>
+            arg.withExtrinsicInfo(context.copy(expected = expectedArgType)).typed
+          }
+
+          let(typedArgs.unzip) { (args, argsInfos) =>
             val argsTypes = argsInfos.sequenceIfDefined
             Data(term)(ctor, args) -> Typing(argsTypes map { tpes => fold(Sum(List(ctor -> tpes))) })
           }
+
         case Var(ident) =>
           val tpe = context.vars get ident orElse { term.info(Specified) collect { case Specified(Right(tpe)) => tpe } }
           tpe match
             case some @ Some(tpe) => term.withExtrinsicInfo(Specified(Right(tpe))) -> Typing(some)
             case _ => term.withUnboundVarError(ident) -> Typing(None)
+
         case Cases(scrutinee, cases) =>
           let(scrutinee.withExtrinsicInfo(context).typed) { (scrutinee, scrutineeType) =>
             scrutineeType match
@@ -258,5 +288,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
               case _ =>
                 Cases(term)(scrutinee, cases) -> Typing(None)
           }
+
+      (resultTyping.tpe flatMap { _.info(Abstraction) map { resultExpr.withExtrinsicInfo(_) } } getOrElse resultExpr) -> resultTyping
   end Term
 end Typing
