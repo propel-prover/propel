@@ -34,7 +34,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def equal(expr0: Term, expr1: Term): Equality =
     def equal(expr0: Term, expr1: Term): (Equality, List[(Term, Term)]) =
       pos.getOrElse(expr0, expr0) -> pos.getOrElse(expr1, expr1) match
-        case (expr0: (Abs | TypeAbs)) -> (expr1: (Abs | TypeAbs)) if equivalent(expr0, expr1) =>
+        case (expr0: (Abs | TypeAbs | Cases)) -> (expr1: (Abs | TypeAbs | Cases)) if equivalent(expr0, expr1) =>
           Equality.Equal -> List.empty
         case terms @ App(_, expr0, arg0) -> App(_, expr1, arg1) =>
           equal(expr0, expr1) match
