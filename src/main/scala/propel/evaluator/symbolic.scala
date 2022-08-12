@@ -48,6 +48,11 @@ object Symbolic:
     def empty = Constraints(PatternConstraints.empty, Set.empty)
 
 
+  case class Configuration(
+    normalize: (Term, Equalities) => Term = (expr, _) => expr,
+    derive: Equalities => Option[Equalities] = Some(_))
+
+
   case class Result(reductions: List[Reduction]) extends AnyVal
 
   case class Reduction(expr: Term, constraints: Constraints, equalities: Equalities)
@@ -74,22 +79,24 @@ object Symbolic:
     private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints, reductions.equalities)
     private inline def flatMap(f: Term => List[Term]): Reductions = reductions.copy(exprs = reductions.exprs flatMap f)
 
-  private def normalize(expr: Term, equalities: Equalities): Term =
-    properties.normalize(expr, equalities) match
+  private def normalize(expr: Term, equalities: Equalities, config: Configuration): Term =
+    config.normalize(expr, equalities) match
       case term @ Abs(properties, ident, tpe, expr) =>
-        Abs(term)(properties, ident, tpe, normalize(expr, equalities))
+        Abs(term)(properties, ident, tpe, normalize(expr, equalities, config))
       case term @ App(properties, expr, arg) =>
-        App(term)(properties, normalize(expr, equalities), normalize(arg, equalities))
+        App(term)(properties, normalize(expr, equalities, config), normalize(arg, equalities, config))
       case term @ TypeAbs(ident, expr) =>
-        TypeAbs(term)(ident, normalize(expr, equalities))
+        TypeAbs(term)(ident, normalize(expr, equalities, config))
       case term @ TypeApp(expr, tpe) =>
-        TypeApp(term)(normalize(expr, equalities), tpe)
+        TypeApp(term)(normalize(expr, equalities, config), tpe)
       case term @ Data(ctor, args) =>
-        Data(term)(ctor, args map { normalize(_, equalities) })
+        Data(term)(ctor, args map { normalize(_, equalities, config) })
       case term @ Var(_) =>
         term
       case term @ Cases(scrutinee, cases) =>
-        Cases(term)(normalize(scrutinee, equalities), cases map { (pattern, expr) => pattern -> normalize(expr, equalities) })
+        Cases(term)(normalize(scrutinee, equalities, config), cases map { (pattern, expr) =>
+          pattern -> normalize(expr, equalities, config)
+        })
 
   private def substEqualities(expr: Term, equalities: Equalities): Term =
     replaceByEqualities(expr, equalities) match
@@ -106,7 +113,9 @@ object Symbolic:
       case term @ Var(_) =>
         term
       case term @ Cases(scrutinee, cases) =>
-        Cases(term)(substEqualities(scrutinee, equalities), cases map { (pattern, expr) => pattern -> substEqualities(expr, equalities) })
+        Cases(term)(substEqualities(scrutinee, equalities), cases map { (pattern, expr) =>
+          pattern -> substEqualities(expr, equalities)
+        })
 
   private def replaceByEqualities(expr: Term, equalities: Equalities): Term =
     equalities.pos.get(expr) match
@@ -114,7 +123,22 @@ object Symbolic:
       case None => expr
 
 
-  def eval(expr: Term, equalities: Equalities = Equalities.empty): Result =
+  def eval(expr: Term): Result =
+    eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration())
+
+  def eval(expr: Term, equalities: Equalities): Result =
+    eval(Result(List(Reduction(expr, Constraints.empty, equalities))), Configuration())
+
+  def eval(expr: Term, config: Configuration): Result =
+    eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), config)
+
+  def eval(expr: Term, equalities: Equalities, config: Configuration): Result =
+    eval(Result(List(Reduction(expr, Constraints.empty, equalities))), config)
+
+  def eval(init: Result): Result =
+    eval(init, Configuration())
+
+  def eval(init: Result, config: Configuration): Result =
     def evals(exprs: List[Term], constraints: Constraints, equalities: Equalities): Results =
       exprs.foldLeft(Results(List(Reductions(List.empty, constraints, equalities)))) { (results, expr) =>
         results flatMap { case Reductions(exprs, constraints, equalities) =>
@@ -125,7 +149,7 @@ object Symbolic:
       }
 
     def eval(expr: Term, constraints: Constraints, equalities: Equalities): Result =
-      properties.normalize(replaceByEqualities(expr, equalities), equalities) match
+      config.normalize(replaceByEqualities(expr, equalities), equalities) match
         case term @ Abs(properties, ident, tpe, expr) =>
           eval(expr, constraints, equalities) map { Abs(term)(properties, ident, tpe, _) }
         case term @ App(properties, expr, arg) =>
@@ -154,7 +178,7 @@ object Symbolic:
 
                   case Unification.Irrefutable(substs, posConstraints) =>
                     val consts = constraints.withPosConstraints(posConstraints)
-                    val equals = equalities.withEqualities(posConstraints) flatMap properties.derive
+                    val equals = equalities.withEqualities(posConstraints) flatMap config.derive
                     (consts, equals) match
                       case (Some(consts), Some(equals)) =>
                         eval(subst(expr, substs), consts, equals).reductions ++ {
@@ -173,9 +197,10 @@ object Symbolic:
             process(cases, constraints, equalities)
           }
 
-    val result = eval(expr, Constraints.empty, equalities)
-    Result(result.reductions map { reduction =>
-      reduction map { expr => normalize(substEqualities(expr, reduction.equalities), reduction.equalities) }
+    Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
+      eval(expr, constraints, equalities).reductions map { reduction =>
+        reduction map { expr => normalize(substEqualities(expr, reduction.equalities), reduction.equalities, config) }
+      }
     })
   end eval
 end Symbolic

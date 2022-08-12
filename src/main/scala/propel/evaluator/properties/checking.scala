@@ -67,7 +67,11 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
                 println()
                 println(indent(4, converted.show))
 
-              val result = Symbolic.eval(converted, equalities)
+              val config = Symbolic.Configuration(
+                evaluator.properties.normalize,
+                evaluator.properties.derive)
+
+              val result = Symbolic.eval(converted, equalities, config)
 
               if printDebugInfo then
                 println()
