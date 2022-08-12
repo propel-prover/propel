@@ -198,8 +198,16 @@ object Symbolic:
           }
 
     Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
-      eval(expr, constraints, equalities).reductions map { reduction =>
-        reduction map { expr => normalize(substEqualities(expr, reduction.equalities), reduction.equalities, config) }
+      eval(expr, constraints, equalities).reductions flatMap { case reduction @ Reduction(expr, constraints, equalities) =>
+        val normalized = normalize(substEqualities(expr, equalities), equalities, config)
+        if expr eq normalized then
+          List(reduction)
+        else
+          val result = eval(normalized, constraints, equalities)
+          if result.reductions.size == 1 && result.reductions.head.expr == expr then
+            List(reduction)
+          else
+            Symbolic.eval(result, config).reductions
       }
     })
   end eval
