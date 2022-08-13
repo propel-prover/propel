@@ -23,19 +23,23 @@ object AlphaConversion:
       def makeResult(expr: Term) = expr
 
   def uniqueNames[R <: UniqueNames | Term](expr: Term)(using names: PotentialNames[R]): R =
+    val used = mutable.Set.concat(names.used)
+
     def renamePattern(pattern: Pattern): (Pattern, Map[Symbol, Symbol]) = pattern match
       case Match(ctor, args) =>
         let(args.map(renamePattern).unzip) { (args, substs) =>
           Match(pattern)(ctor, args) -> substs.fold(Map.empty) { _ ++ _ }
         }
       case Bind(ident) =>
-        val fresh = Naming.freshIdent(ident, names.used)
+        val fresh = Naming.freshIdent(ident, used)
+        used += fresh.name
         names.used += fresh.name
         Bind(pattern)(fresh) -> Map(ident -> fresh)
 
     def renameTerm(term: Term, subst: Map[Symbol, Symbol]): Term = term match
       case Abs(properties, ident, tpe, expr) =>
-        val fresh = Naming.freshIdent(ident, names.used)
+        val fresh = Naming.freshIdent(ident, used)
+        used += fresh.name
         names.used += fresh.name
         Abs(term)(properties, fresh, tpe, renameTerm(expr, subst + (ident -> fresh)))
       case App(properties, expr, arg) =>
@@ -58,5 +62,8 @@ object AlphaConversion:
           Cases(term)(scrutinee, renamedCases)
         }
 
-    names.makeResult(renameTerm(expr, Map.empty))
+    let(expr.syntactic) { (expr, syntactic) =>
+      used ++= syntactic.freeVars.keys map { _.name }
+      names.makeResult(renameTerm(expr, Map.empty))
+    }
 end AlphaConversion
