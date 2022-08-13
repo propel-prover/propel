@@ -20,7 +20,7 @@ object Symbolic:
     private def refutablePosNeg(pos: PatternConstraints, neg: Set[PatternConstraints]) =
       neg exists {
         _ forall { (expr, pattern) =>
-          pos.get(expr) exists { !Unification.refutable(_, pattern) }
+          pos.get(expr) exists { !Unification.refutable(pattern, _) }
         }
       }
 

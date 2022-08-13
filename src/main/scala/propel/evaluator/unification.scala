@@ -63,7 +63,9 @@ object Unification:
     def merge(constraints0: Constraints, constraints1: Constraints): Option[Constraints] =
       val unified = constraints0 flatMap { (expr, pattern) =>
         constraints1.get(expr) map {
-          unify(pattern, _) map { case (pattern, constraints) => constraints -> (expr, pattern) }
+          unify(pattern, _) map { (pattern, constraints0, constraints1) =>
+            constraints0 ++ constraints1 -> (expr, pattern)
+          }
         }
       }
 
@@ -89,24 +91,28 @@ object Unification:
   def refutable(constraints0: Constraints, constraints1: Constraints): Boolean =
     unify(constraints0, constraints1).isEmpty
 
-  def unify(pattern0: Pattern, pattern1: Pattern): Option[(Pattern, Constraints)] =
+  def unify(pattern0: Pattern, pattern1: Pattern): Option[(Pattern, Constraints, Constraints)] =
     pattern0 -> pattern1 match
       case Match(ctor0, List()) -> Match(ctor1, List()) =>
-        Option.when(ctor0 == ctor1)(pattern0, Map.empty)
+        Option.when(ctor0 == ctor1)(pattern0, Map.empty, Map.empty)
       case Match(ctor0, args0) -> Match(ctor1, args1) =>
         Option.when(ctor0 == ctor1 && args0.size == args1.size) {
           args0 zip args1 mapIfDefined { unify(_, _) } flatMap { unified =>
-            val (args, constraintss) = unified.unzip
-            constraintss.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map { (Match(ctor0, args), _) }
+            val (args, constraintss0, constraintss1) = unified.unzip3
+            constraintss0.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } flatMap { constraints0 =>
+              constraintss1.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map {
+                (Match(ctor0, args), constraints0, _)
+              }
+            }
           }
         }.flatten
       case Bind(ident0) -> Bind(ident1) if ident0 == ident1 =>
-        Some(pattern0, Map.empty)
-      case _ -> Bind(ident) =>
-        Some(pattern0, Map(Var(pattern1)(ident) -> pattern0))
+        Some(pattern0, Map.empty, Map.empty)
       case Bind(ident) -> _ =>
-        Some(pattern1, Map(Var(pattern0)(ident) -> pattern1))
+        Some(pattern1, Map(Var(pattern0)(ident) -> pattern1), Map.empty)
+      case _ -> Bind(ident) =>
+        Some(pattern0, Map.empty, Map(Var(pattern1)(ident) -> pattern0))
 
-  def refutable(pattern0: Pattern, pattern1: Pattern): Boolean =
-    unify(pattern0, pattern1).isEmpty
+  def refutable(refutablePattern: Pattern, basePattern: Pattern): Boolean =
+    unify(refutablePattern, basePattern) forall { (_, _, baseConstraints) => baseConstraints.nonEmpty }
 end Unification
