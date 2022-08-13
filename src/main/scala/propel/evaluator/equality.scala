@@ -165,8 +165,6 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
   private def normalize(pos: Map[Term, Term], equalities: Iterator[(Term, Term)]) =
     def destruct(expr0: Term, expr1: Term): List[(Term, Term)] = expr0 -> expr1 match
-      case App(_, expr0, arg0) -> App(_, expr1, arg1) if equivalent(expr0, expr1) =>
-        destruct(arg0, arg1)
       case TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if equivalent(tpe0, tpe1) =>
         destruct(expr0, expr1)
       case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 && args0.size == args1.size =>
