@@ -128,14 +128,15 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       this
 
   private def propagateNeg: Equalities =
-    val propagated = neg map {
-      _ map { propagate(pos, _) -> propagate(pos, _) match
+    val propagatedList = neg map {
+      _.toList map { propagate(pos, _) -> propagate(pos, _) match
         case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
         case exprs => exprs
       }
     }
+    val propagated = propagatedList map { _.toMap }
     if propagated != neg then
-      val normalized = propagated map { neg => normalize(Map.empty, neg.iterator) }
+      val normalized = propagatedList map { neg => normalize(Map.empty, neg.iterator) }
       if normalized != propagated then Equalities(pos, normalized).propagateNeg else Equalities(pos, normalized)
     else
       this
@@ -158,14 +159,8 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
   private def consolidateNeg: Option[Equalities] =
     val checkNeg = Equalities(Map.empty, Set.empty)
-
     Option.when((pos forall { checkNeg.equal(_, _) != Equality.Unequal }) && (neg forall { _.nonEmpty })) {
-      val unequalities = neg flatMap { neg =>
-        val unequalities = neg filter { checkNeg.equal(_, _) == Equality.Indeterminate }
-        Option.when(unequalities.nonEmpty)(unequalities)
-      }
-
-      Equalities(pos, unequalities)
+      Equalities(pos, neg filter { _ forall { checkNeg.equal(_, _) != Equality.Unequal } })
     }
 
   private def normalize(pos: Map[Term, Term], equalities: Iterator[(Term, Term)]) =
@@ -181,14 +176,17 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
     def insert(equalities: Map[Term, Term], key: Term, value: Term): Map[Term, Term] =
       destruct(key, value).foldLeft(equalities) { case (equalities, (key, value)) =>
-        equalities.get(key) match
-          case None =>
-            equalities + (key -> value)
-          case Some(expr) if expr != value =>
-            val otherKey -> otherValue = if expr < value then expr -> value else value -> expr
-            insert(equalities + (key -> otherValue), otherKey, otherValue)
-          case _ =>
-            equalities
+        if key != value then
+          equalities.get(key) match
+            case None =>
+              equalities + (key -> value)
+            case Some(expr) if expr != value =>
+              val otherKey -> otherValue = if expr < value then expr -> value else value -> expr
+              insert(equalities + (key -> otherValue), otherKey, otherValue)
+            case _ =>
+              equalities
+        else
+          equalities
       }
 
     equalities.foldLeft(pos) { case (equalities, (expr0, expr1)) =>
