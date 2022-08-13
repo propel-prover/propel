@@ -169,6 +169,8 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         destruct(expr0, expr1)
       case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 && args0.size == args1.size =>
         args0 zip args1 flatMap destruct
+      case _ if expr1 < expr0 =>
+        List(expr1 -> expr0)
       case exprs =>
         List(exprs)
 
