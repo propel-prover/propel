@@ -123,22 +123,23 @@ object Symbolic:
       case None => expr
 
 
-  def eval(expr: Term): Result =
-    eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration())
+  def eval(expr: UniqueNames[Term | Result]): UniqueNames[Result] = expr linked {
+    case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration())
+    case expr: Result => eval(expr, Configuration())
+  }
 
-  def eval(expr: Term, equalities: Equalities): Result =
-    eval(Result(List(Reduction(expr, Constraints.empty, equalities))), Configuration())
+  def eval(expr: UniqueNames[Term | Result], config: Configuration): UniqueNames[Result] = expr linked {
+    case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), config)
+    case expr: Result => eval(expr, config)
+  }
 
-  def eval(expr: Term, config: Configuration): Result =
-    eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), config)
+  def eval(expr: UniqueNames[Term], equalities: Equalities): UniqueNames[Result] =
+    expr linked { expr => eval(Result(List(Reduction(expr, Constraints.empty, equalities))), Configuration()) }
 
-  def eval(expr: Term, equalities: Equalities, config: Configuration): Result =
-    eval(Result(List(Reduction(expr, Constraints.empty, equalities))), config)
+  def eval(expr: UniqueNames[Term], equalities: Equalities, config: Configuration): UniqueNames[Result] =
+    expr linked { expr => eval(Result(List(Reduction(expr, Constraints.empty, equalities))), config) }
 
-  def eval(init: Result): Result =
-    eval(init, Configuration())
-
-  def eval(init: Result, config: Configuration): Result =
+  private def eval(init: Result, config: Configuration)(using UniqueNaming): Result =
     def evals(exprs: List[Term], constraints: Constraints, equalities: Equalities): Results =
       exprs.foldLeft(Results(List(Reductions(List.empty, constraints, equalities)))) { (results, expr) =>
         results flatMap { case Reductions(exprs, constraints, equalities) =>

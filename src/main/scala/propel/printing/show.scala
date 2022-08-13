@@ -4,9 +4,6 @@ package printing
 import impl.*
 import ast.*
 
-extension (uniqueNames: AlphaConversion.UniqueNames) def show: String =
-  s"UniqueNames(${uniqueNames.expr.show})"
-
 extension (property: Property) def show: String = property match
   case Commutative => "comm"
   case Associative => "assoc"

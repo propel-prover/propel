@@ -59,13 +59,13 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
               Some(illformedFunctionTypeError(property, term.termType))
             else
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
-              val converted = AlphaConversion.uniqueNames(expr).expr
+              val converted = UniqueNames.convert(expr)
 
               if printDebugInfo then
                 println()
                 println(indent(2, s"Checking ${property.show} property:"))
                 println()
-                println(indent(4, converted.show))
+                println(indent(4, converted.wrapped.show))
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize,
@@ -77,9 +77,9 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
                 println()
                 println(indent(2, s"Evaluation result for ${property.show} property check:"))
                 println()
-                println(indent(4, result.show))
+                println(indent(4, result.wrapped.show))
 
-              val successful = checking.check(result)
+              val successful = checking.check(result.wrapped)
 
               if printDebugInfo then
                 println()
