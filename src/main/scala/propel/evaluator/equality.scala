@@ -112,9 +112,28 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     else
       Some(this)
 
+  def posConstraints: PatternConstraints =
+    val posConstraints = pos flatMap { (expr0, expr1) => expr1.asPattern map { expr0 -> _ } }
+    PatternConstraints.make(posConstraints) getOrElse PatternConstraints.empty
+
+  def negConstraints: Set[PatternConstraints] =
+    neg flatMap { neg =>
+      val negConstraints = neg flatMap { (expr0, expr1) => expr1.asPattern map { expr0 -> _ } }
+      if negConstraints.size == neg.size then PatternConstraints.make(negConstraints) else None
+    }
+
   extension (pattern: Pattern) private def asTerm: Term = pattern match
     case Match(ctor, args) => Data(pattern)(ctor, args map { _.asTerm })
     case Bind(ident) => Var(pattern)(ident)
+
+  extension (expr: Term) private def asPattern: Option[Pattern] = expr match
+    case Data(ctor, args) =>
+      val patternArgs = args.foldRight[Option[List[Pattern]]](Some(List.empty)) { (arg, args) =>
+        args flatMap { args => arg.asPattern map { _ :: args } }
+      }
+      patternArgs map { Match(expr)(ctor, _) }
+    case _ =>
+      None
 
   private def propagatePos: Equalities =
     val propagated = pos map { _ -> propagate(pos, _) match

@@ -8,19 +8,25 @@ import scala.annotation.targetName
 object Symbolic:
   case class Constraints private (pos: PatternConstraints, neg: Set[PatternConstraints]):
     def withPosConstraints(pos: PatternConstraints): Option[Constraints] =
-      this.pos unify pos collect { case pos if !refutablePosNeg(pos, this.neg) => Constraints(pos, this.neg) }
+      if pos forall { (expr, pattern) => this.pos.get(expr) contains pattern } then
+        Some(this)
+      else
+        this.pos unify pos collect { case pos if !refutablePosNeg(pos, this.neg) => Constraints(pos, this.neg) }
 
     def withNegConstraints(neg: PatternConstraints)(using UniqueNaming): Option[(Constraints, PatternConstraints)] =
       withNegConstraints(Set(neg))
 
     def withNegConstraints(neg: Set[PatternConstraints])(using UniqueNaming): Option[(Constraints, PatternConstraints)] =
-      val negConstraints = this.neg ++ neg
-      refutablePosFromNegTyped(negConstraints) flatMap { pos =>
-        if pos.nonEmpty then
-          Constraints(this.pos, negConstraints).withPosConstraints(pos) map { _ -> pos }
-        else
-          Option.when(!refutablePosNeg(this.pos, neg))(Constraints(this.pos, negConstraints) -> pos)
-      }
+      if neg subsetOf this.neg then
+        Some(this -> PatternConstraints.empty)
+      else
+        val negConstraints = this.neg ++ neg
+        refutablePosFromNegTyped(negConstraints) flatMap { pos =>
+          if pos.nonEmpty then
+            Constraints(this.pos, negConstraints).withPosConstraints(pos) map { _ -> pos }
+          else
+            Option.when(!refutablePosNeg(this.pos, neg))(Constraints(this.pos, negConstraints) -> pos)
+        }
 
     private def refutablePosNeg(pos: PatternConstraints, neg: Set[PatternConstraints]) =
       neg exists {
@@ -142,6 +148,22 @@ object Symbolic:
       case Some(expr) => replaceByEqualities(expr, equalities)
       case None => expr
 
+  private def constraintsFromEqualities(using UniqueNaming)(
+      constraints: Option[Constraints],
+      equalities: Option[Equalities]): Option[(Constraints, Equalities)] =
+    constraints flatMap { constraints =>
+      equalities flatMap { equalities =>
+        constraints.withPosConstraints(equalities.posConstraints) flatMap { updated =>
+          updated.withNegConstraints(equalities.negConstraints) flatMap { (updated, pos) =>
+            if updated != constraints then
+              constraintsFromEqualities(Some(updated), equalities.withEqualities(pos))
+            else
+              Some(constraints, equalities)
+          }
+        }
+      }
+    }
+
 
   def eval(expr: UniqueNames[Term | Result]): UniqueNames[Result] = expr linked {
     case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration())
@@ -200,15 +222,17 @@ object Symbolic:
                   case Unification.Irrefutable(substs, posConstraints) =>
                     val consts = constraints.withPosConstraints(posConstraints)
                     val equals = equalities.withEqualities(posConstraints) flatMap config.derive
-                    (consts, equals) match
-                      case (Some(consts), Some(equals)) =>
+
+                    constraintsFromEqualities(consts, equals) match
+                      case Some(consts, equals) =>
                         eval(subst(expr, substs), consts, equals).reductions ++ {
-                          val consts = constraints.withNegConstraints(posConstraints)
-                          val equals = consts flatMap { (_, pos) =>
-                            equalities.withEqualities(pos) flatMap { _.withUnequalities(posConstraints) }
-                          }
-                          (consts, equals) match
-                            case (Some((consts, _)), Some(equals)) => process(tail, consts, equals)
+                          val (consts, pos) = (constraints.withNegConstraints(posConstraints)
+                            map { (consts, pos) => (Some(consts), Some(pos)) }
+                            getOrElse (None, None))
+                          val equals = pos flatMap { equalities.withEqualities(_) flatMap { _.withUnequalities(posConstraints) } }
+
+                          constraintsFromEqualities(consts, equals) match
+                            case Some(consts, equals) => process(tail, consts, equals)
                             case _ => List.empty
                         }
                       case _ =>
@@ -221,17 +245,22 @@ object Symbolic:
           }
 
     Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
-      eval(expr, constraints, equalities).reductions flatMap { case reduction @ Reduction(expr, constraints, equalities) =>
-        val normalized = normalize(substEqualities(expr, equalities), equalities, config)
-        if expr eq normalized then
-          List(reduction)
-        else
-          val result = eval(normalized, constraints, equalities)
-          if result.reductions.size == 1 && result.reductions.head.expr == expr then
-            List(reduction)
-          else
-            Symbolic.eval(result, config).reductions
-      }
+      constraintsFromEqualities(Some(constraints), Some(equalities)) match
+        case (Some(constraints, equalities)) =>
+          val normalized = normalize(substEqualities(expr, equalities), equalities, config)
+          eval(normalized, constraints, equalities).reductions flatMap { case reduction @ Reduction(expr, constraints, equalities) =>
+            val normalized = normalize(substEqualities(expr, equalities), equalities, config)
+            if expr eq normalized then
+              List(reduction)
+            else
+              val result = eval(normalized, constraints, equalities)
+              if result.reductions.size == 1 && result.reductions.head.expr == expr then
+                List(reduction)
+              else
+                Symbolic.eval(result, config).reductions
+          }
+        case _ =>
+          List.empty
     })
   end eval
 end Symbolic
