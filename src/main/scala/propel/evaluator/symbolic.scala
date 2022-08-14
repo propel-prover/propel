@@ -10,38 +10,58 @@ object Symbolic:
     def withPosConstraints(pos: PatternConstraints): Option[Constraints] =
       this.pos unify pos collect { case pos if !refutablePosNeg(pos, this.neg) => Constraints(pos, this.neg) }
 
-    def withNegConstraints(neg: PatternConstraints): Option[Constraints] =
+    def withNegConstraints(neg: PatternConstraints)(using UniqueNaming): Option[(Constraints, PatternConstraints)] =
       withNegConstraints(Set(neg))
 
-    def withNegConstraints(neg: Set[PatternConstraints]): Option[Constraints] =
+    def withNegConstraints(neg: Set[PatternConstraints])(using UniqueNaming): Option[(Constraints, PatternConstraints)] =
       val negConstraints = this.neg ++ neg
-      Option.when(!refutablePosNeg(this.pos, neg) && !refutableNegTyped(negConstraints))(Constraints(this.pos, negConstraints))
+      refutablePosFromNegTyped(negConstraints) flatMap { pos =>
+        if pos.nonEmpty then
+          Constraints(this.pos, negConstraints).withPosConstraints(pos) map { _ -> pos }
+        else
+          Option.when(!refutablePosNeg(this.pos, neg))(Constraints(this.pos, negConstraints) -> pos)
+      }
 
     private def refutablePosNeg(pos: PatternConstraints, neg: Set[PatternConstraints]) =
       neg exists {
-        _ forall { (expr, pattern) =>
-          pos.get(expr) exists { !Unification.refutable(pattern, _) }
+        _ forall { (negExpr, negPattern) =>
+          pos.get(negExpr) exists { !Unification.refutable(negPattern, _) }
         }
       }
 
-    private def refutableNegTyped(neg: Set[PatternConstraints]) =
+    private def refutablePosFromNegTyped(neg: Set[PatternConstraints])(using UniqueNaming) =
       val negTermConstraints = neg.foldLeft(List(Map.empty[Term, List[Pattern]])) { (negTermConstraints, neg) =>
         (neg flatMap { (expr, pattern) =>
           negTermConstraints map { _.updatedWith(expr) { _ map { pattern :: _ } orElse Some(List(pattern)) } }
         }).toList
       }
 
-      negTermConstraints forall {
-        _ exists { (expr, patterns) =>
-          expr.typed match
-            case (_, Some(tpe)) =>
-              patterns.foldLeft(tpe) { (tpe, pattern) => diff(tpe, pattern) getOrElse tpe } match
-                case Sum(List()) => true
-                case _ => false
-            case _ =>
-              false
+      val posTermConstraints = negTermConstraints map {
+        _ map { (negExpr, negPatterns) =>
+          negExpr.termType map { tpe =>
+            negExpr -> patterns(negPatterns.foldLeft(tpe) { (tpe, pattern) => diff(tpe, pattern) getOrElse tpe })
+          }
         }
       }
+
+      Option.when(posTermConstraints exists { _ forall { _ forall { (_, patterns) => patterns.nonEmpty } } }) {
+        posTermConstraints filter { _ forall { _ exists { (_, patterns) => patterns.size == 1 } } } match
+          case List(pos) =>
+            val constraints = PatternConstraints.make(pos flatMap { pos =>
+              val (expr, List(pattern)) = pos.get
+              val base = expr match
+                case Var(ident) => ident.name
+                case _ => "v"
+              Option.when(this.pos.get(expr) forall { Unification.refutable(pattern, _) })(expr -> uniqueNames(base, pattern))
+            })
+            constraints getOrElse PatternConstraints.empty
+          case _ =>
+            PatternConstraints.empty
+      }
+
+    private def uniqueNames(base: String, pattern: Pattern)(using UniqueNaming): Pattern = pattern match
+      case Match(ctor, args) => Match(pattern)(ctor, args map { uniqueNames(base, _) })
+      case Bind(_) => Bind(pattern)(Symbol(UniqueNames.freshIdent(base)))
   end Constraints
 
   object Constraints:
@@ -184,9 +204,11 @@ object Symbolic:
                       case (Some(consts), Some(equals)) =>
                         eval(subst(expr, substs), consts, equals).reductions ++ {
                           val consts = constraints.withNegConstraints(posConstraints)
-                          val equals = equalities.withUnequalities(posConstraints)
+                          val equals = consts flatMap { (_, pos) =>
+                            equalities.withEqualities(pos) flatMap { _.withUnequalities(posConstraints) }
+                          }
                           (consts, equals) match
-                            case (Some(consts), Some(equals)) => process(tail, consts, equals)
+                            case (Some((consts, _)), Some(equals)) => process(tail, consts, equals)
                             case _ => List.empty
                         }
                       case _ =>
