@@ -87,7 +87,7 @@ def plus[A: TermExpr](expr: A) =
 
 @main def example =
   def check(expr: Term) =
-    val result = properties.check(expr, printDebugInfo = true)
+    val result = properties.check(expr, printDeductionDebugInfo = true, printReductionDebugInfo = false)
     val errors = result.showErrors
     if errors.nonEmpty then
       println()

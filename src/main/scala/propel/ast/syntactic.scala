@@ -3,14 +3,23 @@ package ast
 
 import util.*
 
-extension (expr: Type)
-  inline def syntactic: (Type, Syntactic) = expr.withIntrinsicInfo(Syntactic.Type)
+extension (tpe: Type)
+  inline def syntactic: (Type, Syntactic) = tpe.withIntrinsicInfo(Syntactic.Type)
+  inline def withSyntacticInfo: Type = let(tpe.withIntrinsicInfo(Syntactic.Type)) { (tpe, _) => tpe }
 
-extension (expr: Pattern)
-  inline def syntactic: (Pattern, Syntactic) = expr.withIntrinsicInfo(Syntactic.Pattern)
+extension (pattern: Pattern)
+  inline def syntactic: (Pattern, Syntactic) = pattern.withIntrinsicInfo(Syntactic.Pattern)
+  inline def withSyntacticInfo: Pattern = let(pattern.withIntrinsicInfo(Syntactic.Pattern)) { (pattern, _) => pattern }
 
 extension (expr: Term)
   inline def syntactic: (Term, Syntactic) = expr.withIntrinsicInfo(Syntactic.Term)
+  inline def withSyntacticInfo: Term = let(expr.withIntrinsicInfo(Syntactic.Term)) { (expr, _) => expr }
+
+extension (construct: Type | Pattern | Term)
+  inline def syntacticInfo: Syntactic = (construct: construct.type @unchecked) match
+    case construct: Type => let(construct.withIntrinsicInfo(Syntactic.Type)) { (_, syntactic) => syntactic }
+    case construct: Pattern => let(construct.withIntrinsicInfo(Syntactic.Pattern)) { (_, syntactic) => syntactic }
+    case construct: Term => let(construct.withIntrinsicInfo(Syntactic.Term)) { (_, syntactic) => syntactic }
 
 case class Syntactic(
   boundVars: Set[Symbol], freeVars: Map[Symbol, Int],

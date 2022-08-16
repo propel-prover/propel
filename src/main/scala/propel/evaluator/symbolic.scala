@@ -79,9 +79,17 @@ object Symbolic:
     derive: Equalities => Option[Equalities] = Some(_))
 
 
-  case class Result(reductions: List[Reduction]) extends AnyVal
+  case class Result(reductions: List[Reduction]) extends AnyVal:
+    def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration()) =
+      Result(reductions flatMap { _.withConstraints(patternConstraints, config) })
 
-  case class Reduction(expr: Term, constraints: Constraints, equalities: Equalities)
+  case class Reduction(expr: Term, constraints: Constraints, equalities: Equalities):
+    def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration()) =
+      constraints.withPosConstraints(patternConstraints) flatMap { constraints =>
+        equalities.withEqualities(patternConstraints) map { equalities =>
+          Reduction(normalize(substEqualities(expr, equalities), equalities, config), constraints, equalities)
+        }
+      }
 
   private case class Results(reductions: List[Reductions]) extends AnyVal
 

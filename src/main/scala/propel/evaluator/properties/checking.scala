@@ -7,8 +7,9 @@ import printing.*
 import typer.*
 import util.*
 
-def check(expr: Term, printDebugInfo: Boolean = false): Term =
+def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDebugInfo: Boolean = false): Term =
   var debugInfoPrinted = false
+
   def indent(indentation: Int, string: String) =
     val indent = " " * indentation
     (string.linesIterator map { line => if line.nonEmpty then s"$indent$line" else line }).mkString(s"${System.lineSeparator}")
@@ -35,9 +36,25 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
   def propertyDeductionError(property: Property) = Error(
     s"Property Deduction Error\n\nUnable to prove ${property.show} property.")
 
+  def specialization(special: Normalization, general: Iterable[Normalization]) =
+    def specialization(special: Normalization, general: Normalization, specialExpr: Term, generalExpr: Term) =
+      Unification.unify(generalExpr, specialExpr) exists { (generalConstraints, specialConstraints) =>
+        specialConstraints.isEmpty &&
+        (general.idents forall { ident =>
+          generalConstraints.get(ident) collect { case Var(ident) => ident } forall { special.idents contains _ }
+        })
+      }
+
+    general exists { general =>
+      specialization(special, general, special.pattern, general.pattern) &&
+      specialization(special, general, special.result, general.result) &&
+      (special.form.isEmpty && general.form.isEmpty ||
+        (special.form exists { form => general.form exists { !Unification.refutable(_, form) } }))
+    }
+
   def check(term: Term): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
-      if printDebugInfo && properties.nonEmpty then
+      if printReductionDebugInfo || printDeductionDebugInfo then
         if debugInfoPrinted then
           println()
         else
@@ -45,6 +62,138 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
         println("Checking properties for definition:")
         println()
         println(indent(2, term.show))
+
+      val (abstraction, call) = (term.info(Abstraction), recursiveCall(term)) match
+        case some @ (Some(_), Some(_)) => some
+        case _ => (None, None)
+
+      val converted = UniqueNames.convert(expr1)
+      val result = Symbolic.eval(converted)
+
+      val facts = Conjecture.basicFacts(properties, term, ident0, ident1, result)
+
+      val normalizeFacts =
+        if call.nonEmpty then
+          facts map { _.checking(_ forall { _.info(Abstraction) contains abstraction.get }, call.get).normalize }
+        else
+          List.empty
+
+      val conjectures =
+        if call.nonEmpty then
+          val config = Symbolic.Configuration(
+            evaluator.properties.normalize(normalizeFacts ++ normalizing, _, _),
+            evaluator.properties.derive)
+          Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
+            specialization(_, facts)
+          }
+        else
+          List.empty
+
+      if printDeductionDebugInfo then
+        if call.isEmpty then
+          println()
+          println(indent(2, "No known recursion scheme detected."))
+
+        if facts.nonEmpty then
+          println()
+          println(indent(2, "Basic facts:"))
+          println()
+          facts map { fact => println(indent(4, fact.show)) }
+
+        if conjectures.nonEmpty then
+          println()
+          println(indent(2, "Generalized conjectures:"))
+          println()
+          conjectures map { conjecture => println(indent(4, conjecture.show)) }
+
+      def proveConjectures(
+          conjectures: List[Normalization],
+          provenConjectures: List[Normalization] = List.empty,
+          normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = List.empty)
+      : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
+
+        val (remaining, additional) = conjectures partitionMap { conjecture =>
+          val checking = conjecture.checking(_ forall { _.info(Abstraction) contains abstraction.get }, call.get)
+          val normalizeConjecture = checking.normalize
+
+          val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
+          val converted = UniqueNames.convert(expr)
+
+          if printReductionDebugInfo then
+            println()
+            println(indent(2, s"Checking conjecture: ${conjecture.show}"))
+            println()
+            println(indent(4, converted.wrapped.show))
+
+          val config = Symbolic.Configuration(
+            evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ normalizing), _, _),
+            evaluator.properties.derive)
+
+          val result = Symbolic.eval(converted, equalities, config)
+
+          if printReductionDebugInfo then
+            println()
+            println(indent(2, "Evaluation result for conjecture check:"))
+            println()
+            println(indent(4, result.wrapped.show))
+
+          val successful = checking.check(result.wrapped)
+
+          if printReductionDebugInfo then
+            println()
+            if successful then
+              println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
+            else
+              println(indent(4, "✘ Conjecture could not be proven".toUpperCase.nn))
+
+          Either.cond(successful, conjecture -> normalizeConjecture, conjecture)
+        }
+
+        val (proven, normalize) = additional.unzip
+
+        if remaining.isEmpty || additional.isEmpty then
+          (provenConjectures ++ proven, normalizeConjectures ++ normalize)
+        else
+          proveConjectures(
+            remaining filterNot { specialization(_, proven) },
+            provenConjectures ++ proven,
+            normalizeConjectures ++ normalize)
+      end proveConjectures
+
+      val (provenConjectures, normalizeConjectures) = proveConjectures(conjectures)
+
+      val (provenProperties, normalize) =
+        type Properties = List[(Normalization, Equalities => PartialFunction[Term, Term])]
+
+        def distinct(properties: Properties): Properties = properties match
+          case Nil => Nil
+          case (head @ (propertyHead, _)) :: tail =>
+            def distinctTail(properties: Properties): Properties = properties match
+              case Nil => Nil
+              case (head @ (property, _)) :: tail =>
+                if specialization(property, List(propertyHead)) &&
+                   specialization(propertyHead, List(property)) then
+                  distinctTail(tail)
+                else
+                  head :: distinctTail(tail)
+            head :: distinct(distinctTail(tail))
+
+        val properties = facts ++ provenConjectures
+
+        val normalize =
+          val normalize = normalizeFacts ++ normalizeConjectures
+          if normalize.isEmpty then List.fill(properties.size)((_: Equalities) => PartialFunction.empty)
+          else normalize
+
+        (distinct(properties zip normalize)
+          filterNot { (property, _) => specialization(property, properties filterNot { _ eq property }) }
+          sortBy { case Normalization(pattern, result, _, _) -> _ => (pattern, result) }).unzip
+
+      if printDeductionDebugInfo && provenProperties.nonEmpty then
+        println()
+        println(indent(2, "Proven properties:"))
+        println()
+        provenProperties map { property => println(indent(4, property.show)) }
 
       val error = properties collectFirstDefined { property =>
         propertiesChecking get property match
@@ -61,19 +210,19 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
               val converted = UniqueNames.convert(expr)
 
-              if printDebugInfo then
+              if printReductionDebugInfo then
                 println()
                 println(indent(2, s"Checking ${property.show} property:"))
                 println()
                 println(indent(4, converted.wrapped.show))
 
               val config = Symbolic.Configuration(
-                evaluator.properties.normalize,
+                evaluator.properties.normalize(normalize ++ normalizing, _, _),
                 evaluator.properties.derive)
 
               val result = Symbolic.eval(converted, equalities, config)
 
-              if printDebugInfo then
+              if printReductionDebugInfo then
                 println()
                 println(indent(2, s"Evaluation result for ${property.show} property check:"))
                 println()
@@ -81,7 +230,7 @@ def check(expr: Term, printDebugInfo: Boolean = false): Term =
 
               val successful = checking.check(result.wrapped)
 
-              if printDebugInfo then
+              if printReductionDebugInfo || printDeductionDebugInfo then
                 println()
                 if successful then
                   println(indent(4, s"✔ ${property.show} property proven".toUpperCase.nn))

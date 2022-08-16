@@ -73,3 +73,21 @@ extension (result: evaluator.Symbolic.Result) def show: String =
       (neg map { (expr0, expr1) => parenthesize(expr0) + "≡" + parenthesize(expr1) }).toList.sorted.mkString("{", ", ", "}")
     }).toList.sorted.mkString("   neg: {", ", ", "}")
   }).mkString("\n\n")
+
+extension (normalization: evaluator.properties.Normalization) def show: String =
+  val functionForm = if normalization.form.isEmpty then "" else s" of form ${normalization.form.get.show}"
+  val variables =
+    normalization.pattern.syntacticInfo.freeVars.keySet ++
+    normalization.result.syntacticInfo.freeVars.keySet --
+    normalization.idents
+
+  val functionNames =
+    if normalization.idents.isEmpty then ""
+    else s" for function ${(normalization.idents.toList.sorted map { _.name }).mkString(", ")}$functionForm"
+
+  val variableNames =
+    val prefix = if functionNames.isEmpty then "for" else "and"
+    if variables.isEmpty then ""
+    else s" $prefix variables ${(variables.toList.sorted map { _.name }).mkString(", ")}"
+
+  s"${normalization.pattern.show} ⥱ ${normalization.result.show}$functionNames$variableNames" 

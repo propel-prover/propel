@@ -7,18 +7,29 @@ import util.*
 
 type UniqueNaming = UniqueNames.UniqueNaming
 
+val UniqueNaming: UniqueNames.UniqueNaming.type = UniqueNames.UniqueNaming
+
 case class UniqueNames[+T] private (wrapped: T)(using UniqueNaming):
   def linked[U](f: UniqueNaming ?=> T => U): UniqueNames[U] =
     UniqueNames(f(wrapped))
   def unlinked[U](f: UniqueNaming ?=> T => U): UniqueNames[U] =
     letgiven(UniqueNames.UniqueNaming(ConcurrentHashMap(summon.used))) { UniqueNames(f(wrapped)) }
+  def unwrap[U](f: UniqueNaming.Immutable ?=> T => U): U =
+    f(wrapped)
 
 object UniqueNames:
-  class UniqueNaming private[UniqueNames] (private[UniqueNames] val used: ConcurrentHashMap[String, Unit])
+  class UniqueNaming private[UniqueNames] (used: ConcurrentHashMap[String, Unit]) extends UniqueNaming.Immutable(used)
+
+  object UniqueNaming:
+    class Immutable private[UniqueNames] (private[UniqueNames] val used: ConcurrentHashMap[String, Unit])
 
   def apply[T](v: UniqueNaming ?=> T): UniqueNames[T] =
     given UniqueNaming(ConcurrentHashMap())
     UniqueNames(v)
+
+
+  def usedNames(using UniqueNaming.Immutable): collection.Set[String] =
+    summon.used.asScala.keySet
 
 
   private def freshIdent(base: String, used: ConcurrentHashMap[String, Unit]): String =

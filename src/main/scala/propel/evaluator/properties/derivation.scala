@@ -4,9 +4,9 @@ package properties
 
 import ast.*
 
-def normalize(expr: Term, equalities: Equalities): Term =
+def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: Term, equalities: Equalities): Term =
   val updated = normalizing.foldLeft(expr) { (expr, normalize) => normalize(equalities).applyOrElse(expr, _ => expr) }
-  if updated != expr then normalize(updated, equalities) else updated
+  if updated != expr then normalize(normalizing, updated, equalities) else updated
 
 def derive(equalities: Equalities): Option[Equalities] =
   def deriveByProperties[T](

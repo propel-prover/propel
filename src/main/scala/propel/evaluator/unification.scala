@@ -115,4 +115,58 @@ object Unification:
 
   def refutable(refutablePattern: Pattern, basePattern: Pattern): Boolean =
     unify(refutablePattern, basePattern) forall { (_, _, baseConstraints) => baseConstraints.nonEmpty }
+
+  def unify(expr0: Term, expr1: Term): Option[(TermSubstitutions, TermSubstitutions)] =
+    inline def merge(inline substs0: TermSubstitutions, inline substs1: TermSubstitutions) =
+      Option.when(!(substs0.keys exists { substs1 contains _ }))(substs0 ++ substs1)
+
+    expr0 -> expr1 match
+      case Abs(_, ident0, tpe0, expr0) -> Abs(_, ident1, tpe1, expr1) if ident0 == ident1 && tpe0 == tpe1 =>
+        unify(expr0, expr1)
+      case App(_, expr0, arg0) -> App(_, expr1, arg1) =>
+        unify(expr0, expr1) flatMap { (exprSubsts0, exprSubsts1) =>
+          unify(arg0, arg1) flatMap { (argSubsts0, argSubsts1) =>
+            merge(exprSubsts0, argSubsts0) flatMap { substs0 =>
+              merge(exprSubsts1, argSubsts1) map { (substs0, _) }
+            }
+          }
+        }
+      case TypeAbs(ident0, expr0) -> TypeAbs(ident1, expr1)
+          if ident0 == ident1 =>
+        unify(expr0, expr1)
+      case TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if tpe0 == tpe1 =>
+        unify(expr0, expr1)
+      case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 =>
+        (args0 zip args1).foldLeft[Option[(TermSubstitutions, TermSubstitutions)]](Some(Map.empty, Map.empty)) {
+          case (Some(substs0, substs1), (arg0, arg1)) =>
+            unify(arg0, arg1) flatMap { (argSubsts0, argSubsts1) =>
+              merge(substs0, argSubsts0) flatMap { substs0 =>
+                merge(substs1, argSubsts1) map { (substs0, _) }
+              }
+            }
+          case _ =>
+            None
+        }
+      case Cases(scrutinee0, cases0) -> Cases(scrutinee1, cases1) =>
+        (cases0 zip cases1).foldLeft(unify(scrutinee0, scrutinee1)) {
+          case (Some(substs0, substs1), (pattern0 -> expr0, pattern1 -> expr1)) if pattern0 == pattern1 =>
+            unify(expr0, expr1) flatMap { (exprSubsts0, exprSubsts1) =>
+              merge(substs0, exprSubsts0) flatMap { substs0 =>
+                merge(substs1, exprSubsts1) map { (substs0, _) }
+              }
+            }
+          case _ =>
+            None
+        }
+      case Var(ident0) -> Var(ident1) if ident0 == ident1 =>
+        Some(Map.empty, Map.empty)
+      case Var(ident0) -> _ =>
+        Some(Map(ident0 -> expr1), Map.empty)
+      case _ -> Var(ident1) =>
+        Some(Map.empty, Map(ident1 -> expr0))
+      case _ =>
+        None
+
+  def refutable(refutableExpr: Term, baseExpr: Term): Boolean =
+    unify(refutableExpr, baseExpr) forall { (_, baseConstraints) => baseConstraints.nonEmpty }
 end Unification
