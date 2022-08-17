@@ -37,19 +37,30 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
     s"Property Deduction Error\n\nUnable to prove ${property.show} property.")
 
   def specialization(special: Normalization, general: Iterable[Normalization]) =
-    def specialization(special: Normalization, general: Normalization, specialExpr: Term, generalExpr: Term) =
+    def specialization(special: Normalization.Checking, general: Normalization.Checking, specialExpr: Term, generalExpr: Term) =
       Unification.unify(generalExpr, specialExpr) exists { (generalConstraints, specialConstraints) =>
         specialConstraints.isEmpty &&
-        (general.idents forall { ident =>
-          generalConstraints.get(ident) collect { case Var(ident) => ident } forall { special.idents contains _ }
+        (general.abstraction forall { ident =>
+          generalConstraints.get(ident) collect { case Var(ident) => ident } forall { special.abstraction contains _ }
         })
       }
 
+    def valid(substs: TermSubstitutions, equivalents: List[Set[Symbol]]) =
+      equivalents forall { equivalents =>
+        (equivalents flatMap { substs get _ }).size == 1
+      }
+
     general exists { general =>
-      specialization(special, general, special.pattern, general.pattern) &&
-      specialization(special, general, special.result, general.result) &&
-      (special.form.isEmpty && general.form.isEmpty ||
-        (special.form exists { form => general.form exists { !Unification.refutable(_, form) } }))
+      specialization(special.checking, general.checking, special.checking.pattern, general.checking.pattern) &&
+      specialization(special.checking, general.checking, special.checking.result, general.checking.result) &&
+      (special.checking.form.isEmpty && general.checking.form.isEmpty ||
+        (special.checking.form exists { (form, _) =>
+          general.checking.form exists { (formPattern, formEquivalents) =>
+            Unification.unify(formPattern, form) exists { (substs, substsReverse) =>
+              valid(substs, formEquivalents) && substsReverse.isEmpty
+            }
+          }
+        }))
     }
 
   def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
@@ -90,7 +101,12 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
       val normalizeFacts =
         if call.nonEmpty then
-          facts map { _.checking(_ forall { _.info(Abstraction) contains abstraction.get }, call.get).normalize }
+          facts map { fact =>
+            fact.checking(
+              call.get,
+              _ forall { _.info(Abstraction) contains abstraction.get },
+              (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
+          }
         else
           List.empty
 
@@ -129,7 +145,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
       : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
 
         val (remaining, additional) = conjectures partitionMap { conjecture =>
-          val checking = conjecture.checking(_ forall { _.info(Abstraction) contains abstraction.get }, call.get)
+          val checking = conjecture.checking(
+            call.get,
+            _ forall { _.info(Abstraction) contains abstraction.get },
+            (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
           val normalizeConjecture = checking.normalize
 
           val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
@@ -205,7 +224,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         val (distinctProperties, _) = distinctPropertiesNormalize.unzip
         (distinctPropertiesNormalize
           filterNot { (property, _) => specialization(property, distinctProperties filterNot { _ eq property }) }
-          sortBy { case Normalization(pattern, result, _, _) -> _ => (pattern, result) }).unzip
+          sortBy { case Normalization(pattern, result, _, _, _) -> _ => (pattern, result) }).unzip
 
       if printDeductionDebugInfo && provenProperties.nonEmpty then
         println()

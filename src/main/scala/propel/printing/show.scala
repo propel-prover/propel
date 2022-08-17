@@ -76,18 +76,19 @@ extension (result: evaluator.Symbolic.Result) def show: String =
 
 extension (normalization: evaluator.properties.Normalization) def show: String =
   val functionForm = if normalization.form.isEmpty then "" else s" of form ${normalization.form.get.show}"
-  val variables =
-    normalization.pattern.syntacticInfo.freeVars.keySet ++
-    normalization.result.syntacticInfo.freeVars.keySet --
-    normalization.idents
+
+  val function = s" for function ${normalization.abstraction.name}$functionForm"
 
   val functionNames =
-    if normalization.idents.isEmpty then ""
-    else s" for function ${(normalization.idents.toList.sorted map { _.name }).mkString(", ")}$functionForm"
+    if normalization.free.nonEmpty then
+      s" and functions ${(normalization.free.toList.sorted map { _.name }).mkString(", ")}"
+    else
+      ""
 
   val variableNames =
-    val prefix = if functionNames.isEmpty then "for" else "and"
-    if variables.isEmpty then ""
-    else s" $prefix variables ${(variables.toList.sorted map { _.name }).mkString(", ")}"
+    if normalization.variables.nonEmpty then
+      s" and variables ${(normalization.variables.toList.sorted map { _.name }).mkString(", ")}"
+    else
+      ""
 
-  s"${normalization.pattern.show} ⥱ ${normalization.result.show}$functionNames$variableNames" 
+  s"${normalization.pattern.show} ⥱ ${normalization.result.show}$function$functionNames$variableNames" 
