@@ -5,8 +5,33 @@ package properties
 import ast.*
 
 def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: Term, equalities: Equalities): Term =
-  val updated = normalizing.foldLeft(expr) { (expr, normalize) => normalize(equalities).applyOrElse(expr, _ => expr) }
-  if updated != expr then normalize(normalizing, updated, equalities) else updated
+  explode(normalizing, expr, equalities).max
+
+def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: Term, equalities: Equalities): Set[Term] =
+  val normalize = normalizing map { _(equalities) }
+
+  def process(term: Term): Set[Term] =
+    val processed = term match
+      case Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_) =>
+        Set(term)
+      case App(properties, expr, arg) =>
+        process(expr) flatMap { expr => process(arg) map { App(term)(properties, expr, _) } }
+      case TypeApp(expr, tpe) =>
+        process(expr) map { TypeApp(term)(_, tpe) }
+      case Data(ctor, args) =>
+        val processedArgs = args.foldRight(Set(List.empty[Term])) { (arg, args) =>
+          process(arg) flatMap { arg => args map { arg :: _ } }
+        }
+        processedArgs map { Data(term)(ctor, _) }
+
+    def explode(exprs: Set[Term], exploded: Set[Term]): Set[Term] =
+      val updated = (normalize flatMap { exprs collect _ }).toSet -- exploded
+      if updated.nonEmpty then explode(updated, exploded ++ updated) else exploded
+
+    explode(processed, processed)
+
+  process(expr)
+end explode
 
 def derive(equalities: Equalities): Option[Equalities] =
   def deriveByProperties[T](

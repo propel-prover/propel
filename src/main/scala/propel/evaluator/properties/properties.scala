@@ -82,7 +82,7 @@ object commutativity
 
   def normalize(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1)
-        if properties.contains(Commutative) && arg1 < arg0 =>
+        if properties.contains(Commutative) =>
       App(props, App(properties, expr, arg1), arg0)
 end commutativity
 
@@ -99,13 +99,11 @@ object associativity
     case App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
-           equalities.equal(expr0, expr1) == Equality.Equal &&
-           arg2 < arg0 =>
+           equalities.equal(expr0, expr1) == Equality.Equal =>
       App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
     case App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
-           equalities.equal(expr0, expr1) == Equality.Equal &&
-           arg0 < arg2 =>
+           equalities.equal(expr0, expr1) == Equality.Equal =>
       App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
 end associativity
