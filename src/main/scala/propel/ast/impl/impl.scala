@@ -5,6 +5,22 @@ package impl
 import scala.quoted.*
 import scala.runtime.Tuples
 
+
+inline def defaultHashCode: Int = ${ defaultHashCodeImpl }
+
+def defaultHashCodeImpl(using Quotes) =
+  import quotes.reflect.*
+
+  def classSymbol(symbol: Symbol): Symbol =
+    if symbol.exists && !symbol.isClassDef then classSymbol(symbol.owner) else symbol
+  
+  val murmurHash3 = TypeRepr.of[scala.util.hashing.MurmurHash3.type].termSymbol
+  val productHash = murmurHash3.declaredMethod("productHash").head
+
+  Ref(productHash).appliedTo(This(classSymbol(Symbol.spliceOwner))).asExprOf[Int]
+end defaultHashCodeImpl
+
+
 inline def defaultApply[T]: T = ${ defaultApplyImpl[T] }
 
 def defaultApplyImpl[T: Type](using Quotes) =
@@ -60,6 +76,8 @@ def defaultApplyImpl[T: Type](using Quotes) =
         ValDef.let(Symbol.spliceOwner, "dummy", constructWithArgs.appliedTo('{ Nil }.asTerm)) { dummy =>
           constructWithArgs.appliedTo(filter.appliedTo(dummy, templateTree.select(enrichments)))
         }).asExprOf[T]
+end defaultApplyImpl
+
 
 def eqSeq(l0: Seq[?], l1: Seq[?]): Boolean =
   (l0 eq l1) ||
