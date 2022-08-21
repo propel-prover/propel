@@ -185,8 +185,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           if normalize.isEmpty then List.fill(properties.size)((_: Equalities) => PartialFunction.empty)
           else normalize
 
-        (distinct(properties zip normalize)
-          filterNot { (property, _) => specialization(property, properties filterNot { _ eq property }) }
+        val distinctPropertiesNormalize = distinct(properties zip normalize)
+        val (distinctProperties, _) = distinctPropertiesNormalize.unzip
+        (distinctPropertiesNormalize
+          filterNot { (property, _) => specialization(property, distinctProperties filterNot { _ eq property }) }
           sortBy { case Normalization(pattern, result, _, _) -> _ => (pattern, result) }).unzip
 
       if printDeductionDebugInfo && provenProperties.nonEmpty then
