@@ -8,7 +8,15 @@ def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr
   explode(normalizing, expr, equalities).max
 
 def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: Term, equalities: Equalities): Set[Term] =
+  val maxBit = 8
+  val max = 1 << maxBit
+
   val normalize = normalizing map { _(equalities) }
+
+  def top(n: Int, exprs: Set[Term]) =
+    if exprs.size <= n then exprs
+    else if n <= 1 then Set(exprs.max)
+    else exprs.toList.sorted.takeRight(n).toSet
 
   def process(term: Term): Set[Term] =
     val processed = term match
@@ -19,8 +27,9 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
       case TypeApp(expr, tpe) =>
         process(expr) map { TypeApp(term)(_, tpe) }
       case Data(ctor, args) =>
+        val max = if args.nonEmpty then 1 << (maxBit / args.size) else 1
         val processedArgs = args.foldRight(Set(List.empty[Term])) { (arg, args) =>
-          process(arg) flatMap { arg => args map { arg :: _ } }
+          top(max, process(arg)) flatMap { arg => args map { arg :: _ } }
         }
         processedArgs map { Data(term)(ctor, _) }
 
@@ -28,7 +37,7 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
       val updated = (normalize flatMap { exprs collect _ }).toSet -- exploded
       if updated.nonEmpty then explode(updated, exploded ++ updated) else exploded
 
-    explode(processed, processed)
+    top(max, explode(processed, processed))
 
   process(expr)
 end explode
