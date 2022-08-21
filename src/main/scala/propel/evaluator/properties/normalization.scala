@@ -20,7 +20,7 @@ case class Normalization(pattern: Term, result: Term, idents: Set[Symbol], form:
           case Abs(properties, ident, tpe, expr) =>
             Abs(term)(properties, ident, tpe, expandCalls(expr))
           case App(_, App(_, Var(ident), arg0), arg1) if idents contains ident =>
-            subst(expr, Map(ident0 -> arg0, ident1 -> arg1))
+            subst(expr, Map(ident0 -> expandCalls(arg0), ident1 -> expandCalls(arg1)))
           case App(properties, expr, arg) =>
             App(term)(properties, expandCalls(expr), expandCalls(arg))
           case TypeAbs(ident, expr) =>
