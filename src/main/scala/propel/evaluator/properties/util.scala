@@ -6,36 +6,27 @@ import ast.*
 import typer.*
 import util.*
 
-def recursiveCall(expr: Term): Option[Term] =
-  val free = expr.syntacticInfo.freeVars.keySet
-
-  def recursiveCall(term: Term, abstraction: Abstraction): Option[Term] = term match
+def recursiveCalls(expr: Term): List[Term] =
+  def recursiveCalls(term: Term, abstraction: Abstraction): List[Term] = term match
     case Abs(properties, ident, tpe, expr) =>
-      recursiveCall(expr, abstraction)
+      recursiveCalls(expr, abstraction)
     case App(properties1, expr1 @ App(properties0, expr0, arg0), arg1) if expr0.info(Abstraction) contains abstraction =>
-      if (term.syntacticInfo.freeVars.keySet --
-          arg0.syntacticInfo.freeVars.keys --
-          arg1.syntacticInfo.freeVars.keys) subsetOf free then
-        Some(expr0)
-      else
-        recursiveCall(expr1, abstraction) orElse recursiveCall(arg1, abstraction)
+      expr0 :: recursiveCalls(expr1, abstraction) ++ recursiveCalls(arg1, abstraction)
     case App(properties, expr, arg) =>
-      recursiveCall(expr, abstraction) orElse recursiveCall(arg, abstraction)
+      recursiveCalls(expr, abstraction) ++ recursiveCalls(arg, abstraction)
     case TypeAbs(ident, expr) =>
-      recursiveCall(expr, abstraction)
+      recursiveCalls(expr, abstraction)
     case TypeApp(expr, tpe) =>
-      recursiveCall(expr, abstraction)
+      recursiveCalls(expr, abstraction)
     case Data(ctor, args) =>
-      args collectFirstDefined { recursiveCall(_, abstraction) }
+      args flatMap { recursiveCalls(_, abstraction) }
     case Var(ident) =>
-      None
+      List.empty
     case Cases(scrutinee, cases) =>
-      recursiveCall(scrutinee, abstraction) orElse {
-        cases collectFirstDefined { (_, expr) => recursiveCall(expr, abstraction) }
-      }
+      recursiveCalls(scrutinee, abstraction) ++ (cases flatMap { (_, expr) => recursiveCalls(expr, abstraction) })
 
-  expr.info(Abstraction) flatMap { recursiveCall(expr, _) }
-end recursiveCall
+  expr.info(Abstraction).toList flatMap { recursiveCalls(expr, _) }
+end recursiveCalls
 
 def patternsByType(tpe: Type, base: String, names: Set[String]): List[Pattern] =
   val syntactic = tpe.syntacticInfo

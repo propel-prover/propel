@@ -3,16 +3,9 @@ package evaluator
 package properties
 
 import ast.*
+import util.*
 
 case class Normalization(pattern: Term, result: Term, idents: Set[Symbol], form: Option[Term]):
-  private def wellFormed(from: Term, expr: Term): Boolean = from -> expr match
-    case App(_, formExpr, Var(formIdent)) -> App(_, exprExpr, Var(exprIdent)) if formIdent == exprIdent =>
-      wellFormed(formExpr, exprExpr)
-    case Var(_) -> _ =>
-      true
-    case _ =>
-      false
-
   def checking(consider: Set[Term] => Boolean, expr: Term) =
     new PropertyChecking with PropertyChecking.FunctionEqualResult with PropertyChecking.Normal:
       def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
@@ -39,12 +32,22 @@ case class Normalization(pattern: Term, result: Term, idents: Set[Symbol], form:
 
       def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
         Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
-          Option.when(
-              substsReverse.isEmpty &&
-              (form forall { form => wellFormed(subst(form, substs), expr) }) &&
-              consider(idents flatMap { substs.get(_) })) {
-            subst(result, substs ++ (idents map { _ -> expr }))
+          val formSubsts = form map { form =>
+            idents flatMap {
+              substs.get(_) map {
+                Unification.unify(form, _) collect { case (substs, substsReverse) if substsReverse.isEmpty => substs }
+              }
+            }
           }
+
+          if formSubsts.isEmpty || (formSubsts.get.size == 1 && formSubsts.get.head.nonEmpty) then
+            let(formSubsts map { _.head.get } getOrElse Map.empty) { formSubsts =>
+              Option.when(substsReverse.isEmpty && consider(idents flatMap { substs.get(_) })) {
+                subst(result, substs ++ formSubsts ++ (idents map { _ -> expr }))
+              }
+            }
+          else
+            None
         }
       }
   end checking

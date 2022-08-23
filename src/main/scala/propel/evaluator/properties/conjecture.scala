@@ -79,13 +79,18 @@ object Conjecture:
       })
     }
 
-  private def recursiveNormalization(lhs: Term, rhs: Term, abstraction: Abstraction, call: Term, names: Set[String]) =
+  private def recursiveNormalization(lhs: Term, rhs: Term, abstraction: Abstraction, calls: List[Term], names: Set[String]) =
     val data = Data(Constructor(Symbol("⥱")), List(lhs, rhs))
     let(freshVarForAbstraction(data, abstraction, "∘", names)) { update =>
       val (Data(_, List(lhs, rhs)), idents) = update
       val remainingIdents = rhs.syntacticInfo.freeVars.keySet -- lhs.syntacticInfo.freeVars.keySet -- idents
-      val form = if remainingIdents.isEmpty then Some(None) else formToCoverIdents(call, remainingIdents) map { Some(_) }
-      lhs -> (form flatMap { form => validateNormalization(Normalization(lhs, rhs, idents, form), abstraction, Some(call)) })
+      val form =
+        if remainingIdents.isEmpty then
+          Some(None)
+        else
+          val forms = (calls map { formToCoverIdents(_, remainingIdents) }).toSet
+          if forms.size != 1 then None else forms.head map { Some(_) }
+      lhs -> (form flatMap { form => validateNormalization(Normalization(lhs, rhs, idents, form), abstraction, Some(calls.head)) })
     }
 
   private def directNormalization(properties: Properties, arg0: Term, arg1: Term, rhs: Term, abstraction: Abstraction, names: Set[String]) =
@@ -107,8 +112,10 @@ object Conjecture:
       ident0: Symbol,
       ident1: Symbol,
       result: UniqueNames[Symbolic.Result]): List[Normalization] =
-    (abstraction.info(Abstraction), recursiveCall(abstraction)) match
-      case (Some(abstraction), call) =>
+    (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
+      case (Some(abstraction), calls) =>
+        val call = calls.headOption
+
         result unwrap { result =>
           val names = UniqueNames.usedNames.toSet
 
@@ -124,7 +131,7 @@ object Conjecture:
 
               val lhs -> normalization = call match
                 case Some(call) =>
-                  recursiveNormalization(App(Set.empty, App(properties, call, arg0), arg1), expr, abstraction, call, names)
+                  recursiveNormalization(App(Set.empty, App(properties, call, arg0), arg1), expr, abstraction, calls, names)
                 case _ =>
                   directNormalization(properties, arg0, arg1, expr, abstraction, names)
 
@@ -201,7 +208,9 @@ object Conjecture:
         containsReference(expr, abstraction)
       })
 
-    def generalizeEvaluationResults(ident0: Symbol, ident1: Symbol, abstraction: Abstraction, call: Term) =
+    def generalizeEvaluationResults(ident0: Symbol, ident1: Symbol, abstraction: Abstraction, calls: List[Term]) =
+      val call = calls.head
+
       result unwrap { result =>
         val names = UniqueNames.usedNames.toSet
 
@@ -272,7 +281,7 @@ object Conjecture:
                   end generalizations
 
                   (lhs -> rhs) :: generalizations flatMap { (lhs, rhs) =>
-                    val _ -> normalization = recursiveNormalization(lhs, rhs, abstraction, call, names)
+                    val _ -> normalization = recursiveNormalization(lhs, rhs, abstraction, calls, names)
                     normalization
                   }
                 }
@@ -282,9 +291,9 @@ object Conjecture:
         }
       }
 
-    (abstraction.info(Abstraction), recursiveCall(abstraction)) match
-      case (Some(abstraction), Some(call)) =>
-        generalizeEvaluationResults(ident0, ident1, abstraction, call).distinct sortBy {
+    (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
+      case (Some(abstraction), calls @ _ :: _) =>
+        generalizeEvaluationResults(ident0, ident1, abstraction, calls).distinct sortBy {
           case Normalization(pattern, result, _, _) => (pattern, result)
         }
       case _ =>

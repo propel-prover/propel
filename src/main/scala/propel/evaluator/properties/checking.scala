@@ -63,8 +63,8 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         println()
         println(indent(2, term.show))
 
-      val (abstraction, call) = (term.info(Abstraction), recursiveCall(term)) match
-        case some @ (Some(_), Some(_)) => some
+      val (abstraction, call) = (term.info(Abstraction), recursiveCalls(term)) match
+        case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
         case _ => (None, None)
 
       val converted = UniqueNames.convert(expr1)
