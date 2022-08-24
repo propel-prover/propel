@@ -158,8 +158,6 @@ object Unification:
           case _ =>
             None
         }
-      case Var(ident0) -> Var(ident1) if ident0 == ident1 =>
-        Some(Map.empty, Map.empty)
       case Var(ident0) -> _ =>
         Some(Map(ident0 -> expr1), Map.empty)
       case _ -> Var(ident1) =>
