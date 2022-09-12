@@ -23,23 +23,23 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
       case Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_) =>
         Set(term)
       case App(properties, expr, arg) =>
-        process(expr) flatMap { expr => process(arg) map { App(term)(properties, expr, _) } }
+        process(expr) flatMap { expr => process(arg) map { App(term)(properties, expr, _).withSyntacticInfo } }
       case TypeApp(expr, tpe) =>
-        process(expr) map { TypeApp(term)(_, tpe) }
+        process(expr) map { TypeApp(term)(_, tpe).withSyntacticInfo }
       case Data(ctor, args) =>
         val max = if args.nonEmpty then 1 << (maxBit / args.size) else 1
         val processedArgs = args.foldRight(Set(List.empty[Term])) { (arg, args) =>
           top(max, process(arg)) flatMap { arg => args map { arg :: _ } }
         }
-        processedArgs map { Data(term)(ctor, _) }
+        processedArgs map { Data(term)(ctor, _).withSyntacticInfo }
 
     def explode(exprs: Set[Term], exploded: Set[Term]): Set[Term] =
-      val updated = (normalize flatMap { exprs collect _ }).toSet -- exploded
+      val updated = (normalize flatMap { exprs collect _ } map { _.withSyntacticInfo }).toSet -- exploded
       if updated.nonEmpty then explode(updated, exploded ++ updated) else exploded
 
     top(max, explode(processed, processed))
 
-  process(expr)
+  process(expr.withSyntacticInfo)
 end explode
 
 def derive(equalities: Equalities): Option[Equalities] =

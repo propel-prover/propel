@@ -120,50 +120,103 @@ object Unification:
     inline def merge(inline substs0: TermSubstitutions, inline substs1: TermSubstitutions) =
       Option.when(!(substs0.keys exists { substs1 contains _ }))(substs0 ++ substs1)
 
-    expr0 -> expr1 match
-      case Abs(_, ident0, tpe0, expr0) -> Abs(_, ident1, tpe1, expr1) if ident0 == ident1 && tpe0 == tpe1 =>
-        unify(expr0, expr1)
-      case App(_, expr0, arg0) -> App(_, expr1, arg1) =>
-        unify(expr0, expr1) flatMap { (exprSubsts0, exprSubsts1) =>
-          unify(arg0, arg1) flatMap { (argSubsts0, argSubsts1) =>
-            merge(exprSubsts0, argSubsts0) flatMap { substs0 =>
-              merge(exprSubsts1, argSubsts1) map { (substs0, _) }
+    def patternSubsts(pattern0: Pattern, pattern1: Pattern, used: Set[String]): Option[(TermSubstitutions, TermSubstitutions, Set[String])] =
+      pattern0 -> pattern1 match
+        case Match(ctor0, args0) -> Match(ctor1, args1) if ctor0 == ctor1 =>
+          (args0 zip args1).foldLeft[Option[(TermSubstitutions, TermSubstitutions, Set[String])]](Some(Map.empty, Map.empty, used)) {
+            case (Some(substs0, substs1, used), (arg0, arg1)) =>
+              patternSubsts(arg0, arg1, used) map { (argSubsts0, argSubsts1, used) => (substs0 ++ argSubsts0, substs1 ++ argSubsts1, used) }
+            case _ =>
+              None
+          }
+        case Bind(ident0) -> Bind(ident1) =>
+          if ident0 != ident1 then
+            val ident = Naming.freshIdent(ident0, used)
+            Some(Map(ident0 -> Var(ident)), Map(ident1 -> Var(ident)), used + ident.name)
+          else
+            Some(Map.empty, Map.empty, used)
+        case _ =>
+          None
+
+    def unify(expr0: Term, expr1: Term, used: Set[String], typeSubsts: TypeSubstitutions): Option[(TermSubstitutions, TermSubstitutions, Set[String])] =
+      expr0 -> expr1 match
+        case Abs(_, ident0, tpe0, expr0) -> Abs(_, ident1, tpe1, expr1) if equivalent(tpe0, subst(tpe1, typeSubsts)) =>
+          if ident0 != ident1 then
+            val ident = Naming.freshIdent(ident0, used)
+            unify(subst(expr0, Map(ident0 -> Var(ident))), subst(expr1, Map(ident1 -> Var(ident))), used + ident.name, typeSubsts)
+          else
+            unify(expr0, expr1, used, typeSubsts)
+        case App(_, expr0, arg0) -> App(_, expr1, arg1) =>
+          unify(expr0, expr1, used, typeSubsts) flatMap { (exprSubsts0, exprSubsts1, used) =>
+            unify(arg0, arg1, used, typeSubsts) flatMap { (argSubsts0, argSubsts1, used) =>
+              merge(exprSubsts0, argSubsts0) flatMap { substs0 =>
+                merge(exprSubsts1, argSubsts1) map { (substs0, _, used) }
+              }
             }
           }
-        }
-      case TypeAbs(ident0, expr0) -> TypeAbs(ident1, expr1)
-          if ident0 == ident1 =>
-        unify(expr0, expr1)
-      case TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if tpe0 == tpe1 =>
-        unify(expr0, expr1)
-      case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 =>
-        (args0 zip args1).foldLeft[Option[(TermSubstitutions, TermSubstitutions)]](Some(Map.empty, Map.empty)) {
-          case (Some(substs0, substs1), (arg0, arg1)) =>
-            unify(arg0, arg1) flatMap { (argSubsts0, argSubsts1) =>
-              merge(substs0, argSubsts0) flatMap { substs0 =>
-                merge(substs1, argSubsts1) map { (substs0, _) }
+        case TypeAbs(ident0, expr0) -> TypeAbs(ident1, expr1) =>
+          if ident0 != ident1 then
+            unify(expr0, expr1, used, typeSubsts + (ident1 -> TypeVar(ident0)))
+          else
+            unify(expr0, expr1, used, typeSubsts)
+        case TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if equivalent(tpe0, subst(tpe1, typeSubsts)) =>
+          unify(expr0, expr1, used, typeSubsts)
+        case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 =>
+          (args0 zip args1).foldLeft[Option[(TermSubstitutions, TermSubstitutions, Set[String])]](Some(Map.empty, Map.empty, used)) {
+            case (Some(substs0, substs1, used), (arg0, arg1)) =>
+              unify(arg0, arg1, used, typeSubsts) flatMap { (argSubsts0, argSubsts1, used) =>
+                merge(substs0, argSubsts0) flatMap { substs0 =>
+                  merge(substs1, argSubsts1) map { (substs0, _, used) }
+                }
               }
-            }
-          case _ =>
-            None
-        }
-      case Cases(scrutinee0, cases0) -> Cases(scrutinee1, cases1) =>
-        (cases0 zip cases1).foldLeft(unify(scrutinee0, scrutinee1)) {
-          case (Some(substs0, substs1), (pattern0 -> expr0, pattern1 -> expr1)) if pattern0 == pattern1 =>
-            unify(expr0, expr1) flatMap { (exprSubsts0, exprSubsts1) =>
-              merge(substs0, exprSubsts0) flatMap { substs0 =>
-                merge(substs1, exprSubsts1) map { (substs0, _) }
+            case _ =>
+              None
+          }
+        case Cases(scrutinee0, cases0) -> Cases(scrutinee1, cases1) =>
+          (cases0 zip cases1).foldLeft(unify(scrutinee0, scrutinee1, used, typeSubsts)) {
+            case (Some(substs0, substs1, used), (pattern0 -> expr0, pattern1 -> expr1)) =>
+              patternSubsts(pattern0, pattern1, used) flatMap { (substs0, substs1, used) =>
+                unify(subst(expr0, substs0), subst(expr1, substs1), used, typeSubsts) flatMap { (exprSubsts0, exprSubsts1, used) =>
+                  merge(substs0, exprSubsts0) flatMap { substs0 =>
+                    merge(substs1, exprSubsts1) map { (substs0, _, used) }
+                  }
+                }
               }
-            }
-          case _ =>
-            None
-        }
-      case Var(ident0) -> _ =>
-        Some(Map(ident0 -> expr1), Map.empty)
-      case _ -> Var(ident1) =>
-        Some(Map.empty, Map(ident1 -> expr0))
-      case _ =>
-        None
+            case _ =>
+              None
+          }
+        case Var(ident0) -> _ =>
+          Some(Map(ident0 -> expr1), Map.empty, used)
+        case _ -> Var(ident1) =>
+          Some(Map.empty, Map(ident1 -> expr0), used)
+        case _ =>
+          None
+
+    val expr0Info = expr0.syntacticInfo
+    val expr1Info = expr1.syntacticInfo
+    val used = expr0Info.boundVars ++ expr0Info.freeVars.keySet ++ expr1Info.boundVars ++ expr1Info.freeVars.keySet map { _.name }
+
+    def containsOnlyUsed(expr: Term): Boolean = expr match
+      case Abs(_, _, _, expr) => containsOnlyUsed(expr)
+      case App(_, expr, arg) => containsOnlyUsed(expr) && containsOnlyUsed(arg)
+      case TypeAbs(_, expr) => containsOnlyUsed(expr)
+      case TypeApp(expr, _) => containsOnlyUsed(expr)
+      case Data(_, args) => args forall containsOnlyUsed
+      case Var(ident) => used contains ident.name
+      case Cases(scrutinee, cases) => containsOnlyUsed(scrutinee) && (cases forall { (_, expr) => containsOnlyUsed(expr) })
+
+    def validSubsts(substs: TermSubstitutions) =
+      val filtered = substs filter {
+        case (ident, Var(exprIdent)) => ident != exprIdent || (used contains ident.name)
+        case _ => true
+      }
+      Option.when(filtered forall { (ident, expr) => (used contains ident.name) && containsOnlyUsed(expr) })(filtered)
+
+    unify(expr0, expr1, used, Map.empty) flatMap { (substs0, substs1, _) =>
+      validSubsts(substs0) flatMap { substs0 =>
+        validSubsts(substs1) map { (substs0, _) }
+      }
+    }
 
   def refutable(refutableExpr: Term, baseExpr: Term): Boolean =
     unify(refutableExpr, baseExpr) forall { (_, baseConstraints) => baseConstraints.nonEmpty }
