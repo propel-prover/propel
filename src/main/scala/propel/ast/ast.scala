@@ -30,6 +30,7 @@ object Constructor:
 
 
 sealed trait Pattern extends Enrichable[Pattern]:
+  def size: Int
   protected def withEnrichments(enrichments: Enrichments) = this match
     case Match(ctor, args) => Match(ctor, args)(enrichments)
     case Bind(ident) => Bind(ident)(enrichments)
@@ -37,6 +38,7 @@ sealed trait Pattern extends Enrichable[Pattern]:
 object Pattern:
   case class Match private[Pattern] (ctor: Constructor, args: List[Pattern]) (val enrichments: Enrichments) extends Pattern:
     override val hashCode = impl.defaultHashCode
+    val size = args.foldLeft(1) { _ + _.size }
 
   object Match:
     def apply(ctor: Constructor, args: List[Pattern]): Match = impl.defaultApply
@@ -44,6 +46,7 @@ object Pattern:
 
   case class Bind private[Pattern] (ident: Symbol) (val enrichments: Enrichments) extends Pattern:
     override val hashCode = impl.defaultHashCode
+    val size = 1
 
   object Bind:
     def apply(ident: Symbol): Bind = impl.defaultApply
@@ -51,6 +54,7 @@ object Pattern:
 
 
 sealed trait Type extends Enrichable[Type]:
+  def size: Int
   protected def withEnrichments(enrichments: Enrichments) = this match
     case Function(arg, result) => Function(arg, result)(enrichments)
     case Universal(ident, result) => Universal(ident, result)(enrichments)
@@ -61,6 +65,7 @@ sealed trait Type extends Enrichable[Type]:
 object Type:
   case class Function private[Type] (arg: Type, result: Type) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + arg.size + result.size
 
   object Function:
     def apply(arg: Type, result: Type): Function = impl.defaultApply
@@ -68,6 +73,7 @@ object Type:
 
   case class Universal private[Type] (ident: Symbol, result: Type) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + result.size
 
   object Universal:
     def apply(ident: Symbol, result: Type): Universal = impl.defaultApply
@@ -75,6 +81,7 @@ object Type:
 
   case class Recursive private[Type] (ident: Symbol, result: Type) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + result.size
 
   object Recursive:
     def apply(ident: Symbol, result: Type): Recursive = impl.defaultApply
@@ -82,6 +89,7 @@ object Type:
 
   case class TypeVar private[Type] (ident: Symbol) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    val size = 1
 
   object TypeVar:
     def apply(ident: Symbol): TypeVar = impl.defaultApply
@@ -89,6 +97,7 @@ object Type:
 
   case class Sum private[Type] (sum: List[(Constructor, List[Type])]) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    val size = sum.foldLeft(1) { _ + _._2.foldLeft(0) { _ + _.size } }
 
   object Sum:
     def apply(sum: List[(Constructor, List[Type])]): Sum = impl.defaultApply
@@ -96,6 +105,7 @@ object Type:
 
 
 sealed trait Term extends Enrichable[Term]:
+  def size: Int
   protected def withEnrichments(enrichments: Enrichments) = this match
     case Abs(properties, ident, tpe, expr) => Abs(properties, ident, tpe, expr)(enrichments)
     case App(properties, expr, arg) => App(properties, expr, arg)(enrichments)
@@ -108,6 +118,7 @@ sealed trait Term extends Enrichable[Term]:
 object Term:
   case class Abs private[Term] (properties: Properties, ident: Symbol, tpe: Type, expr: Term) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + tpe.size + expr.size
 
   object Abs:
     def apply(properties: Properties, ident: Symbol, tpe: Type, expr: Term): Abs = impl.defaultApply
@@ -115,6 +126,7 @@ object Term:
 
   case class App private[Term] (properties: Properties, expr: Term, arg: Term) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + expr.size + arg.size
 
   object App:
     def apply(properties: Properties, expr: Term, arg: Term): App = impl.defaultApply
@@ -122,6 +134,7 @@ object Term:
 
   case class TypeAbs private[Term] (ident: Symbol, expr: Term) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + expr.size
 
   object TypeAbs:
     def apply(ident: Symbol, expr: Term): TypeAbs = impl.defaultApply
@@ -129,6 +142,7 @@ object Term:
 
   case class TypeApp private[Term] (expr: Term, tpe: Type) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = 1 + expr.size + tpe.size
 
   object TypeApp:
     def apply(expr: Term, tpe: Type): TypeApp = impl.defaultApply
@@ -136,6 +150,7 @@ object Term:
 
   case class Data private[Term] (ctor: Constructor, args: List[Term]) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = args.foldLeft(1) { _ + _.size }
 
   object Data:
     def apply(ctor: Constructor, args: List[Term]): Data = impl.defaultApply
@@ -143,6 +158,7 @@ object Term:
 
   case class Var private[Term] (ident: Symbol) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = 1
 
   object Var:
     def apply(ident: Symbol): Var = impl.defaultApply
@@ -150,6 +166,7 @@ object Term:
 
   case class Cases(scrutinee: Term, cases: List[(Pattern, Term)]) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    val size = cases.foldLeft(1) { case (size, (pattern, term)) => size + pattern.size + term.size }
 
   object Cases:
     def apply(scrutinee: Term, cases: List[(Pattern, Term)]): Cases = impl.defaultApply

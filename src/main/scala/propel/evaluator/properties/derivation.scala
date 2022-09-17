@@ -8,6 +8,7 @@ def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr
   explode(normalizing, expr, equalities).max
 
 def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: Term, equalities: Equalities): Set[Term] =
+  val maxSize = expr.size * 11 / 10 + 8
   val maxBit = 8
   val max = 1 << maxBit
 
@@ -23,7 +24,8 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
       case Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_) =>
         Set(term)
       case App(properties, expr, arg) =>
-        process(expr) flatMap { expr => process(arg) map { App(term)(properties, expr, _).withSyntacticInfo } }
+        val max = 1 << (maxBit / 2)
+        top(max, process(expr)) flatMap { expr => top(max, process(arg)) map { App(term)(properties, expr, _).withSyntacticInfo } }
       case TypeApp(expr, tpe) =>
         process(expr) map { TypeApp(term)(_, tpe).withSyntacticInfo }
       case Data(ctor, args) =>
@@ -34,8 +36,19 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
         processedArgs map { Data(term)(ctor, _).withSyntacticInfo }
 
     def explode(exprs: Set[Term], exploded: Set[Term]): Set[Term] =
-      val updated = (normalize flatMap { exprs collect _ } map { _.withSyntacticInfo }).toSet -- exploded
-      if updated.nonEmpty then explode(updated, exploded ++ updated) else exploded
+      val (continue, stop) = (normalize.iterator
+        flatMap { exprs collect _ }
+        filterNot { exploded contains _ }
+        map { _.withSyntacticInfo }
+        partition { _.size < maxSize })
+
+      val continueSet = continue.toSet
+      val stopSet = stop.toSet
+
+      if continueSet.nonEmpty then
+        explode(continueSet, exploded ++ continueSet ++ stopSet)
+      else
+        exploded ++ continueSet ++ stopSet
 
     top(max, explode(processed, processed))
 
