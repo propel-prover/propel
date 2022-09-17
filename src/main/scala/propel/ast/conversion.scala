@@ -61,7 +61,9 @@ object UniqueNames:
     given(using UniqueNaming): PotentialNames[Term] with
       private[UniqueNames] def makeResult(expr: Term) = expr
 
-  def convert[R <: UniqueNames[Term] | Term](expr: Term)(using names: PotentialNames[R]): R =
+  def convert[R <: UniqueNames[Term] | Term](
+      expr: Term,
+      used: IterableOnce[String] = Iterable.empty)(using names: PotentialNames[R]): R =
     def renamePattern(pattern: Pattern): (Pattern, Map[Symbol, Symbol]) = pattern match
       case Match(ctor, args) =>
         let(args.map(renamePattern).unzip) { (args, substs) =>
@@ -97,6 +99,7 @@ object UniqueNames:
 
     let(expr.syntactic) { (expr, syntactic) =>
       syntactic.freeVars foreach { (ident, _) => names.used.put(ident.name, ()) }
+      used.iterator foreach { names.used.put(_, ()) }
       names.makeResult(renameTerm(expr, Map.empty))
     }
 end UniqueNames

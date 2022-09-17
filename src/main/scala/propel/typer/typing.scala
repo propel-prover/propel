@@ -20,7 +20,7 @@ extension (expr: Term)
 extension (pattern: Pattern)
   inline def typed: (Pattern, Option[Type]) =
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case pattern -> Typing(tpe) => pattern -> tpe }
-  inline def termType: Option[Type] =
+  inline def patternType: Option[Type] =
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case _ -> Typing(tpe) => tpe }
   inline def typedPattern: Pattern =
     let(pattern.withIntrinsicInfo(Typing.Pattern)) { case pattern -> _ => pattern }

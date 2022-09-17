@@ -52,7 +52,21 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         (special.form exists { form => general.form exists { !Unification.refutable(_, form) } }))
     }
 
-  def check(term: Term): Term = term match
+  def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
+    case Some(tpe) =>
+      val expr = Var(ident).withExtrinsicInfo(Typing.Specified(Right(tpe)))
+      tpe.info(Abstraction) map { expr.withExtrinsicInfo(_) } getOrElse expr
+    case _ =>
+      Var(ident)
+
+  def typedArgVar(ident: Symbol, tpe: Option[Type]) =
+     typedVar(ident, tpe collect { case Function(arg, _) => arg })
+
+  def typedBindings(pattern: Pattern): Map[Symbol, Term] = pattern match
+    case Match(_, args) => (args flatMap typedBindings).toMap
+    case Bind(ident) => Map(ident -> typedVar(ident, pattern.patternType))
+
+  def check(term: Term, env: Map[Symbol, Term]): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
       if printReductionDebugInfo || printDeductionDebugInfo then
         if debugInfoPrinted then
@@ -63,11 +77,13 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         println()
         println(indent(2, term.show))
 
+      val names = env.keys map { _.name }
+
       val (abstraction, call) = (term.info(Abstraction), recursiveCalls(term)) match
         case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
         case _ => (None, None)
 
-      val converted = UniqueNames.convert(expr1)
+      val converted = UniqueNames.convert(expr1, names)
       val result = Symbolic.eval(converted)
 
       val facts = Conjecture.basicFacts(properties, term, ident0, ident1, result)
@@ -117,7 +133,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           val normalizeConjecture = checking.normalize
 
           val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
-          val converted = UniqueNames.convert(expr)
+          val converted = UniqueNames.convert(expr, names)
 
           if printReductionDebugInfo then
             println()
@@ -210,7 +226,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
               Some(illformedFunctionTypeError(property, term.termType))
             else
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
-              val converted = UniqueNames.convert(expr)
+              val converted = UniqueNames.convert(expr, names)
 
               if printReductionDebugInfo then
                 println()
@@ -243,26 +259,26 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
       }
       error match
         case Some(error) => term.withExtrinsicInfo(error)
-        case _ => Abs(term)(properties, ident0, tpe0, check(expr0))
+        case _ => Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> typedArgVar(ident0, term.termType))))
     case Abs(properties, ident, tpe, expr) =>
       if properties.nonEmpty then
         term.withExtrinsicInfo(illshapedDefinitionError(properties.head))
       else
-        Abs(term)(properties, ident, tpe, check(expr))
+        Abs(term)(properties, ident, tpe, check(expr, env + (ident -> typedArgVar(ident, term.termType))))
     case App(properties, expr, arg) =>
-      App(term)(properties, check(expr), check(arg))
+      App(term)(properties, check(expr, env), check(arg, env))
     case TypeAbs(ident, expr) =>
-      TypeAbs(term)(ident, check(expr))
+      TypeAbs(term)(ident, check(expr, env))
     case TypeApp(expr, tpe) =>
-      TypeApp(term)(check(expr), tpe)
+      TypeApp(term)(check(expr, env), tpe)
     case Data(ctor, args) =>
-      Data(term)(ctor, args map check)
+      Data(term)(ctor, args map { check(_, env) })
     case Var(_) =>
       expr
     case Cases(scrutinee, cases) =>
-      Cases(term)(check(scrutinee), cases map { (pattern, expr) => pattern -> check(expr) })
+      Cases(term)(check(scrutinee, env), cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern)) })
 
   expr.typed match
-    case expr -> Some(_) => check(expr)
+    case expr -> Some(_) => check(expr, Map.empty)
     case expr -> _ => expr
 end check
