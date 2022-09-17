@@ -16,6 +16,20 @@ object Enrichable:
     def info[E](enrichment: Enrichment.Base[?, E]): Option[E] =
       self.enrichments.iterator collectFirstDefined enrichment.asEnrichment
 
+    def withInfo(enriched: Enrichable.Any): Enriched =
+      let(Enrichments.filter(self, enriched.enrichments)) { enrichments =>
+        if enrichments.nonEmpty then
+          val filtered = self.enrichments filterNot { instance =>
+            enrichments exists { _.enrichment match
+              case enrichment: Enrichment.Base[?, ?] => enrichment.asEnrichment(instance).isDefined
+              case _ => false
+            }
+          }
+          self.withEnrichments(filtered ++ enrichments)
+        else
+          self
+      }
+
     def withoutInfo(enrichments: Enrichment.Base[?, ?]*): Enriched =
       var removed = false
       val filtered = self.enrichments filterNot { instance =>
@@ -45,6 +59,8 @@ object Enrichable:
   extension [Enriched <: Enrichable[Enriched]](self: List[Enriched])
     def info[E](enrichment: Enrichment.Base[?, E]): List[Option[E]] =
       self map { _.info(enrichment) }
+    def withInfo(enriched: Enrichable.Any): List[Enriched] =
+      self map { _.withInfo(enriched) }
     def withoutInfo(enrichment: Enrichment.Base[?, ?]): List[Enriched] =
       self map { _.withoutInfo(enrichment) }
     def withIntrinsicInfo[E <: Enrichment[?]]

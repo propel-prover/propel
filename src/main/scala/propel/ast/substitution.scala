@@ -47,7 +47,7 @@ def subst(expr: Term, substs: TermSubstitutions): Term =
           Data(term)(ctor, args map { subst(_, used, substs) })
         case Var(ident) =>
           substs.get(ident) match
-            case Some(Var(ident)) => Var(term)(ident)
+            case Some(variable @ Var(ident)) => Var(term)(ident).withInfo(variable)
             case Some(expr) => expr
             case _ => term
         case Cases(scrutinee, cases) =>
@@ -114,7 +114,7 @@ def subst(tpe: Type, substs: TypeSubstitutions): Type =
           Recursive(tpe)(ident, subst(result, used, substs - ident))
         case TypeVar(ident) =>
           substs.get(ident) match
-            case Some(TypeVar(ident)) => TypeVar(tpe)(ident)
+            case Some(variable @ TypeVar(ident)) => TypeVar(tpe)(ident).withInfo(variable)
             case Some(tpe) => tpe
             case _ => tpe
         case Sum(sum) =>
