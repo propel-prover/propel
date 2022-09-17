@@ -286,20 +286,42 @@ object Conjecture:
                       else
                         List.empty
 
-                    (lhs -> rhs) :: generalizedVar0.toList ++ generalizedVar1.toList ++ generalizedRecursiveCalls flatMap { case generalization @ (_, rhs) =>
-                      val freeVars = rhs.syntacticInfo.freeVars.keys
+                    def swap(term: Term): Term = term match
+                      case Abs(properties, ident, tpe, expr) =>
+                        Abs(term)(properties, ident, tpe, swap(expr))
+                      case App(properties1, expr1 @ App(properties0, expr0, arg0), arg1) if expr0.info(Abstraction) contains abstraction =>
+                        App(term)(properties1, App(expr1)(properties0, swap(expr0), swap(arg1)), swap(arg0))
+                      case App(properties, expr, arg) =>
+                        App(term)(properties, swap(expr), swap(arg))
+                      case TypeAbs(ident, expr) =>
+                        TypeAbs(term)(ident, swap(expr))
+                      case TypeApp(expr, tpe) =>
+                        TypeApp(term)(swap(expr), tpe)
+                      case Data(ctor, args) =>
+                        Data(term)(ctor, args map swap)
+                      case Var(ident) =>
+                        term
+                      case Cases(scrutinee, cases) =>
+                        Cases(term)(scrutinee, cases map { (pattern, expr) => pattern -> swap(expr )})
 
-                      val var0dependents = (equalities.pos.get(var0).toSet flatMap { _.syntacticInfo.freeVars.keys }) + var0.ident
-                      val exprDependsOnVar0 = freeVars exists { var0dependents contains _ }
+                    ((lhs -> rhs) :: generalizedVar0.toList ++ generalizedVar1.toList ++ generalizedRecursiveCalls
+                      flatMap { case generalization @ (_, rhs) =>
+                        val freeVars = rhs.syntacticInfo.freeVars.keys
 
-                      val var1dependents = (equalities.pos.get(var1).toSet flatMap { _.syntacticInfo.freeVars.keys }) + var1.ident
-                      val exprDependsOnVar1 = freeVars exists { var1dependents contains _ }
+                        val var0dependents = (equalities.pos.get(var0).toSet flatMap { _.syntacticInfo.freeVars.keys }) + var0.ident
+                        val exprDependsOnVar0 = freeVars exists { var0dependents contains _ }
 
-                      if !exprDependsOnVar0 && !exprDependsOnVar1 then
-                        List(generalization, lhsVar0 -> rhs, lhsVar1 -> rhs, lhsVar01 -> rhs)
-                      else
-                        List(generalization)
-                    }
+                        val var1dependents = (equalities.pos.get(var1).toSet flatMap { _.syntacticInfo.freeVars.keys }) + var1.ident
+                        val exprDependsOnVar1 = freeVars exists { var1dependents contains _ }
+
+                        if !exprDependsOnVar0 && !exprDependsOnVar1 then
+                          List(generalization, lhsVar0 -> rhs, lhsVar1 -> rhs, lhsVar01 -> rhs)
+                        else
+                          List(generalization)
+                      }
+                      flatMap { case generalization @ (lhs, rhs) =>
+                        List(generalization, swap(lhs) -> swap(rhs))
+                      })
                   end generalizations
 
                   generalizations flatMap { (lhs, rhs) =>
