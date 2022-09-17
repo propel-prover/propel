@@ -77,6 +77,8 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
     case Match(_, args) => (args flatMap typedBindings).toMap
     case Bind(ident) => Map(ident -> typedVar(ident, pattern.patternType))
 
+  var collectedNormalizations = List.empty[(Abstraction => Option[Term]) => Option[Equalities => PartialFunction[Term, Term]]]
+
   def check(term: Term, env: Map[Symbol, Term]): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
       if printReductionDebugInfo || printDeductionDebugInfo then
@@ -89,6 +91,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         println(indent(2, term.show))
 
       val names = env.keys map { _.name }
+
+      val abstractions = env flatMap { (_, expr) => expr.info(Abstraction) map { _ -> expr } }
+
+      val collectedNormalize = collectedNormalizations flatMap { _(abstractions.get) }
 
       val (abstraction, call) = (term.info(Abstraction), recursiveCalls(term)) match
         case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
@@ -161,7 +167,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             println(indent(4, converted.wrapped.show))
 
           val config = Symbolic.Configuration(
-            evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ normalizing), _, _),
+            evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ collectedNormalize ++ normalizing), _, _),
             evaluator.properties.derive)
 
           val result = Symbolic.eval(converted, equalities, config)
@@ -226,6 +232,21 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           filterNot { (property, _) => specialization(property, distinctProperties filterNot { _ eq property }) }
           sortBy { case Normalization(pattern, result, _, _, _) -> _ => (pattern, result) }).unzip
 
+      abstraction foreach { abstraction =>
+        collectedNormalizations ++= provenProperties map { property => exprs =>
+          exprs(abstraction) map { expr =>
+            val freeExpr = (property.free flatMap { ident =>
+              env.get(ident) flatMap { _.info(Abstraction) flatMap exprs map { ident -> _ } }
+            }).toMap
+
+            property.checking(
+              expr,
+              _ forall { _.info(Abstraction) contains abstraction },
+              freeExpr).normalize
+          }
+        }
+      }
+
       if printDeductionDebugInfo && provenProperties.nonEmpty then
         println()
         println(indent(2, "Proven properties:"))
@@ -254,7 +275,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                 println(indent(4, converted.wrapped.show))
 
               val config = Symbolic.Configuration(
-                evaluator.properties.normalize(normalize ++ normalizing, _, _),
+                evaluator.properties.normalize(normalize ++ collectedNormalize ++ normalizing, _, _),
                 evaluator.properties.derive)
 
               val result = Symbolic.eval(converted, equalities, config)
