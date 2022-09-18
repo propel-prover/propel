@@ -126,11 +126,6 @@ object Normalization:
           Data(equalDataConstructor, List(expandCalls(pattern), expandCalls(result))) -> Equalities.empty
 
         def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
-          def valid(substs: TermSubstitutions, equivalents: List[Set[Symbol]]) =
-            equivalents forall { equivalents =>
-              (equivalents flatMap { substs get _ }).size == 1
-            }
-
           val (formPattern, formEquivalents) = form match
             case Some(formPattern, formEquivalents) => Some(formPattern) -> formEquivalents
             case _ => None -> List.empty
@@ -161,4 +156,51 @@ object Normalization:
         }
     end apply
   end Checking
+
+  private def valid(substs: TermSubstitutions, equivalents: List[Set[Symbol]]) =
+    equivalents forall { equivalents =>
+      (equivalents flatMap { substs get _ }).size == 1
+    }
+
+  def specializationForSameAbstraction(special: Normalization, general: Normalization): Boolean =
+    def specialization(special: Normalization.Checking, general: Normalization.Checking, specialExpr: Term, generalExpr: Term) =
+      Unification.unify(generalExpr, specialExpr) filter { (generalConstraints, specialConstraints) =>
+        specialConstraints.isEmpty &&
+        (general.abstraction forall { ident =>
+          generalConstraints.get(ident) collect { case Var(ident) => ident } forall { special.abstraction contains _ }
+        })
+      }
+
+    specialization(special.checking, general.checking, special.checking.pattern, general.checking.pattern) exists { (substs, _) =>
+      special.checking.result == subst(general.checking.result, substs) &&
+      (special.checking.form.isEmpty && general.checking.form.isEmpty ||
+        (special.checking.form exists { (form, _) =>
+          general.checking.form exists { (formPattern, formEquivalents) =>
+            Unification.unify(formPattern, form) exists { (substs, substsReverse) =>
+              valid(substs, formEquivalents) && substsReverse.isEmpty
+            }
+          }
+        }))
+    }
+  end specializationForSameAbstraction
+
+  def specializationForSameAbstraction(special: Normalization, general: Iterable[Normalization]): Boolean =
+    general exists { specializationForSameAbstraction(special, _) }
+
+  def equivalentForSameAbstraction(normalization0: Normalization, normalization1: Normalization): Boolean =
+    normalization0 == normalization1 ||
+    specializationForSameAbstraction(normalization0, normalization1) &&
+    specializationForSameAbstraction(normalization1, normalization0)
+
+  def distinct(normalizations: List[Normalization]): List[Normalization] = normalizations match
+    case Nil => Nil
+    case head :: tail =>
+      def distinctTail(normalizations: List[Normalization]): List[Normalization] = normalizations match
+        case Nil => Nil
+        case tailHead :: tailTail =>
+          if Normalization.equivalentForSameAbstraction(tailHead, head) then
+            distinctTail(tailTail)
+          else
+            tailHead :: distinctTail(tailTail)
+      head :: distinct(distinctTail(tail))
 end Normalization

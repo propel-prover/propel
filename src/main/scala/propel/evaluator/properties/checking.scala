@@ -36,33 +36,6 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
   def propertyDeductionError(property: Property) = Error(
     s"Property Deduction Error\n\nUnable to prove ${property.show} property.")
 
-  def specialization(special: Normalization, general: Iterable[Normalization]) =
-    def specialization(special: Normalization.Checking, general: Normalization.Checking, specialExpr: Term, generalExpr: Term) =
-      Unification.unify(generalExpr, specialExpr) exists { (generalConstraints, specialConstraints) =>
-        specialConstraints.isEmpty &&
-        (general.abstraction forall { ident =>
-          generalConstraints.get(ident) collect { case Var(ident) => ident } forall { special.abstraction contains _ }
-        })
-      }
-
-    def valid(substs: TermSubstitutions, equivalents: List[Set[Symbol]]) =
-      equivalents forall { equivalents =>
-        (equivalents flatMap { substs get _ }).size == 1
-      }
-
-    general exists { general =>
-      specialization(special.checking, general.checking, special.checking.pattern, general.checking.pattern) &&
-      specialization(special.checking, general.checking, special.checking.result, general.checking.result) &&
-      (special.checking.form.isEmpty && general.checking.form.isEmpty ||
-        (special.checking.form exists { (form, _) =>
-          general.checking.form exists { (formPattern, formEquivalents) =>
-            Unification.unify(formPattern, form) exists { (substs, substsReverse) =>
-              valid(substs, formEquivalents) && substsReverse.isEmpty
-            }
-          }
-        }))
-    }
-
   val typedExpr = expr.typedTerm
 
   val abstractionProperties: Map[Abstraction, Properties] =
@@ -173,7 +146,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
               List.empty
 
           distributivityConjectures ++ Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
-            specialization(_, facts)
+            Normalization.specializationForSameAbstraction(_, facts)
           }
         else
           List.empty
@@ -247,7 +220,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           (provenConjectures ++ proven, normalizeConjectures ++ normalize)
         else
           proveConjectures(
-            remaining filterNot { specialization(_, proven) },
+            remaining filterNot { Normalization.specializationForSameAbstraction(_, proven) },
             provenConjectures ++ proven,
             normalizeConjectures ++ normalize)
       end proveConjectures
@@ -263,8 +236,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             def distinctTail(properties: Properties): Properties = properties match
               case Nil => Nil
               case (head @ (property, _)) :: tail =>
-                if specialization(property, List(propertyHead)) &&
-                   specialization(propertyHead, List(property)) then
+                if Normalization.equivalentForSameAbstraction(property, propertyHead) then
                   distinctTail(tail)
                 else
                   head :: distinctTail(tail)
@@ -280,8 +252,12 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         val distinctPropertiesNormalize = distinct(properties zip normalize)
         val (distinctProperties, _) = distinctPropertiesNormalize.unzip
         (distinctPropertiesNormalize
-          filterNot { (property, _) => specialization(property, distinctProperties filterNot { _ eq property }) }
-          sortBy { case Normalization(pattern, result, _, _, _) -> _ => (pattern, result) }).unzip
+          filterNot { (property, _) =>
+            Normalization.specializationForSameAbstraction(property, distinctProperties filterNot { _ eq property })
+          }
+          sortBy { case Normalization(pattern, result, _, _, _) -> _ =>
+            (pattern, result)
+          }).unzip
 
       abstraction foreach { abstraction =>
         collectedNormalizations ++= provenProperties map { property => exprs =>

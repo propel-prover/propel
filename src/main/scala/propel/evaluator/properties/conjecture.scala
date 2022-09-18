@@ -149,7 +149,7 @@ object Conjecture:
               }
           }
 
-          normalizations sortBy {
+          Normalization.distinct(normalizations) sortBy {
             case Normalization(pattern, result, _, _, _) => (pattern, result)
           }
         }
@@ -337,7 +337,7 @@ object Conjecture:
 
     (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
       case (Some(abstraction), calls @ _ :: _) =>
-        generalizeEvaluationResults(ident0, ident1, abstraction, calls).distinct sortBy {
+        Normalization.distinct(generalizeEvaluationResults(ident0, ident1, abstraction, calls)) sortBy {
           case Normalization(pattern, result, _, _, _) => (pattern, result)
         }
       case _ =>
