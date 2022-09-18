@@ -84,6 +84,14 @@ def plus[A: TermExpr](expr: A) =
         ("Pair", ("S", "a"), ("S", "b")) -> ("S", ("S", app(assoc, comm)("+", "a", "b")))))) (
     expr)
 
+def mult[A: TermExpr](expr: A) =
+  letrec(
+    "*" -> tp(nat -> (nat -> nat)) ->
+      abs(assoc, comm)("a" -> nat, "b" -> nat)(cases("a")(
+        ("S", "a") -> app(assoc, comm)("+", app(assoc, comm)("*", "a", "b"), "b"),
+        "_" -> "Z")))(
+    expr)
+
 
 @main def example =
   def check(expr: Term) =
@@ -104,3 +112,5 @@ def plus[A: TermExpr](expr: A) =
   check(map("Z"))
   println()
   check(plus("Z"))
+  println()
+  check(plus(mult("Z")))

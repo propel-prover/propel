@@ -63,6 +63,25 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         }))
     }
 
+  val typedExpr = expr.typedTerm
+
+  val abstractionProperties: Map[Abstraction, Properties] =
+    def abstractionProperties(term: Term): Map[Abstraction, Properties] = term match
+      case Abs(properties, _, _, expr) =>
+        term.info(Abstraction) map { abstraction =>
+          abstractionProperties(expr) + (abstraction -> properties)
+        } getOrElse abstractionProperties(expr)
+      case App(_, expr, arg) => abstractionProperties(expr) ++ abstractionProperties(arg)
+      case TypeAbs(_, expr) => abstractionProperties(expr)
+      case TypeApp(expr, _) => abstractionProperties(expr)
+      case Data(_, args) => (args flatMap abstractionProperties).toMap
+      case Var(ident) => Map.empty
+      case Cases(scrutinee, cases) =>
+        abstractionProperties(scrutinee) ++ (cases flatMap { (_, expr) =>
+          abstractionProperties(expr)
+        })
+    abstractionProperties(typedExpr)
+
   def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
     case Some(tpe) =>
       val expr = Var(ident).withExtrinsicInfo(Typing.Specified(Right(tpe)))
@@ -118,10 +137,42 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
       val conjectures =
         if call.nonEmpty then
-          val config = Symbolic.Configuration(
-            evaluator.properties.normalize(normalizeFacts ++ normalizing, _, _),
-            evaluator.properties.derive)
-          Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
+          val distributivityConjectures =
+            if expr1.termType exists { equivalent(tpe0, _) } then
+              val tpe = Function(tpe0, Function(tpe0, tpe0))
+              (expr1.syntacticInfo.freeVars.keySet collect {
+                case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
+                  val identProperties = env(ident).info(Abstraction) flatMap abstractionProperties.get getOrElse Set.empty
+
+                  def side0(properties0: Properties, ident0: Symbol, properties1: Properties, ident1: Symbol) = App(Set.empty,
+                    App(properties0, Var(ident0), Var(Symbol("a"))),
+                    App(Set.empty, App(properties1, Var(ident1), Var(Symbol("b"))), Var(Symbol("c"))))
+
+                  def side1(properties0: Properties, ident0: Symbol, properties1: Properties, ident1: Symbol) = App(Set.empty,
+                    App(properties1, Var(ident1), App(Set.empty, App(properties0, Var(ident0), Var(Symbol("a"))), Var(Symbol("b")))),
+                    App(Set.empty, App(properties0, Var(ident0), Var(Symbol("a"))), Var(Symbol("c"))))
+
+                  def normalization(side0: Term, side1: Term) =
+                    Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b"), Symbol("c")))
+
+                  List(
+                    normalization(
+                      side0(properties, Symbol("∘"), identProperties, ident),
+                      side1(properties, Symbol("∘"), identProperties, ident)),
+                    normalization(
+                      side1(properties, Symbol("∘"), identProperties, ident),
+                      side0(properties, Symbol("∘"), identProperties, ident)),
+                    normalization(
+                      side0(identProperties, ident, properties, Symbol("∘")),
+                      side1(identProperties, ident, properties, Symbol("∘"))),
+                    normalization(
+                      side1(identProperties, ident, properties, Symbol("∘")),
+                      side0(identProperties, ident, properties, Symbol("∘"))))
+              }).flatten.toList
+            else
+              List.empty
+
+          distributivityConjectures ++ Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
             specialization(_, facts)
           }
         else
@@ -318,7 +369,8 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
     case Cases(scrutinee, cases) =>
       Cases(term)(check(scrutinee, env), cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern)) })
 
-  expr.typed match
-    case expr -> Some(_) => check(expr, Map.empty)
-    case expr -> _ => expr
+  if typedExpr.termType.isDefined then
+    check(typedExpr, Map.empty)
+  else
+    expr
 end check
