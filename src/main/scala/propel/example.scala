@@ -93,6 +93,36 @@ def mult[A: TermExpr](expr: A) =
     expr)
 
 
+// succ Zero = OneAnd Zero
+// succ (ZeroAnd x) = OneAnd x
+// succ (OneAnd x) = ZeroAnd (succ x)
+def bv_succ[A: TermExpr](expr: A) =
+    letrec(
+        "bv_succ" -> tp(bv -> bv) ->
+            abs()("a" -> bv)(cases("a")(
+                "BZ" -> ("B1", "BZ"),
+                ("B0", "x") -> ("B1", "x"),
+                ("B1", "x") -> ("B0", ("bv_succ", "x")))))  (expr)
+
+// plus Zero xs = xs
+// plus xs Zero = xs
+// plus (ZeroAnd xs) (ZeroAnd ys) = ZeroAnd (plus xs ys)
+// plus (ZeroAnd xs) (OneAnd ys) = OneAnd (plus xs ys)
+// plus (OneAnd xs) (ZeroAnd ys) = OneAnd (plus xs ys)
+// plus (OneAnd xs) (OneAnd ys) = ZeroAnd (succ (plus xs ys))
+def bv_plus[A: TermExpr](expr: A) =
+    letrec(
+        "bv_plus" -> tp(bv -> (bv -> bv)) ->
+            abs(assoc, comm)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+                ("Pair", "BZ", "x") -> "x",
+                ("Pair", "x", "BZ") -> "x",
+                ("Pair", ("B0", "x"), ("B0", "y")) -> ("B0", app(assoc, comm)("bv_plus", "x", "y")),
+                ("Pair", ("B0", "x"), ("B1", "y")) -> ("B1", app(assoc, comm)("bv_plus", "x", "y")),
+                ("Pair", ("B1", "x"), ("B0", "y")) -> ("B1", app(assoc, comm)("bv_plus", "x", "y")),
+                ("Pair", ("B1", "x"), ("B1", "y")) -> ("B0", ("bv_succ", app(assoc, comm)("bv_plus", "x", "y")))
+                )))(expr)
+
+
 @main def example =
   def check(expr: Term) =
     val result = properties.check(expr, printDeductionDebugInfo = true, printReductionDebugInfo = false)
@@ -114,3 +144,5 @@ def mult[A: TermExpr](expr: A) =
   check(plus("Z"))
   println()
   check(plus(mult("Z")))
+  println()
+  println(check(bv_succ(bv_plus("Z"))))

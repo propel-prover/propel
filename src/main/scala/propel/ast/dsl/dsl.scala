@@ -117,6 +117,8 @@ package sugar:
 
   def nat = rec("X")(dt(("S", "X"), "Z"))
 
+  def bv = rec("X")(dt(("B0", "X"), ("B1", "X"), "BZ"))
+
   def list[T: TypeExpr](t: T) = subst(rec("X")(dt(("Cons", "T", "X"), "Nil")), Map(Symbol("T") -> t.make))
 
   def not[A: TermExpr](a: A) = cases(a)(True -> False, False -> True)
