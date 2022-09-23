@@ -93,9 +93,6 @@ def mult[A: TermExpr](expr: A) =
     expr)
 
 
-// succ Zero = OneAnd Zero
-// succ (ZeroAnd x) = OneAnd x
-// succ (OneAnd x) = ZeroAnd (succ x)
 def bv_succ[A: TermExpr](expr: A) =
     letrec(
         "bv_succ" -> tp(bv -> bv) ->
@@ -104,12 +101,6 @@ def bv_succ[A: TermExpr](expr: A) =
                 ("B0", "x") -> ("B1", "x"),
                 ("B1", "x") -> ("B0", ("bv_succ", "x")))))  (expr)
 
-// plus Zero xs = xs
-// plus xs Zero = xs
-// plus (ZeroAnd xs) (ZeroAnd ys) = ZeroAnd (plus xs ys)
-// plus (ZeroAnd xs) (OneAnd ys) = OneAnd (plus xs ys)
-// plus (OneAnd xs) (ZeroAnd ys) = OneAnd (plus xs ys)
-// plus (OneAnd xs) (OneAnd ys) = ZeroAnd (succ (plus xs ys))
 def bv_plus[A: TermExpr](expr: A) =
     letrec(
         "bv_plus" -> tp(bv -> (bv -> bv)) ->
@@ -122,27 +113,102 @@ def bv_plus[A: TermExpr](expr: A) =
                 ("Pair", ("B1", "x"), ("B1", "y")) -> ("B0", ("bv_succ", app(assoc, comm)("bv_plus", "x", "y")))
                 )))(expr)
 
+def gcounter_merge[A: TermExpr](expr: A) =
+    letrec("gcounter_merge" -> tp(list(nat) -> (list(nat) -> list(nat))) ->
+        abs(assoc, comm)("a" -> list(nat), "b" -> list(nat))(cases("Pair", "a", "b")(
+            ("Pair", ("Cons", "ah", "as"), ("Cons", "bh", "bs")) ->
+                ("Cons", app(assoc,comm)("max", "ah", "bh"), app(assoc,comm)("gcounter_merge", "as", "bs")),
+            (("Pair", "x", "Nil") -> "x"),
+            (("Pair", "Nil", "y") -> "y")
+        )))(expr)
+
+def pncounter_merge[A: TermExpr](expr: A) =
+    val pncounter = dt("Pair", list(nat), list(nat))
+    let("pncounter_merge" -> abs(assoc, comm)("a" -> pncounter, "b" -> pncounter)(
+            let(("Pair", ("Pair", "a1", "a2"), ("Pair", "b1", "b2")) -> ("Pair", "a", "b"))
+               ("Pair", app(comm,assoc)("gcounter_merge", "a1", "b1"), app(comm,assoc)("gcounter_merge", "a2", "b2"))
+        ))(expr)
+
+// RFC677 describes it to be commutative
+def lwwreg_merge[A: TermExpr](expr: A) =
+    val lwwreg = dt("Pair", nat, nat)
+    val withOrd = false
+    val withAcc = false
+    
+    if withOrd // TODO ordernat must also be reflexive so ordernat(t2,t2)=False is a contradiction
+    // result: commutativity: no, associativity: no
+    then
+        let("lwwreg_merge" -> abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(
+            let(("Pair", ("Pair", "d1", "t1"), ("Pair", "d2", "t2")) -> ("Pair", "a", "b"))
+                (`if`(app(antisym, trans)("ordernat", "t1", "t2"))
+                     (`if`(app(antisym, trans)("ordernat", "t2", "t1"))
+                          ("Pair", app(comm,assoc)("max", "d1", "d2"), "t1")
+                          ("Pair", "d2", "t2"))
+                     ("Pair", "d1", "t1"))))(expr)
+    else if withAcc // commutativity: no, associativity: no
+    then
+        letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
+            abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(
+                (letrec("aux" -> tp(nat -> (lwwreg -> (lwwreg -> lwwreg))) ->
+                    abs()("acc" -> nat)(abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
+                        ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
+                            ("Pair", app(comm,assoc)("max", "d1", "d2"), "acc"),
+                        ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
+                            ("Pair", "d1", ("S", "t1")),
+                        ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
+                            ("Pair", "d2", ("S", "t2")),
+                        ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
+                            app(comm,assoc)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
+                (app(comm,assoc)(("aux", "Z"), "a", "b")))))(expr)
+    else  // associativity: no, commutativity: yes
+        letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
+            abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
+                ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
+                    ("Pair", app(comm,assoc)("max", "d1", "d2"), "Z"),
+                ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
+                    ("Pair", "d1", ("S", "t1")),
+                ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
+                    ("Pair", "d2", ("S", "t2")),
+                ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
+                    let(("Pair", "d", "t") -> app(comm,assoc)("lwwreg_merge", ("Pair", "d1", "t1"), ("Pair", "d2", "t2")))
+                    ("Pair", "d", ("S", "t")))))(expr)
+
+def gset_merge[A: TermExpr](expr: A) =
+    // TODO fails because we do not equate functions (implement extensionality)
+    let("gset_merge" ->
+        abs(comm,assoc)("a" -> tp(nat -> bool), "b" -> tp(nat -> bool))
+           (abs()("x" -> nat)(or("a", "x")("b", "x"))))(expr)
+
 
 @main def example =
   def check(expr: Term) =
-    val result = properties.check(expr, printDeductionDebugInfo = true, printReductionDebugInfo = false)
+    val result = properties.check(expr, printDeductionDebugInfo = true, printReductionDebugInfo =
+    true)
     val errors = result.showErrors
     if errors.nonEmpty then
       println()
       println(errors)
 
-  check(ordernat("Z"))
-  println()
-  check(orderlist("Z"))
-  println()
-  check(min("Z"))
-  println()
-  check(max("Z"))
-  println()
-  check(map("Z"))
-  println()
-  check(plus("Z"))
-  println()
-  check(plus(mult("Z")))
-  println()
-  println(check(bv_succ(bv_plus("Z"))))
+  // check(ordernat("Z"))
+  // println()
+  // check(orderlist("Z"))
+  // println()
+  // check(min("Z"))
+  // println()
+  // check(max("Z"))
+  // println()
+  // check(map("Z"))
+  // println()
+  // check(plus("Z"))
+  // println()
+  // check(plus(mult("Z")))
+  // println()
+  // println(check(bv_succ(bv_plus("Z"))))
+  // println()
+
+  // println(check(max(gcounter_merge("Z"))))
+  // println()
+  // println(check(max(gcounter_merge(pncounter_merge("Z")))))
+  // println()
+  // println(check(max(ordernat(lwwreg_merge("Z")))))
+  println(check(gset_merge("Z")))
