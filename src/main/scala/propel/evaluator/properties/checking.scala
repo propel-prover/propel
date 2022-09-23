@@ -360,5 +360,5 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
   if typedExpr.termType.isDefined then
     check(typedExpr, Map.empty)
   else
-    expr
+    typedExpr
 end check
