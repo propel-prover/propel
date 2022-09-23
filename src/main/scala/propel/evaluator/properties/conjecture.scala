@@ -64,13 +64,13 @@ object Conjecture:
 
   private def directNormalization(
       properties: Properties,
-      arg0: Term,
-      arg1: Term, rhs: Term,
+      args: List[Term],
+      rhs: Term,
       abstraction: Abstraction,
       unbound: Set[Symbol],
       names: Set[String]) =
     val ident = Naming.freshIdent(Symbol("∘"), names)
-    val lhs = App(Set.empty, App(properties, Var(ident), arg0), arg1)
+    val lhs = app(properties, Var(ident), args)
     createNormalization(lhs, rhs, ident, abstraction, List.empty, unbound, names)
 
   private def createNormalization(
@@ -112,11 +112,16 @@ object Conjecture:
     }
   end createNormalization
 
+  private def app(properties: Properties, function: Term, args: List[Term]) =
+    if args.isEmpty then
+      function
+    else
+      args.tail.foldLeft(App(properties, function, args.head)) { App(Set.empty, _, _) }
+
   def basicFacts(
       properties: Properties,
       abstraction: Term,
-      ident0: Symbol,
-      ident1: Symbol,
+      idents: List[Symbol],
       result: UniqueNames[Symbolic.Result]): List[Normalization] =
     val unbound = abstraction.syntacticInfo.freeVars.keySet
 
@@ -132,22 +137,23 @@ object Conjecture:
               let(expr.syntactic) { (expr, exprInfo) =>
                 val freeVars = exprInfo.freeVars.keySet
 
-                val var0 = Var(ident0)
-                val var1 = Var(ident1)
+                val variableArgs = idents map { ident =>
+                  val variable = Var(ident)
+                  variable -> (Option.when(freeVars contains ident)(variable) orElse equalities.pos.get(variable) getOrElse variable)
+                }
 
-                val arg0 = Option.when(freeVars contains ident0)(var0) orElse equalities.pos.get(var0) getOrElse var0
-                val arg1 = Option.when(freeVars contains ident1)(var1) orElse equalities.pos.get(var1) getOrElse var1
+                val (vars, args) = variableArgs.unzip
 
                 val lhs -> normalization = call match
                   case Some(call) =>
-                    recursiveNormalization(App(Set.empty, App(properties, call, arg0), arg1), expr, abstraction, calls, unbound, names)
+                    recursiveNormalization(app(properties, call, args), expr, abstraction, calls, unbound, names)
                   case _ =>
-                    directNormalization(properties, arg0, arg1, expr, abstraction, unbound, names)
+                    directNormalization(properties, args, expr, abstraction, unbound, names)
 
                 (lhs :: patterns) -> (normalization match {
                   case Some(normalization)
                       if (patterns forall { Unification.refutable(normalization.checking.pattern, _) }) &&
-                         (var0 != arg0 || var1 != arg1) =>
+                         (variableArgs exists { _ != _ }) =>
                     normalization :: normalizations
                   case _ =>
                     normalizations

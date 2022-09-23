@@ -71,6 +71,32 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
   var collectedNormalizations = List.empty[(Abstraction => Option[Term]) => Option[Equalities => PartialFunction[Term, Term]]]
 
+  def addCollectedNormalizations(env: Map[Symbol, Term], abstraction: Option[Abstraction], normalizations: List[Normalization]) =
+    abstraction foreach { abstraction =>
+      collectedNormalizations ++= normalizations map { property => exprs =>
+        exprs(abstraction) map { expr =>
+          val freeExpr = (property.free flatMap { ident =>
+            env.get(ident) flatMap { _.info(Abstraction) flatMap exprs map { ident -> _ } }
+          }).toMap
+
+          property.checking(
+            expr,
+            _ forall { _.info(Abstraction) contains abstraction },
+            _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+              val abstraction = expr.info(Abstraction)
+              abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+            } },
+            freeExpr).normalize
+        }
+      }
+    }
+
+  def exprArgumentPrefixes(expr: Term): List[(List[Symbol], Term)] = expr match
+    case Abs(_, ident, _, expr) =>
+      List(ident) -> expr :: (exprArgumentPrefixes(expr) map { (idents, expr) => (ident :: idents) -> expr })
+    case _ =>
+      List.empty
+
   def check(term: Term, env: Map[Symbol, Term]): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
       if printReductionDebugInfo || printDeductionDebugInfo then
@@ -92,10 +118,16 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
         case _ => (None, None)
 
-      val converted = UniqueNames.convert(expr1, names)
-      val result = Symbolic.eval(converted)
+      val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
-      val facts = Conjecture.basicFacts(properties, term, ident0, ident1, result)
+      val facts = exprArgumentPrefixes(term) flatMap { (idents, expr) =>
+        val evaluationResult =
+          if expr ne expr1 then
+            Symbolic.eval(UniqueNames.convert(expr, names))
+          else
+            result
+        Conjecture.basicFacts(properties, term, idents, evaluationResult)
+      }
 
       val normalizeFacts =
         if call.nonEmpty then
@@ -267,24 +299,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             (pattern, result)
           }).unzip
 
-      abstraction foreach { abstraction =>
-        collectedNormalizations ++= provenProperties map { property => exprs =>
-          exprs(abstraction) map { expr =>
-            val freeExpr = (property.free flatMap { ident =>
-              env.get(ident) flatMap { _.info(Abstraction) flatMap exprs map { ident -> _ } }
-            }).toMap
-
-            property.checking(
-              expr,
-              _ forall { _.info(Abstraction) contains abstraction },
-              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                val abstraction = expr.info(Abstraction)
-                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-              } },
-              freeExpr).normalize
-          }
-        }
-      }
+      addCollectedNormalizations(env, abstraction, provenProperties)
 
       if printDeductionDebugInfo && provenProperties.nonEmpty then
         println()
@@ -339,21 +354,53 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
       error match
         case Some(error) => term.withExtrinsicInfo(error)
         case _ => Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> typedArgVar(ident0, term.termType))))
+
     case Abs(properties, ident, tpe, expr) =>
       if properties.nonEmpty then
         term.withExtrinsicInfo(illshapedDefinitionError(properties.head))
       else
+        if printReductionDebugInfo || printDeductionDebugInfo then
+          if debugInfoPrinted then
+            println()
+          else
+            debugInfoPrinted = true
+          println("Checking properties for definition:")
+          println()
+          println(indent(2, term.show))
+
+        val names = env.keys map { _.name }
+
+        val abstraction = term.info(Abstraction)
+
+        val facts = exprArgumentPrefixes(term) flatMap { (idents, expr) =>
+          Conjecture.basicFacts(properties, term, idents, Symbolic.eval(UniqueNames.convert(expr, names)))
+        }
+
+        if printDeductionDebugInfo && facts.nonEmpty then
+          println()
+          println(indent(2, "Basic facts:"))
+          println()
+          facts map { fact => println(indent(4, fact.show)) }
+
+        addCollectedNormalizations(env, abstraction, facts)
+
         Abs(term)(properties, ident, tpe, check(expr, env + (ident -> typedArgVar(ident, term.termType))))
+
     case App(properties, expr, arg) =>
       App(term)(properties, check(expr, env), check(arg, env))
+
     case TypeAbs(ident, expr) =>
       TypeAbs(term)(ident, check(expr, env))
+
     case TypeApp(expr, tpe) =>
       TypeApp(term)(check(expr, env), tpe)
+
     case Data(ctor, args) =>
       Data(term)(ctor, args map { check(_, env) })
+
     case Var(_) =>
       expr
+
     case Cases(scrutinee, cases) =>
       Cases(term)(check(scrutinee, env), cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern)) })
 
