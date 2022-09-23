@@ -98,6 +98,10 @@ object Conjecture:
             val checking = normalization.checking(
               calls.headOption getOrElse dummy,
               _ forall { _.info(Abstraction) contains abstraction },
+              _ forall { (ident, exprs) => exprs forall {
+                case expr @ Var(_) => expr.ident == ident
+                case _ => false
+              } },
               (normalization.free map { ident => ident -> Var(ident) }).toMap)
             val normalize = checking.normalize(Equalities.empty)
             lhs -> Option.when(!normalizable(normalize, normalization.checking.result))(normalization)

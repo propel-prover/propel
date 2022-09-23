@@ -103,6 +103,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             fact.checking(
               call.get,
               _ forall { _.info(Abstraction) contains abstraction.get },
+              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                val abstraction = expr.info(Abstraction)
+                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+              } },
               (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
           }
         else
@@ -178,6 +182,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           val checking = conjecture.checking(
             call.get,
             _ forall { _.info(Abstraction) contains abstraction.get },
+            _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+              val abstraction = expr.info(Abstraction)
+              abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+            } },
             (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
           val normalizeConjecture = checking.normalize
 
@@ -269,6 +277,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             property.checking(
               expr,
               _ forall { _.info(Abstraction) contains abstraction },
+              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                val abstraction = expr.info(Abstraction)
+                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+              } },
               freeExpr).normalize
           }
         }

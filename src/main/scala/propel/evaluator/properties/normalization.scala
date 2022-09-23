@@ -97,7 +97,7 @@ object Normalization:
       equivalents: List[Set[Symbol]],
       form: Option[(Term, List[Set[Symbol]])],
       free: Map[Symbol, Symbol]):
-    def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, freeExpr: Map[Symbol, Term]) =
+    def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term]) =
       val freeSubsts = Option.when(free.values forall { freeExpr contains _}) {
         free map { (renamed, original) => renamed -> freeExpr(original) }
       }
@@ -132,7 +132,15 @@ object Normalization:
 
           freeSubsts flatMap { freeSubsts =>
             Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
-              if substsReverse.isEmpty && checkAbstraction(abstraction flatMap { substs.get(_) }) && valid(substs, equivalents) then
+              def abstractionCheck = abstraction flatMap { substs.get(_) }
+
+              def freeCheck = free.foldLeft(Map.empty[Symbol, List[Term]]) { case (mapping, (renamed, original)) =>
+                mapping.updatedWith(original) {
+                  _ flatMap { exprs => substs.get(renamed) map { _ :: exprs } } orElse (substs.get(renamed) map { List(_) })
+                }
+              }
+
+              if substsReverse.isEmpty && checkAbstraction(abstractionCheck) && checkFree(freeCheck) && valid(substs, equivalents) then
                 val formSubsts = formPattern map { formPattern =>
                   abstraction flatMap {
                     substs.get(_) map {
