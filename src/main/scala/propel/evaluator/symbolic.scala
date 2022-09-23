@@ -186,11 +186,11 @@ object Symbolic:
     def eval(expr: Term, constraints: Constraints, equalities: Equalities): Result =
       replaceByEqualities(expr, equalities) match
         case term @ Abs(properties, ident, tpe, expr) =>
-          eval(expr, constraints, equalities) map { Abs(term)(properties, ident, tpe, _) }
+          Result(List(Reduction(term, constraints, equalities)))
         case term @ App(properties, expr, arg) =>
           evals(List(expr, arg), constraints, equalities) map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }
         case term @ TypeAbs(ident, expr) =>
-          eval(expr, constraints, equalities) map { TypeAbs(term)(ident, _) }
+          Result(List(Reduction(term, constraints, equalities)))
         case term @ TypeApp(expr, tpe) =>
           eval(expr, constraints, equalities) flatMap {
             case Reduction(TypeAbs(ident, expr), constraints, equalities) =>
