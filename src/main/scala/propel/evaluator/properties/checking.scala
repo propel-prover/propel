@@ -210,62 +210,68 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = List.empty)
       : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
 
-        val (remaining, additional) = conjectures partitionMap { conjecture =>
-          val checking = conjecture.checking(
-            call.get,
-            _ forall { _.info(Abstraction) contains abstraction.get },
-            _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-              val abstraction = expr.info(Abstraction)
-              abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-            } },
-            (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
-          val normalizeConjecture = checking.normalize
+        val init = List.empty[Either[Normalization, (Normalization, Equalities => PartialFunction[Term, Term])]]
 
-          val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
-          val converted = UniqueNames.convert(expr, names)
+        val processed = conjectures.foldLeft(init) { (processed, conjecture) =>
+          if !Normalization.specializationForSameAbstraction(conjecture, processed collect { case Right(proven -> _) => proven }) then
+            val checking = conjecture.checking(
+              call.get,
+              _ forall { _.info(Abstraction) contains abstraction.get },
+              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                val abstraction = expr.info(Abstraction)
+                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+              } },
+              (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+            val normalizeConjecture = checking.normalize
 
-          if printReductionDebugInfo then
-            println()
-            println(indent(2, s"Checking conjecture: ${conjecture.show}"))
-            println()
-            println(indent(4, converted.wrapped.show))
+            val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
+            val converted = UniqueNames.convert(expr, names)
 
-          val config = Symbolic.Configuration(
-            evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ collectedNormalize ++ normalizing), _, _),
-            evaluator.properties.derive)
+            if printReductionDebugInfo then
+              println()
+              println(indent(2, s"Checking conjecture: ${conjecture.show}"))
+              println()
+              println(indent(4, converted.wrapped.show))
 
-          val result = Symbolic.eval(converted, equalities, config)
+            val config = Symbolic.Configuration(
+              evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ collectedNormalize ++ normalizing), _, _),
+              evaluator.properties.derive)
 
-          if printReductionDebugInfo then
-            println()
-            println(indent(2, "Evaluation result for conjecture check:"))
-            println()
-            println(indent(4, result.wrapped.show))
+            val result = Symbolic.eval(converted, equalities, config)
 
-          val successful = checking.check(result.wrapped)
+            if printReductionDebugInfo then
+              println()
+              println(indent(2, "Evaluation result for conjecture check:"))
+              println()
+              println(indent(4, result.wrapped.show))
 
-          if printReductionDebugInfo then
-            println()
-            if successful then
-              println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
-            else
-              println(indent(4, "✘ Conjecture could not be proven".toUpperCase.nn))
+            val successful = checking.check(result.wrapped)
 
-          Either.cond(successful, conjecture -> normalizeConjecture, conjecture)
+            if printReductionDebugInfo then
+              println()
+              if successful then
+                println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
+              else
+                println(indent(4, "✘ Conjecture could not be proven".toUpperCase.nn))
+
+            Either.cond(successful, conjecture -> normalizeConjecture, conjecture) :: processed
+          else
+            processed
         }
+
+        val (remaining, additional) = processed partitionMap identity
 
         val (proven, normalize) = additional.unzip
 
         if remaining.isEmpty || additional.isEmpty then
           (provenConjectures ++ proven, normalizeConjectures ++ normalize)
         else
-          proveConjectures(
-            remaining filterNot { Normalization.specializationForSameAbstraction(_, proven) },
-            provenConjectures ++ proven,
-            normalizeConjectures ++ normalize)
+          proveConjectures(remaining, provenConjectures ++ proven, normalizeConjectures ++ normalize)
       end proveConjectures
 
-      val (provenConjectures, normalizeConjectures) = proveConjectures(conjectures)
+      val (provenConjectures, normalizeConjectures) = proveConjectures(conjectures sortWith {
+        !Normalization.specializationForSameAbstraction(_, _)
+      })
 
       val (provenProperties, normalize) =
         type Properties = List[(Normalization, Equalities => PartialFunction[Term, Term])]
