@@ -141,7 +141,9 @@ object Conjecture:
                     directNormalization(properties, arg0, arg1, expr, abstraction, unbound, names)
 
                 (lhs :: patterns) -> (normalization match {
-                  case Some(normalization) if patterns forall { Unification.refutable(normalization.checking.pattern, _) } =>
+                  case Some(normalization)
+                      if (patterns forall { Unification.refutable(normalization.checking.pattern, _) }) &&
+                         (var0 != arg0 || var1 != arg1) =>
                     normalization :: normalizations
                   case _ =>
                     normalizations
