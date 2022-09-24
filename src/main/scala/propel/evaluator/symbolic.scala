@@ -4,6 +4,7 @@ package evaluator
 import ast.*
 import typer.*
 import scala.annotation.targetName
+import scala.collection.mutable
 
 object Symbolic:
   case class Constraints private (pos: PatternConstraints, neg: Set[PatternConstraints]):
@@ -87,7 +88,7 @@ object Symbolic:
     def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration()) =
       constraints.withPosConstraints(patternConstraints) flatMap { constraints =>
         equalities.withEqualities(patternConstraints) map { equalities =>
-          Reduction(normalize(expr, equalities, config), constraints, equalities)
+          Reduction(normalize(expr, equalities, config, mutable.Map.empty), constraints, equalities)
         }
       }
 
@@ -113,8 +114,9 @@ object Symbolic:
     private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints, reductions.equalities)
     private inline def flatMap(f: Term => List[Term]): Reductions = reductions.copy(exprs = reductions.exprs flatMap f)
 
-  private def normalize(expr: Term, equalities: Equalities, config: Configuration): Term =
-    config.normalize(substEqualities(expr, equalities), equalities)
+  private def normalize(expr: Term, equalities: Equalities, config: Configuration, cache: mutable.Map[(Term, Equalities), Term]): Term =
+    val term = substEqualities(expr, equalities)
+    cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
 
   private def substEqualities(expr: Term, equalities: Equalities): Term =
     replaceByEqualities(expr, equalities) match
@@ -158,22 +160,22 @@ object Symbolic:
 
 
   def eval(expr: UniqueNames[Term | Result]): UniqueNames[Result] = expr linked {
-    case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration())
-    case expr: Result => eval(expr, Configuration())
+    case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration(), mutable.Map.empty)
+    case expr: Result => eval(expr, Configuration(), mutable.Map.empty)
   }
 
   def eval(expr: UniqueNames[Term | Result], config: Configuration): UniqueNames[Result] = expr linked {
-    case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), config)
-    case expr: Result => eval(expr, config)
+    case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), config, mutable.Map.empty)
+    case expr: Result => eval(expr, config, mutable.Map.empty)
   }
 
   def eval(expr: UniqueNames[Term], equalities: Equalities): UniqueNames[Result] =
-    expr linked { expr => eval(Result(List(Reduction(expr, Constraints.empty, equalities))), Configuration()) }
+    expr linked { expr => eval(Result(List(Reduction(expr, Constraints.empty, equalities))), Configuration(), mutable.Map.empty) }
 
   def eval(expr: UniqueNames[Term], equalities: Equalities, config: Configuration): UniqueNames[Result] =
-    expr linked { expr => eval(Result(List(Reduction(expr, Constraints.empty, equalities))), config) }
+    expr linked { expr => eval(Result(List(Reduction(expr, Constraints.empty, equalities))), config, mutable.Map.empty) }
 
-  private def eval(init: Result, config: Configuration)(using UniqueNaming): Result =
+  private def eval(init: Result, config: Configuration, cache: mutable.Map[(Term, Equalities), Term])(using UniqueNaming): Result =
     def evals(exprs: List[Term], constraints: Constraints, equalities: Equalities): Results =
       exprs.foldLeft(Results(List(Reductions(List.empty, constraints, equalities)))) { (results, expr) =>
         results flatMap { case Reductions(exprs, constraints, equalities) =>
@@ -207,7 +209,7 @@ object Symbolic:
             def process(cases: List[(Pattern, Term)], constraints: Constraints, equalities: Equalities): List[Reduction] = cases match
               case Nil => Nil
               case (pattern, expr) :: tail =>
-                Unification.unify(pattern, normalize(scrutinee, equalities, config)) match
+                Unification.unify(pattern, normalize(scrutinee, equalities, config, cache)) match
                   case Unification.Full(substs) =>
                     eval(subst(expr, substs), constraints, equalities).reductions
 
@@ -239,9 +241,9 @@ object Symbolic:
     Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
       constraintsFromEqualities(Some(constraints), Some(equalities)) match
         case (Some(constraints, equalities)) =>
-          val normalized = normalize(expr, equalities, config)
+          val normalized = normalize(expr, equalities, config, cache)
           eval(normalized, constraints, equalities).reductions flatMap { case reduction @ Reduction(expr, constraints, equalities) =>
-            val normalized = normalize(expr, equalities, config)
+            val normalized = normalize(expr, equalities, config, cache)
             if expr eq normalized then
               List(reduction)
             else
@@ -249,7 +251,7 @@ object Symbolic:
               if result.reductions.size == 1 && result.reductions.head.expr == expr then
                 List(reduction)
               else
-                Symbolic.eval(result, config).reductions
+                Symbolic.eval(result, config, cache).reductions
           }
         case _ =>
           List.empty
