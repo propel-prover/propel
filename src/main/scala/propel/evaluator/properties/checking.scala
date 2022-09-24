@@ -38,22 +38,40 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
   val typedExpr = expr.typedTerm
 
-  val abstractionProperties: Map[Abstraction, Properties] =
-    def abstractionProperties(term: Term): Map[Abstraction, Properties] = term match
+  val (abstractionProperties, abstractionResultTypes) =
+    def abstractionPropertiesResultTypes(term: Term): Map[Abstraction, (Properties, Type)] = term match
       case Abs(properties, _, _, expr) =>
-        term.info(Abstraction) map { abstraction =>
-          abstractionProperties(expr) + (abstraction -> properties)
-        } getOrElse abstractionProperties(expr)
-      case App(_, expr, arg) => abstractionProperties(expr) ++ abstractionProperties(arg)
-      case TypeAbs(_, expr) => abstractionProperties(expr)
-      case TypeApp(expr, _) => abstractionProperties(expr)
-      case Data(_, args) => (args flatMap abstractionProperties).toMap
+        term.info(Abstraction) flatMap { abstraction =>
+          expr.termType map { tpe =>
+            abstractionPropertiesResultTypes(expr) + (abstraction -> (properties, tpe))
+          }
+        } getOrElse abstractionPropertiesResultTypes(expr)
+      case App(_, expr, arg) => abstractionPropertiesResultTypes(expr) ++ abstractionPropertiesResultTypes(arg)
+      case TypeAbs(_, expr) => abstractionPropertiesResultTypes(expr)
+      case TypeApp(expr, _) => abstractionPropertiesResultTypes(expr)
+      case Data(_, args) => (args flatMap abstractionPropertiesResultTypes).toMap
       case Var(ident) => Map.empty
       case Cases(scrutinee, cases) =>
-        abstractionProperties(scrutinee) ++ (cases flatMap { (_, expr) =>
-          abstractionProperties(expr)
+        abstractionPropertiesResultTypes(scrutinee) ++ (cases flatMap { (_, expr) =>
+          abstractionPropertiesResultTypes(expr)
         })
-    abstractionProperties(typedExpr)
+
+    val propertiesResultTypes = abstractionPropertiesResultTypes(typedExpr)
+    (propertiesResultTypes.view mapValues { (properties, _) => properties }).toMap ->
+    (propertiesResultTypes.view mapValues { (_, tpe) => tpe }).toMap
+
+  def typeContradiction(abstraction: Term, expr: Term) =
+    abstraction.info(Abstraction) exists { abstraction =>
+      abstractionResultTypes.get(abstraction) exists { tpe =>
+        expr.termType exists { !conforms(_, tpe) }
+      }
+    }
+
+  def deriveTypeContradiction(equalities: Equalities): PartialFunction[(Term, Term), (Term, Term)] =
+    case (App(_, abstraction, _), expr) if typeContradiction(abstraction, expr) =>
+      Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)
+    case (expr, App(_, abstraction, _)) if typeContradiction(abstraction, expr) =>
+      Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)
 
   def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
     case Some(tpe) =>
@@ -235,7 +253,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
             val config = Symbolic.Configuration(
               evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ collectedNormalize ++ normalizing), _, _),
-              evaluator.properties.derive)
+              evaluator.properties.derive(derivingCompound, deriveTypeContradiction :: derivingSimple, _))
 
             val result = Symbolic.eval(converted, equalities, config)
 
@@ -336,7 +354,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(normalize ++ collectedNormalize ++ normalizing, _, _),
-                evaluator.properties.derive)
+                evaluator.properties.derive(derivingCompound, deriveTypeContradiction :: derivingSimple, _))
 
               val result = Symbolic.eval(converted, equalities, config)
 

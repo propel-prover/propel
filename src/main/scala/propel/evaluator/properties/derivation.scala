@@ -55,7 +55,10 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
   process(expr.withSyntacticInfo)
 end explode
 
-def derive(equalities: Equalities): Option[Equalities] =
+def derive(
+    derivingCompound: List[Equalities => PartialFunction[((Term, Term), (Term, Term)), (Term, Term)]],
+    derivingSimple: List[Equalities => PartialFunction[(Term, Term), (Term, Term)]],
+    equalities: Equalities): Option[Equalities] =
   def deriveByProperties[T](
       equalities: Equalities,
       deriving: List[Equalities => PartialFunction[T, (Term, Term)]],
@@ -82,6 +85,6 @@ def derive(equalities: Equalities): Option[Equalities] =
       Some(equalities)
 
   process(equalities, equalities.pos.toList) flatMap { updated =>
-    if updated != equalities then derive(updated) else Some(updated)
+    if updated != equalities then derive(derivingCompound, derivingSimple, updated) else Some(updated)
   }
 end derive
