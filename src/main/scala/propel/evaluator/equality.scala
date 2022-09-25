@@ -83,7 +83,12 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
                   val equality -> _ = equal(ne1, expr1)
                   equality == Equality.Equal
                 case _ =>
-                  false
+                  equal(ne0, expr1) match
+                    case (Equality.Equal, _) =>
+                      val equality -> _ = equal(ne1, expr0)
+                      equality == Equality.Equal
+                    case _ =>
+                      false
             }
           }
         }
