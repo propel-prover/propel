@@ -164,8 +164,36 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
       val conjectures =
         if call.nonEmpty then
-          val distributivityConjectures =
-            if expr1.termType exists { equivalent(tpe0, _) } then
+          val closedBinaryOperation = expr1.termType exists { equivalent(tpe0, _) }
+
+          val unaryDistributivityConjectures =
+            if closedBinaryOperation then
+              val tpe = Function(tpe0, tpe0)
+              (expr1.syntacticInfo.freeVars.keySet collect {
+                case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
+                  val identProperties = env(ident).info(Abstraction) flatMap abstractionProperties.get getOrElse Set.empty
+
+                  val side0 = App(identProperties, Var(ident),
+                    App(Set.empty, App(properties, Var(Symbol("∘")), Var(Symbol("a"))), Var(Symbol("b"))))
+
+                  val side1a = App(Set.empty,
+                    App(properties, Var(Symbol("∘")), App(identProperties, Var(ident), Var(Symbol("a")))), Var(Symbol("b")))
+
+                  val side1b = App(Set.empty,
+                    App(properties, Var(Symbol("∘")), Var(Symbol("a"))), App(identProperties, Var(ident), Var(Symbol("b"))))
+
+                  def normalization(side0: Term, side1: Term) =
+                    Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b")), reversible = true)
+
+                  List(
+                    normalization(side0, side1a),
+                    normalization(side0, side1b))
+              }).flatten.toList
+            else
+              List.empty
+
+          val binaryDistributivityConjectures =
+            if closedBinaryOperation then
               val tpe = Function(tpe0, Function(tpe0, tpe0))
               (expr1.syntacticInfo.freeVars.keySet collect {
                 case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
@@ -193,7 +221,9 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             else
               List.empty
 
-          distributivityConjectures ++ Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
+          unaryDistributivityConjectures ++
+          binaryDistributivityConjectures ++
+          Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
             Normalization.specializationForSameAbstraction(_, facts)
           }
         else
