@@ -118,6 +118,18 @@ object Symbolic:
     val term = substEqualities(expr, equalities)
     cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
 
+  private def normalize(equalities: Equalities, config: Configuration, cache: mutable.Map[(Term, Equalities), Term]): Option[Equalities] =
+    def normalize(term: Term) =
+      cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
+
+    val additional = (equalities.pos.toList map { (expr0, expr1) =>
+      val normalized0 = normalize(expr0)
+      val normalized1 = normalize(expr1)
+      Option.when(expr0 != normalized0 || expr1 != normalized1)(normalized0 -> normalized1)
+    }).flatten
+
+    equalities.withEqualities(additional)
+
   private def substEqualities(expr: Term, equalities: Equalities): Term =
     replaceByEqualities(expr, equalities) match
       case term @ Abs(properties, ident, tpe, expr) =>
@@ -217,7 +229,7 @@ object Symbolic:
                     val consts = constraints.withPosConstraints(posConstraints)
                     val equals = equalities.withEqualities(posConstraints) flatMap config.derive
 
-                    constraintsFromEqualities(consts, equals) match
+                    constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
                       case Some(consts, equals) =>
                         eval(subst(expr, substs), consts, equals).reductions ++ {
                           val (consts, pos) = (constraints.withNegConstraints(posConstraints)
@@ -225,7 +237,7 @@ object Symbolic:
                             getOrElse (None, None))
                           val equals = pos flatMap { equalities.withEqualities(_) flatMap { _.withUnequalities(posConstraints) } }
 
-                          constraintsFromEqualities(consts, equals) match
+                          constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
                             case Some(consts, equals) => process(tail, consts, equals)
                             case _ => List.empty
                         }
@@ -239,7 +251,7 @@ object Symbolic:
           }
 
     Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
-      constraintsFromEqualities(Some(constraints), Some(equalities)) match
+      constraintsFromEqualities(Some(constraints), normalize(equalities, config, cache)) match
         case (Some(constraints, equalities)) =>
           val normalized = normalize(expr, equalities, config, cache)
           eval(normalized, constraints, equalities).reductions flatMap { case reduction @ Reduction(expr, constraints, equalities) =>
