@@ -180,21 +180,15 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                     App(Set.empty, App(properties0, Var(ident0), Var(Symbol("a"))), Var(Symbol("c"))))
 
                   def normalization(side0: Term, side1: Term) =
-                    Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b"), Symbol("c")))
+                    Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b"), Symbol("c")), reversible = true)
 
                   List(
                     normalization(
                       side0(properties, Symbol("∘"), identProperties, ident),
                       side1(properties, Symbol("∘"), identProperties, ident)),
                     normalization(
-                      side1(properties, Symbol("∘"), identProperties, ident),
-                      side0(properties, Symbol("∘"), identProperties, ident)),
-                    normalization(
                       side0(identProperties, ident, properties, Symbol("∘")),
-                      side1(identProperties, ident, properties, Symbol("∘"))),
-                    normalization(
-                      side1(identProperties, ident, properties, Symbol("∘")),
-                      side0(identProperties, ident, properties, Symbol("∘"))))
+                      side1(identProperties, ident, properties, Symbol("∘"))))
               }).flatten.toList
             else
               List.empty
@@ -228,10 +222,10 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = List.empty)
       : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
 
-        val init = List.empty[Either[Normalization, (Normalization, Equalities => PartialFunction[Term, Term])]]
+        val init = (List.empty[Normalization], List.empty[(Normalization, Equalities => PartialFunction[Term, Term])])
 
-        val processed = conjectures.foldLeft(init) { (processed, conjecture) =>
-          if !Normalization.specializationForSameAbstraction(conjecture, processed collect { case Right(proven -> _) => proven }) then
+        val (remaining, additional) = conjectures.foldLeft(init) { case (processed @ (remaining, proven), conjecture) =>
+          if !Normalization.specializationForSameAbstraction(conjecture, proven map { case proven -> _ => proven }) then
             val checking = conjecture.checking(
               call.get,
               _ forall { _.info(Abstraction) contains abstraction.get },
@@ -240,44 +234,75 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                 abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
               } },
               (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+
             val normalizeConjecture = checking.normalize
 
-            val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
-            val converted = UniqueNames.convert(expr, names)
+            val reverseChecking = conjecture.reverse map {
+              _.checking(
+                call.get,
+                _ forall { _.info(Abstraction) contains abstraction.get },
+                _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                  val abstraction = expr.info(Abstraction)
+                  abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+                } },
+                (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+            }
 
-            if printReductionDebugInfo then
-              println()
-              println(indent(2, s"Checking conjecture: ${conjecture.show}"))
-              println()
-              println(indent(4, converted.wrapped.show))
+            val reverseNormalizeConjecture = reverseChecking.toList map { _.normalize }
 
-            val config = Symbolic.Configuration(
-              evaluator.properties.normalize(normalizeFacts ++ (normalizeConjecture :: normalizeConjectures ++ collectedNormalize ++ normalizing), _, _),
-              evaluator.properties.derive(derivingCompound, deriveTypeContradiction :: derivingSimple, _))
+            def checkConjecture(checking: PropertyChecking.Normal) =
+              val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
+              val converted = UniqueNames.convert(expr, names)
 
-            val result = Symbolic.eval(converted, equalities, config)
+              if printReductionDebugInfo then
+                println()
+                println(indent(2, s"Checking conjecture: ${conjecture.show}"))
+                println()
+                println(indent(4, converted.wrapped.show))
 
-            if printReductionDebugInfo then
-              println()
-              println(indent(2, "Evaluation result for conjecture check:"))
-              println()
-              println(indent(4, result.wrapped.show))
+              val config = Symbolic.Configuration(
+                evaluator.properties.normalize(
+                  normalizeFacts ++ (
+                  normalizeConjecture ::
+                  reverseNormalizeConjecture ++
+                  normalizeConjectures ++
+                  collectedNormalize ++
+                  normalizing), _, _),
+                evaluator.properties.derive(
+                  derivingCompound,
+                  deriveTypeContradiction :: derivingSimple, _))
 
-            val successful = checking.check(result.wrapped)
+              val result = Symbolic.eval(converted, equalities, config)
 
-            if printReductionDebugInfo then
-              println()
-              if successful then
-                println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
-              else
-                println(indent(4, "✘ Conjecture could not be proven".toUpperCase.nn))
+              if printReductionDebugInfo then
+                println()
+                println(indent(2, "Evaluation result for conjecture check:"))
+                println()
+                println(indent(4, result.wrapped.show))
 
-            Either.cond(successful, conjecture -> normalizeConjecture, conjecture) :: processed
+              val successful = checking.check(result.wrapped)
+
+              if printReductionDebugInfo then
+                println()
+                if successful then
+                  println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
+                else
+                  println(indent(4, "✘ Conjecture could not be proven".toUpperCase.nn))
+
+              successful
+            end checkConjecture
+
+            if checkConjecture(checking) || (reverseChecking exists checkConjecture) then
+              conjecture.reverse match
+                case Some(reverseConjecture) =>
+                  (remaining, (conjecture -> normalizeConjecture) :: (reverseConjecture -> reverseNormalizeConjecture.head) :: proven)
+                case _ =>
+                  (remaining, (conjecture -> normalizeConjecture) :: proven)
+            else
+              (conjecture :: remaining, proven)
           else
             processed
         }
-
-        val (remaining, additional) = processed partitionMap identity
 
         val (proven, normalize) = additional.unzip
 
@@ -319,7 +344,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           filterNot { (property, _) =>
             Normalization.specializationForSameAbstraction(property, distinctProperties filterNot { _ eq property })
           }
-          sortBy { case Normalization(pattern, result, _, _, _) -> _ =>
+          sortBy { case Normalization(pattern, result, _, _, _, _) -> _ =>
             (pattern, result)
           }).unzip
 

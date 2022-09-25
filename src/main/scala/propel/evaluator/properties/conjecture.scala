@@ -94,7 +94,7 @@ object Conjecture:
           let(form) { (form, remaining) =>
             def dummy = Data(Constructor(Symbol("∅")), List.empty)
             val variables = rhsInfo.freeVars.keySet ++ lhsInfo.freeVars.keySet -- unbound - ident
-            val normalization = Normalization(lhs, rhs, ident, form, variables)
+            val normalization = Normalization(lhs, rhs, ident, form, variables, reversible = false)
             val checking = normalization.checking(
               calls.headOption getOrElse dummy,
               _ forall { _.info(Abstraction) contains abstraction },
@@ -162,7 +162,7 @@ object Conjecture:
           }
 
           Normalization.distinct(normalizations) sortBy {
-            case Normalization(pattern, result, _, _, _) => (pattern, result)
+            case Normalization(pattern, result, _, _, _, _) => (pattern, result)
           }
         }
       case _ =>
@@ -350,7 +350,7 @@ object Conjecture:
     (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
       case (Some(abstraction), calls @ _ :: _) =>
         Normalization.distinct(generalizeEvaluationResults(ident0, ident1, abstraction, calls)) sortBy {
-          case Normalization(pattern, result, _, _, _) => (pattern, result)
+          case Normalization(pattern, result, _, _, _, _) => (pattern, result)
         }
       case _ =>
         List.empty

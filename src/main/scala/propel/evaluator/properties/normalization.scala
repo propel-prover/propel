@@ -5,7 +5,14 @@ package properties
 import ast.*
 import util.*
 
-case class Normalization(pattern: Term, result: Term, abstraction: Symbol, form: Option[Term], variables: Set[Symbol]):
+case class Normalization private (
+    pattern: Term,
+    result: Term,
+    abstraction: Symbol,
+    form: Option[Term],
+    variables: Set[Symbol],
+    reversible: Boolean)(
+    reversed: Normalization | Null):
   private def binds(pattern: Pattern): Set[Symbol] = pattern match
     case Match(ctor, args) => (args flatMap binds).toSet
     case Bind(ident) => Set(ident)
@@ -41,6 +48,13 @@ case class Normalization(pattern: Term, result: Term, abstraction: Symbol, form:
         }
         let(renamed) { Cases(term)(scrutinee, _) -> _ }
       }
+
+  val reverse = Option.when(reversible) {
+    if reversed == null then
+      Normalization(result, pattern, abstraction, form, variables, reversible)(this)
+    else
+      reversed
+  }
 
   val free =
     pattern.syntacticInfo.freeVars.keySet ++
@@ -91,6 +105,9 @@ case class Normalization(pattern: Term, result: Term, abstraction: Symbol, form:
 end Normalization
 
 object Normalization:
+  def apply(pattern: Term, result: Term, abstraction: Symbol, form: Option[Term], variables: Set[Symbol], reversible: Boolean): Normalization =
+    Normalization(pattern, result, abstraction, form, variables, reversible)(null)
+
   case class Checking private[Normalization] (
       pattern: Term,
       result: Term,
