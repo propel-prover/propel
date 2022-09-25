@@ -85,18 +85,20 @@ case class Normalization(pattern: Term, result: Term, abstraction: Symbol, form:
       mappingAbstractions(patternMapping),
       mappingVariables(patternMapping),
       renamedForm,
-      mappingFree(patternMapping))
+      mappingFree(patternMapping))(
+      this)
   end checking
 end Normalization
 
 object Normalization:
-  case class Checking(
+  case class Checking private[Normalization] (
       pattern: Term,
       result: Term,
       abstraction: Set[Symbol],
       equivalents: List[Set[Symbol]],
       form: Option[(Term, List[Set[Symbol]])],
-      free: Map[Symbol, Symbol]):
+      free: Map[Symbol, Symbol])(
+      val normalization: Normalization):
     def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term]) =
       val freeSubsts = Option.when(free.values forall { freeExpr contains _}) {
         free map { (renamed, original) => renamed -> freeExpr(original) }
@@ -123,7 +125,7 @@ object Normalization:
               Cases(term)(expandCalls(scrutinee), cases map { (pattern, expr) =>
                 pattern -> expandCalls(expr)
               })
-          Data(equalDataConstructor, List(expandCalls(pattern), expandCalls(result))) -> Equalities.empty
+          Data(equalDataConstructor, List(expandCalls(normalization.pattern), expandCalls(normalization.result))) -> Equalities.empty
 
         def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
           val (formPattern, formEquivalents) = form match
