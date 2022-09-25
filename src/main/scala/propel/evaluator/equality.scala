@@ -31,6 +31,12 @@ object Equality:
 end Equality
 
 case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
+  private given Ordering[Term] =
+    case (expr0: Var, expr1: Var) => termOrdering.compare(expr0, expr1)
+    case (expr0: Var, expr1) => -1
+    case (expr0, expr1: Var) => 1
+    case (expr0, expr1) => termOrdering.compare(expr0, expr1)
+
   def equal(expr0: Term, expr1: Term): Equality =
     def equal(expr0: Term, expr1: Term): (Equality, List[(Term, Term)]) =
       pos.getOrElse(expr0, expr0) -> pos.getOrElse(expr1, expr1) match

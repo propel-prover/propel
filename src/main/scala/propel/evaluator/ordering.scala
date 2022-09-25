@@ -20,11 +20,11 @@ given [T](using ord: Ordering[T]): AnyRef with
     def min(rhs: T) = ord.min(lhs, rhs)
     def compare(rhs: T) = ord.compare(lhs, rhs)
 
-given Ordering[Symbol] = _.name compare _.name
+given symbolOrdering: Ordering[Symbol] = _.name compare _.name
 
-given Ordering[Constructor] = order[Constructor].by(_.ident)
+given constructorOrdering: Ordering[Constructor] = order[Constructor].by(_.ident)
 
-given Ordering[Pattern] =
+given patternOrdering: Ordering[Pattern] =
   case (pattern0: Match, pattern1: Match) =>
     order[Match].by(_.args).orElseBy(_.ctor).compare(pattern0, pattern1)
   case (pattern0: Bind, pattern1: Bind) =>
@@ -35,7 +35,7 @@ given Ordering[Pattern] =
       case _: Bind => 1
     ordinal(pattern0) - ordinal(pattern1)
 
-given Ordering[Type] =
+given typeOrdering: Ordering[Type] =
   case (tpe0: Function, tpe1: Function) =>
     order[Function].by(_.arg).orElseBy(_.result).compare(tpe0, tpe1)
   case (tpe0: Universal, tpe1: Universal) =>
@@ -51,11 +51,11 @@ given Ordering[Type] =
       case _: Universal => 0
       case _: Recursive => 1
       case _: Function => 2
-      case _: TypeVar => 3 
+      case _: TypeVar => 3
       case _: Sum => 4
     ordinal(tpe0) - ordinal(tpe1)
 
-given Ordering[Term] =
+given termOrdering: Ordering[Term] =
   case (expr0: Abs, expr1: Abs) =>
     order[Abs].by(_.expr).orElseBy(_.tpe).orElseBy(_.ident).compare(expr0, expr1)
   case (expr0: App, expr1: App) =>
@@ -75,7 +75,7 @@ given Ordering[Term] =
       case _: Abs => 0
       case _: TypeAbs => 1
       case _: App => 2
-      case _: TypeApp => 3 
+      case _: TypeApp => 3
       case _: Cases => 4
       case _: Var => 5
       case _: Data => 6
