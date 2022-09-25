@@ -10,8 +10,8 @@ def recursiveCalls(expr: Term): List[Term] =
   def recursiveCalls(term: Term, abstraction: Abstraction): List[Term] = term match
     case Abs(properties, ident, tpe, expr) =>
       recursiveCalls(expr, abstraction)
-    case App(properties1, expr1 @ App(properties0, expr0, arg0), arg1) if expr0.info(Abstraction) contains abstraction =>
-      expr0 :: recursiveCalls(expr1, abstraction) ++ recursiveCalls(arg1, abstraction)
+    case App(properties, expr, arg) if expr.info(Abstraction) contains abstraction =>
+      expr :: recursiveCalls(expr, abstraction) ++ recursiveCalls(arg, abstraction)
     case App(properties, expr, arg) =>
       recursiveCalls(expr, abstraction) ++ recursiveCalls(arg, abstraction)
     case TypeAbs(ident, expr) =>
