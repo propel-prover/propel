@@ -16,12 +16,26 @@ trait PropertyChecking:
   val propertyType: PropertyType
 
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term): (Term, Equalities)
+  def control(expr: Term, equalities: Equalities): (Term, Equalities, Symbolic.Control)
   def check(result: Symbolic.Result): Boolean
 
 object PropertyChecking:
   trait FunctionEqualResult extends PropertyChecking:
     val propertyType = PropertyType.Function
     val equalDataConstructor = Constructor(Symbol("≟"))
+
+    private def extensional(expr0: Term, expr1: Term): (Term, Term) = (expr0, expr1) match
+      case (Abs(_, ident0, _, expr0), Abs(_, ident1, _, expr1)) =>
+        extensional(expr0, subst(expr1, Map(ident1 -> Var(ident0))))
+      case exprs =>
+        exprs
+
+    def control(expr: Term, equalities: Equalities) = expr match
+      case Data(`equalDataConstructor`, List(arg0, arg1)) =>
+        val (extensionalArg0, extensionalArg1) = extensional(arg0, arg1)
+        (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)), Equalities.empty, Symbolic.Control.Continue)
+      case _ =>
+        (expr, Equalities.empty, Symbolic.Control.Continue)
 
     def check(result: Symbolic.Result) = result.reductions forall {
       case Symbolic.Reduction(Data(`equalDataConstructor`, List(arg0, arg1)), _, _) => arg0 == arg1
@@ -30,6 +44,8 @@ object PropertyChecking:
 
   trait RelationTrueResult extends PropertyChecking:
     val propertyType = PropertyType.Relation
+
+    def control(expr: Term, equalities: Equalities) = (expr, Equalities.empty, Symbolic.Control.Continue)
 
     def check(result: Symbolic.Result) = result.reductions forall {
       case Symbolic.Reduction(Data(Constructor.True, _), _, _) => true

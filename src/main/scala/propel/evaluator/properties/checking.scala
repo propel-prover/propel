@@ -300,7 +300,8 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                   normalizing), _, _),
                 evaluator.properties.derive(
                   derivingCompound,
-                  deriveTypeContradiction :: derivingSimple, _))
+                  deriveTypeContradiction :: derivingSimple, _),
+                checking.control)
 
               val result = Symbolic.eval(converted, equalities, config)
 
@@ -409,7 +410,8 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(normalize ++ collectedNormalize ++ normalizing, _, _),
-                evaluator.properties.derive(derivingCompound, deriveTypeContradiction :: derivingSimple, _))
+                evaluator.properties.derive(derivingCompound, deriveTypeContradiction :: derivingSimple, _),
+                checking.control)
 
               val result = Symbolic.eval(converted, equalities, config)
 
