@@ -37,10 +37,10 @@ object PropertyChecking:
     }
 
   trait Simple extends PropertyChecking:
-    def deriveSimple(equalities: Equalities): PartialFunction[(Term, Term), (Term, Term)]
+    def deriveSimple(equalities: Equalities): PartialFunction[(Term, Term), List[Equalities]]
 
   trait Compound extends PropertyChecking:
-    def deriveCompound(equalities: Equalities): PartialFunction[((Term, Term), (Term, Term)), (Term, Term)]
+    def deriveCompound(equalities: Equalities): PartialFunction[((Term, Term), (Term, Term)), List[Equalities]]
 
   trait Normal extends PropertyChecking:
     def normalize(equalities: Equalities): PartialFunction[Term, Term]

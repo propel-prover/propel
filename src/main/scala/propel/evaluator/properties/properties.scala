@@ -36,13 +36,13 @@ object antisymmetry
            equalities.equal(arg0a, arg1b) == Equality.Equal &&
            equalities.equal(arg0b, arg1a) == Equality.Equal &&
            equalities.equal(arg0a, arg0b) != Equality.Equal =>
-      arg0a -> arg0b
+      Equalities.pos(List(arg0a -> arg0b)).toList
           
   def deriveSimple(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
         if properties.contains(Antisymmetric) &&
            equalities.equal(arg0, arg1) == Equality.Unequal =>
-      App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())
+      Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List()))).toList
 end antisymmetry
 
 
@@ -62,14 +62,14 @@ object transitivity
            properties1.contains(Transitive) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
            equalities.equal(arg0b, arg1a) == Equality.Equal =>
-      App(props0, App(properties0, expr0, arg0a), arg1b) -> Data(Constructor.True, List())
+      Equalities.pos(List(App(props0, App(properties0, expr0, arg0a), arg1b) -> Data(Constructor.True, List()))).toList
     case (App(props0, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
           App(props1, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
         if properties0.contains(Transitive) &&
            properties1.contains(Transitive) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
            equalities.equal(arg1b, arg0a) == Equality.Equal =>
-      App(props0, App(properties0, expr0, arg1a), arg0b) -> Data(Constructor.True, List())
+      Equalities.pos(List(App(props0, App(properties0, expr0, arg1a), arg0b) -> Data(Constructor.True, List()))).toList
 end transitivity
 
 

@@ -67,11 +67,11 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
       }
     }
 
-  def deriveTypeContradiction(equalities: Equalities): PartialFunction[(Term, Term), (Term, Term)] =
+  def deriveTypeContradiction(equalities: Equalities): PartialFunction[(Term, Term), List[Equalities]] =
     case (App(_, abstraction, _), expr) if typeContradiction(abstraction, expr) =>
-      Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)
+      Equalities.pos(List(Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty))).toList
     case (expr, App(_, abstraction, _)) if typeContradiction(abstraction, expr) =>
-      Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)
+      Equalities.pos(List(Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty))).toList
 
   def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
     case Some(tpe) =>

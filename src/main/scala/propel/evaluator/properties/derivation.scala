@@ -56,35 +56,32 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
 end explode
 
 def derive(
-    derivingCompound: List[Equalities => PartialFunction[((Term, Term), (Term, Term)), (Term, Term)]],
-    derivingSimple: List[Equalities => PartialFunction[(Term, Term), (Term, Term)]],
-    equalities: Equalities): Option[Equalities] =
+    derivingCompound: List[Equalities => PartialFunction[((Term, Term), (Term, Term)), List[Equalities]]],
+    derivingSimple: List[Equalities => PartialFunction[(Term, Term), List[Equalities]]],
+    equalities: Equalities): List[Equalities] =
   def deriveByProperties[T](
       equalities: Equalities,
-      deriving: List[Equalities => PartialFunction[T, (Term, Term)]],
+      deriving: List[Equalities => PartialFunction[T, List[Equalities]]],
       exprs: T) =
-    deriving.foldLeft[Option[Equalities]](Some(equalities)) {
-      case (Some(equalities), derive) =>
-        (derive(equalities) andThen equalities.withEqualities).applyOrElse(exprs, _ => Some(equalities))
-      case _ =>
-        None
+    deriving.foldLeft(List(equalities)) { (equalities, derive) =>
+      equalities flatMap { equalities =>
+        (derive(equalities) andThen { _ flatMap equalities.withEqualities }).applyOrElse(exprs, _ => List(equalities))
+      }
     }
 
-  def process(equalities: Equalities, pos: List[(Term, Term)]): Option[Equalities] = pos match
+  def process(equalities: Equalities, pos: List[(Term, Term)]): List[Equalities] = pos match
     case exprs0 :: tail0 =>
-      def processTail(equalities: Equalities, pos: List[(Term, Term)]): Option[Equalities] = pos match
+      def processTail(equalities: Equalities, pos: List[(Term, Term)]): List[Equalities] = pos match
         case exprs1 :: tail1 =>
           deriveByProperties(equalities, derivingCompound, exprs0 -> exprs1) flatMap { processTail(_, tail1) }
         case _ =>
-          Some(equalities)
+          List(equalities)
 
-      deriveByProperties(equalities, derivingSimple, exprs0) flatMap {
-        processTail(_, tail0) flatMap { process(_, tail0) }
-      } 
+      deriveByProperties(equalities, derivingSimple, exprs0) flatMap { processTail(_, tail0) flatMap { process(_, tail0) } } 
     case _ =>
-      Some(equalities)
+      List(equalities)
 
-  process(equalities, equalities.pos.toList) flatMap { updated =>
-    if updated != equalities then derive(derivingCompound, derivingSimple, updated) else Some(updated)
-  }
+  (process(equalities, equalities.pos.toList.sorted) flatMap { updated =>
+    if updated != equalities then derive(derivingCompound, derivingSimple, updated) else List(updated)
+  }).distinct
 end derive
