@@ -7,7 +7,9 @@ import scala.collection.immutable.ListMap
 
 
 val propertiesChecking = ListMap(
+  Reflexive -> reflexivity,
   Antisymmetric -> antisymmetry,
+  Connected -> connectivity,
   Transitive -> transitivity,
   Commutative -> commutativity,
   Associative -> associativity)
@@ -17,6 +19,20 @@ val derivingSimple = (propertiesChecking.values collect { case property: Propert
 val derivingCompound = (propertiesChecking.values collect { case property: PropertyChecking.Compound => property.deriveCompound }).toList
 
 val normalizing = (propertiesChecking.values collect { case property: PropertyChecking.Normal => property.normalize }).toList
+
+
+object reflexivity
+    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    with PropertyChecking.Normal:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    subst(expr, Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
+
+  def normalize(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1)
+        if properties.contains(Reflexive) &&
+           equalities.equal(arg0, arg1) == Equality.Equal =>
+      Data(Constructor.True, List())
+end reflexivity
 
 
 object antisymmetry
@@ -43,6 +59,32 @@ object antisymmetry
       Equalities.pos(List(arg0 -> arg1)).toList ++
       Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())), List(List(arg0 -> arg1))).toList
 end antisymmetry
+
+
+object connectivity
+    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    with PropertyChecking.Simple with PropertyChecking.Compound:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val ab = subst(expr, Map(ident0 -> varA, ident1 -> varB))
+    val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
+    or(ab, ba) -> Equalities.neg(List(List(varA -> varB))).get
+
+  def deriveCompound(equalities: Equalities) =
+    case (App(_, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.False, List()),
+          App(_, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.False, List()))
+        if properties0.contains(Connected) &&
+           properties1.contains(Connected) &&
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           equalities.equal(arg0a, arg1b) == Equality.Equal &&
+           equalities.equal(arg0b, arg1a) == Equality.Equal =>
+      Equalities.pos(List(arg0a -> arg0b)).toList
+
+  def deriveSimple(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
+        if properties.contains(Connected) =>
+      Equalities.pos(List(arg0 -> arg1)).toList ++
+      Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.True, List())), List(List(arg0 -> arg1))).toList
+end connectivity
 
 
 object transitivity

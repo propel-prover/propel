@@ -41,9 +41,9 @@ def max[A: TermExpr](expr: A) =
 
 def ordernat[A: TermExpr](expr: A) =
   letrec(
-    "ordernat" -> tp(nat -> (nat -> bool)) -> abs(antisym, trans)("a" -> nat, "b" -> nat)(let("pair" -> ("Pair", "a", "b"))(
+    "ordernat" -> tp(nat -> (nat -> bool)) -> abs(refl, antisym, conn, trans)("a" -> nat, "b" -> nat)(let("pair" -> ("Pair", "a", "b"))(
       cases("pair")(
-        ("Pair", ("S", "x"), ("S", "y")) -> app(antisym, trans)("ordernat", "x", "y"),
+        ("Pair", ("S", "x"), ("S", "y")) -> app(refl, antisym, conn, trans)("ordernat", "x", "y"),
         ("Pair", "Z", "_") -> True,
         ("_") -> False))))(
     expr)
@@ -132,16 +132,15 @@ def pncounter_merge[A: TermExpr](expr: A) =
 // RFC677 describes it to be commutative
 def lwwreg_merge[A: TermExpr](expr: A) =
     val lwwreg = dt("Pair", nat, nat)
-    val withOrd = false
+    val withOrd = true
     val withAcc = false
     
-    if withOrd // TODO ordernat must also be reflexive so ordernat(t2,t2)=False is a contradiction
-    // result: commutativity: no, associativity: no
+    if withOrd
     then
         let("lwwreg_merge" -> abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(
             let(("Pair", ("Pair", "d1", "t1"), ("Pair", "d2", "t2")) -> ("Pair", "a", "b"))
-                (`if`(app(antisym, trans)("ordernat", "t1", "t2"))
-                     (`if`(app(antisym, trans)("ordernat", "t2", "t1"))
+                (`if`(app(refl, antisym, conn, trans)("ordernat", "t1", "t2"))
+                     (`if`(app(refl, antisym, conn, trans)("ordernat", "t2", "t1"))
                           ("Pair", app(comm,assoc)("max", "d1", "d2"), "t1")
                           ("Pair", "d2", "t2"))
                      ("Pair", "d1", "t1"))))(expr)
@@ -207,7 +206,7 @@ def gset_merge[A: TermExpr](expr: A) =
   check(max(gcounter_merge("Z")))
   println()
   check(max(gcounter_merge(pncounter_merge("Z"))))
-  // println()
-  // check(max(ordernat(lwwreg_merge("Z"))))
+  println()
+  check(max(ordernat(lwwreg_merge("Z"))))
   // println()
   // check(gset_merge("Z"))
