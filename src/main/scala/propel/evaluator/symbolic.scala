@@ -226,25 +226,25 @@ object Symbolic:
                     eval(subst(expr, substs), constraints, equalities).reductions
 
                   case Unification.Irrefutable(substs, posConstraints) =>
-                    val consts = constraints.withPosConstraints(posConstraints)
-                    val equals = equalities.withEqualities(posConstraints)
+                    val posReductions =
+                      val consts = constraints.withPosConstraints(posConstraints)
+                      val equals = equalities.withEqualities(posConstraints)
 
-                    constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
-                      case Some(consts, equals) =>
-                        config.derive(equals) flatMap {
-                          eval(subst(expr, substs), consts, _).reductions ++ {
-                            val (consts, pos) = (constraints.withNegConstraints(posConstraints)
-                              map { (consts, pos) => (Some(consts), Some(pos)) }
-                              getOrElse (None, None))
-                            val equals = pos flatMap { equalities.withEqualities(_) flatMap { _.withUnequalities(posConstraints) } }
+                      constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
+                        case Some(consts, equals) => config.derive(equals) flatMap { eval(subst(expr, substs), consts, _).reductions }
+                        case _ => List.empty
 
-                            constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
-                              case Some(consts, equals) => config.derive(equals) flatMap { process(tail, consts, _) }
-                              case _ => List.empty
-                          }
-                        }
-                      case _ =>
-                        process(tail, constraints, equalities)
+                    val negReductions =
+                      val (consts, pos) = (constraints.withNegConstraints(posConstraints)
+                        map { (consts, pos) => (Some(consts), Some(pos)) }
+                        getOrElse (None, None))
+                      val equals = pos flatMap { equalities.withEqualities(_) flatMap { _.withUnequalities(posConstraints) } }
+
+                      constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
+                        case Some(consts, equals) => config.derive(equals) flatMap { process(tail, consts, _) }
+                        case _ => List.empty
+
+                    posReductions ++ negReductions
 
                   case _ =>
                     process(tail, constraints, equalities)
