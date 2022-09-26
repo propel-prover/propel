@@ -147,13 +147,14 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       None
 
   private def propagatePos: Equalities =
-    val propagated = pos map { (expr0, expr1) => 
+    val propagatedList = pos.toList map { (expr0, expr1) => 
       propagate(pos - expr0, expr0) -> propagate(pos, expr1) match
         case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
         case exprs => exprs
     }
+    val propagated = propagatedList.toMap
     if propagated != pos then
-      val normalized = normalize(Map.empty, propagated.iterator) filterNot { _ == _ }
+      val normalized = normalize(Map.empty, propagatedList.iterator) filterNot { _ == _ }
       if normalized != propagated then Equalities(normalized, neg).propagatePos else Equalities(normalized, neg)
     else
       this
