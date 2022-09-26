@@ -169,7 +169,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           val unaryDistributivityConjectures =
             if closedBinaryOperation then
               val tpe = Function(tpe0, tpe0)
-              (expr1.syntacticInfo.freeVars.keySet collect {
+              (expr1.syntacticInfo.freeVars.keySet.toList.sorted collect {
                 case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
                   val identProperties = env(ident).info(Abstraction) flatMap abstractionProperties.get getOrElse Set.empty
 
@@ -188,14 +188,14 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                   List(
                     normalization(side0, side1a),
                     normalization(side0, side1b))
-              }).flatten.toList
+              }).flatten
             else
               List.empty
 
           val binaryDistributivityConjectures =
             if closedBinaryOperation then
               val tpe = Function(tpe0, Function(tpe0, tpe0))
-              (expr1.syntacticInfo.freeVars.keySet collect {
+              (expr1.syntacticInfo.freeVars.keySet.toList.sorted collect {
                 case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
                   val identProperties = env(ident).info(Abstraction) flatMap abstractionProperties.get getOrElse Set.empty
 
@@ -217,7 +217,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                     normalization(
                       side0(identProperties, ident, properties, Symbol("∘")),
                       side1(identProperties, ident, properties, Symbol("∘"))))
-              }).flatten.toList
+              }).flatten
             else
               List.empty
 

@@ -3,9 +3,10 @@ package evaluator
 package properties
 
 import ast.*
+import scala.collection.immutable.ListMap
 
 
-val propertiesChecking = Map(
+val propertiesChecking = ListMap(
   Antisymmetric -> antisymmetry,
   Transitive -> transitivity,
   Commutative -> commutativity,
