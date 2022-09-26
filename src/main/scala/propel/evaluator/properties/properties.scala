@@ -34,15 +34,14 @@ object antisymmetry
            properties1.contains(Antisymmetric) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
            equalities.equal(arg0a, arg1b) == Equality.Equal &&
-           equalities.equal(arg0b, arg1a) == Equality.Equal &&
-           equalities.equal(arg0a, arg0b) != Equality.Equal =>
+           equalities.equal(arg0b, arg1a) == Equality.Equal =>
       Equalities.pos(List(arg0a -> arg0b)).toList
-          
+
   def deriveSimple(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
-        if properties.contains(Antisymmetric) &&
-           equalities.equal(arg0, arg1) == Equality.Unequal =>
-      Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List()))).toList
+        if properties.contains(Antisymmetric) =>
+      Equalities.pos(List(arg0 -> arg1)).toList ++
+      Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())), List(List(arg0 -> arg1))).toList
 end antisymmetry
 
 
