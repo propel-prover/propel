@@ -12,8 +12,7 @@ def merge[A: TermExpr](expr: A) =
   letrec(
     "merge" -> forall("T")(("T" -> ("T" -> bool)) -> (("T" -> ("T" -> bool)) -> (list("T") -> (list("T") -> list("T"))))) ->
       tpabs("T")(abs(comm)("eq" -> tp("T" -> ("T" -> bool)), "lt" -> tp("T" -> ("T" -> bool)), "a" -> list("T"), "b" -> list("T"))(
-        cases("Pair", "a", "b")(
-          ("Pair", "Nil", "Nil") -> "Nil",
+        cases("Pair", "a", "b")( ("Pair", "Nil", "Nil") -> "Nil",
           ("Pair", ("Cons", "a", "as"), "Nil") -> ("Cons", "a", "as"),
           ("Pair", "Nil", ("Cons", "b", "bs")) -> ("Cons", "b", "bs"),
           ("Pair", ("Cons", "a", "as"), ("Cons", "b", "bs")) ->
@@ -132,8 +131,8 @@ def pncounter_merge[A: TermExpr](expr: A) =
 // RFC677 describes it to be commutative
 def lwwreg_merge[A: TermExpr](expr: A) =
     val lwwreg = dt("Pair", nat, nat)
-    val withOrd = true
-    val withAcc = false
+    val withOrd = false
+    val withAcc = true
     
     if withOrd
     then
@@ -144,22 +143,23 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                           ("Pair", app(comm,assoc)("max", "d1", "d2"), "t1")
                           ("Pair", "d2", "t2"))
                      ("Pair", "d1", "t1"))))(expr)
-    else if withAcc // commutativity: no, associativity: no
+    else if withAcc // commutativity: no, associativity: no, TODO equality modulo alpha renaming should be done at some point
     then
-        letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
-            abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(
-                (letrec("aux" -> tp(nat -> (lwwreg -> (lwwreg -> lwwreg))) ->
-                    abs()("acc" -> nat)(abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
-                        ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
-                            ("Pair", app(comm,assoc)("max", "d1", "d2"), "acc"),
-                        ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
-                            ("Pair", "d1", ("S", "t1")),
-                        ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
-                            ("Pair", "d2", ("S", "t2")),
-                        ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
-                            app(comm,assoc)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
-                (app(comm,assoc)(("aux", "Z"), "a", "b")))))(expr)
-    else  // associativity: no, commutativity: yes
+        let("lwwreg_merge" -> abs()("a" -> lwwreg, "b" -> lwwreg)(
+            (letrec("aux" -> tp(nat -> (lwwreg -> (lwwreg -> lwwreg))) ->
+                abs()("acc" -> nat)(abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
+                    ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
+                        ("Pair", app(comm,assoc)("max", "d1", "d2"), "acc"),
+                    ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
+                        ("Pair", "d1", app(comm,assoc)("+", "acc", ("S", "t1"))),
+                    ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
+                        ("Pair", "d2", app(comm,assoc)("+", "acc", ("S", "t2"))),
+                    ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
+                        app(comm,assoc)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
+            (app(comm,assoc)(("aux", "Z"), "a", "b")))))(expr)
+    else 
+        // associativity: no, commutativity: yes
+        // TODO there is a path that works, but the prover isn't taking it
         letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
             abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
                 ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
@@ -173,7 +173,7 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                     ("Pair", "d", ("S", "t")))))(expr)
 
 def gset_merge[A: TermExpr](expr: A) =
-    // TODO fails because we do not equate functions (implement extensionality)
+    // TODO fails because we do not do beta reduction
     let("gset_merge" ->
         abs(comm,assoc)("a" -> tp(nat -> bool), "b" -> tp(nat -> bool))
            (abs()("x" -> nat)(or("a", "x")("b", "x"))))(expr)
@@ -181,32 +181,32 @@ def gset_merge[A: TermExpr](expr: A) =
 
 @main def example =
   def check(expr: Term) =
-    val result = properties.check(expr, printDeductionDebugInfo = false, printReductionDebugInfo = false)
+    val result = properties.check(expr, printDeductionDebugInfo = true, printReductionDebugInfo = true)
     val errors = result.showErrors
     if errors.nonEmpty then
       println()
       println(errors)
 
-  check(ordernat("Z"))
-  println()
-  check(orderlist("Z"))
-  println()
-  check(min("Z"))
-  println()
-  check(max("Z"))
-  println()
-  check(map("Z"))
-  println()
-  check(plus("Z"))
-  println()
-  check(plus(mult("Z")))
-  println()
-  check(bv_succ(bv_plus("Z")))
+  // check(ordernat("Z"))
+  // println()
+  // check(orderlist("Z"))
+  // println()
+  // check(min("Z"))
+  // println()
+  // check(max("Z"))
+  // println()
+  // check(map("Z"))
+  // println()
+  // check(plus("Z"))
+  // println()
+  // check(plus(mult("Z")))
+  // println()
+  // check(bv_succ(bv_plus("Z")))
 
-  check(max(gcounter_merge("Z")))
-  println()
-  check(max(gcounter_merge(pncounter_merge("Z"))))
-  println()
-  check(max(ordernat(lwwreg_merge("Z"))))
+  // check(max(gcounter_merge("Z")))
+  // println()
+  // check(max(gcounter_merge(pncounter_merge("Z"))))
+  // println()
+  check(plus(max(ordernat(lwwreg_merge("Z")))))
   // println()
   // check(gset_merge("Z"))

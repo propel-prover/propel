@@ -311,7 +311,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
                 println()
                 println(indent(4, result.wrapped.show))
 
-              val successful = checking.check(result.wrapped)
+              val successful = checking.check(result.wrapped).reductions.isEmpty
 
               if printReductionDebugInfo then
                 println()
@@ -415,13 +415,18 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
               val result = Symbolic.eval(converted, equalities, config)
 
+              val failedResult = checking.check(result.wrapped)
+              val successful = failedResult.reductions.isEmpty
+
               if printReductionDebugInfo then
                 println()
                 println(indent(2, s"Evaluation result for ${property.show} property check:"))
                 println()
                 println(indent(4, result.wrapped.show))
-
-              val successful = checking.check(result.wrapped)
+                println()
+                println(indent(2, s"Failed cases for ${property.show} property check:"))
+                println()
+                println(indent(4, failedResult.show))
 
               if printReductionDebugInfo || printDeductionDebugInfo then
                 println()
