@@ -33,7 +33,11 @@ object PropertyChecking:
     def control(expr: Term, equalities: Equalities, nested: Boolean) = expr match
       case Data(`equalDataConstructor`, List(arg0, arg1)) if !nested =>
         val (extensionalArg0, extensionalArg1) = extensional(arg0, arg1)
-        (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)), Equalities.empty, Symbolic.Control.Continue)
+        val control =
+          if extensionalArg0 == extensionalArg1 then Symbolic.Control.Stop
+          else if equalities.equal(extensionalArg0, extensionalArg1) == Equality.Unequal then Symbolic.Control.Terminate
+          else Symbolic.Control.Continue
+        (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)), Equalities.empty, control)
       case _ =>
         (expr, Equalities.empty, Symbolic.Control.Continue)
 
@@ -46,10 +50,15 @@ object PropertyChecking:
     val propertyType = PropertyType.Relation
 
     def control(expr: Term, equalities: Equalities, nested: Boolean) =
-      (expr, Equalities.empty, Symbolic.Control.Continue)
+      val control =
+        if nested then Symbolic.Control.Continue
+        else if expr == Data(Constructor.True, List()) then Symbolic.Control.Stop
+        else if equalities.equal(expr, Data(Constructor.True, List())) == Equality.Unequal then Symbolic.Control.Terminate
+        else Symbolic.Control.Continue
+      (expr, Equalities.empty, control)
 
     def check(result: Symbolic.Result) = result.reductions forall {
-      case Symbolic.Reduction(Data(Constructor.True, _), _, _) => true
+      case Symbolic.Reduction(Data(Constructor.True, List()), _, _) => true
       case _ => false
     }
 
