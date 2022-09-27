@@ -16,7 +16,7 @@ trait PropertyChecking:
   val propertyType: PropertyType
 
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term): (Term, Equalities)
-  def control(expr: Term, equalities: Equalities): (Term, Equalities, Symbolic.Control)
+  def control(expr: Term, equalities: Equalities, nested: Boolean): (Term, Equalities, Symbolic.Control)
   def check(result: Symbolic.Result): Boolean
 
 object PropertyChecking:
@@ -30,8 +30,8 @@ object PropertyChecking:
       case exprs =>
         exprs
 
-    def control(expr: Term, equalities: Equalities) = expr match
-      case Data(`equalDataConstructor`, List(arg0, arg1)) =>
+    def control(expr: Term, equalities: Equalities, nested: Boolean) = expr match
+      case Data(`equalDataConstructor`, List(arg0, arg1)) if !nested =>
         val (extensionalArg0, extensionalArg1) = extensional(arg0, arg1)
         (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)), Equalities.empty, Symbolic.Control.Continue)
       case _ =>
@@ -45,7 +45,8 @@ object PropertyChecking:
   trait RelationTrueResult extends PropertyChecking:
     val propertyType = PropertyType.Relation
 
-    def control(expr: Term, equalities: Equalities) = (expr, Equalities.empty, Symbolic.Control.Continue)
+    def control(expr: Term, equalities: Equalities, nested: Boolean) =
+      (expr, Equalities.empty, Symbolic.Control.Continue)
 
     def check(result: Symbolic.Result) = result.reductions forall {
       case Symbolic.Reduction(Data(Constructor.True, _), _, _) => true

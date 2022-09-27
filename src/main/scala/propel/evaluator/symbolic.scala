@@ -83,7 +83,7 @@ object Symbolic:
   case class Configuration(
     normalize: (Term, Equalities) => Term = (expr, _) => expr,
     derive: Equalities => List[Equalities] = List(_),
-    control: (Term, Equalities) => (Term, Equalities, Control) = (expr, _) => (expr, Equalities.empty, Control.Continue))
+    control: (Term, Equalities, Boolean) => (Term, Equalities, Control) = (expr, _, _) => (expr, Equalities.empty, Control.Continue))
 
 
   case class Result(reductions: List[Reduction]) extends AnyVal:
@@ -187,7 +187,7 @@ object Symbolic:
       exprs.foldLeft(Results(List(Reductions(List.empty, constraints, equalities))) -> control) { case ((results, control), expr) =>
         val reductions -> reductionsControl = results.reductions.foldLeft[(List[Reductions], Control)](List.empty -> control) {
           case ((reductions, control), Reductions(exprs, constraints, equalities)) =>
-            val result -> resultControl = eval(expr, constraints, equalities, control) 
+            val result -> resultControl = eval(expr, constraints, equalities, control, nested = true) 
             val resultReductions = result.reductions map { case Reduction(expr, constraints, equalities) =>
               Reductions(exprs :+ expr, constraints, equalities)
             }
@@ -196,11 +196,11 @@ object Symbolic:
         Results(reductions) -> reductionsControl
       }
 
-    def eval(expr: Term, constraints: Constraints, equalities: Equalities, control: Control): (Result, Control) =
+    def eval(expr: Term, constraints: Constraints, equalities: Equalities, control: Control, nested: Boolean): (Result, Control) =
       if control != Control.Continue then
         Result(List(Reduction(expr, constraints, equalities))) -> control
       else
-        val (term, equals, control) = config.control(replaceByEqualities(expr, equalities), equalities)
+        val (term, equals, control) = config.control(replaceByEqualities(expr, equalities), equalities, nested)
         val normalized =
           if equals.pos.isEmpty && equals.neg.isEmpty then Some(constraints, equalities)
           else constraintsFromEqualities(Some(constraints), equalities.withEqualities(equals) flatMap { normalize(_, config, cache) })
@@ -226,10 +226,10 @@ object Symbolic:
             Result(List(Reduction(term, constraints, equalities))) -> control
 
           case (TypeApp(expr, tpe), _, Some(constraints, equalities)) =>
-            val result -> resultControl = eval(expr, constraints, equalities, control)
+            val result -> resultControl = eval(expr, constraints, equalities, control, nested = true)
             val reductions -> reductionsControl = result.reductions.foldLeft[(List[Reduction], Control)](List.empty -> resultControl) {
               case ((reductions, control), Reduction(TypeAbs(ident, expr), constraints, equalities)) =>
-                val result -> resultControl = eval(subst(expr, Map(ident -> tpe)), constraints, equalities, control)
+                val result -> resultControl = eval(subst(expr, Map(ident -> tpe)), constraints, equalities, control, nested)
                 reductions ++ result.reductions -> resultControl
               case ((reductions, control), Reduction(expr, constraints, equalities)) =>
                 (reductions :+ Reduction(TypeApp(term)(expr, tpe), constraints, equalities)) -> control
@@ -244,7 +244,7 @@ object Symbolic:
             Result(List(Reduction(term, constraints, equalities))) -> control
 
           case (Cases(scrutinee, cases), _, Some(constraints, equalities)) =>
-            val result -> resultControl = eval(scrutinee, constraints, equalities, control)
+            val result -> resultControl = eval(scrutinee, constraints, equalities, control, nested = true)
             val reductions -> reductionsControl = result.reductions.foldLeft[(List[Reduction], Control)](List.empty -> resultControl) {
               case ((reductions, control), Reduction(scrutinee, constraints, equalities)) =>
                 def process(
@@ -256,7 +256,7 @@ object Symbolic:
                   case (pattern, expr) :: tail =>
                     Unification.unify(pattern, normalize(scrutinee, equalities, config, cache)) match
                       case Unification.Full(substs) =>
-                        val result -> resultControl = eval(subst(expr, substs), constraints, equalities, control)
+                        val result -> resultControl = eval(subst(expr, substs), constraints, equalities, control, nested)
                         result.reductions -> resultControl
 
                       case Unification.Irrefutable(substs, posConstraints) =>
@@ -268,7 +268,7 @@ object Symbolic:
                             case Some(consts, equals) =>
                               config.derive(equals).foldLeft[(List[Reduction], Control)](List.empty -> control) {
                                 case ((reductions, control), equals) =>
-                                  val result -> resultControl = eval(subst(expr, substs), consts, equals, control)
+                                  val result -> resultControl = eval(subst(expr, substs), consts, equals, control, nested)
                                   reductions ++ result.reductions -> resultControl
                               }
                             case _ =>
@@ -304,13 +304,13 @@ object Symbolic:
       constraintsFromEqualities(Some(constraints), normalize(equalities, config, cache)) match
         case (Some(constraints, equalities)) =>
           val normalized = normalize(expr, equalities, config, cache)
-          val exprResult -> exprControl = eval(normalized, constraints, equalities, control)
+          val exprResult -> exprControl = eval(normalized, constraints, equalities, control, nested = false)
           exprResult.reductions flatMap { case reduction @ Reduction(expr, constraints, equalities) =>
             val normalized = normalize(expr, equalities, config, cache)
             if expr eq normalized then
               List(reduction)
             else
-              val normalizedResult -> normalizedControl = eval(normalized, constraints, equalities, exprControl)
+              val normalizedResult -> normalizedControl = eval(normalized, constraints, equalities, exprControl, nested = false)
               if normalizedResult.reductions.size == 1 && normalizedResult.reductions.head.expr == expr then
                 List(reduction)
               else
