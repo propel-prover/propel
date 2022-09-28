@@ -112,6 +112,57 @@ def bv_plus[A: TermExpr](expr: A) =
                 ("Pair", ("B1", "x"), ("B1", "y")) -> ("B0", ("bv_succ", app(assoc, comm)("bv_plus", "x", "y")))
                 )))(expr)
 
+def bv_eq[A: TermExpr](expr: A) =
+    letrec("bv_eq" -> tp(bv -> tp(bv -> bool)) ->
+        // TODO cannot prove transitivity:
+        // we have: (bv_eq b1 b5) = True, iszero b1=True, and we want to prove iszero b5=True
+        abs(refl, sym, trans)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+            ("Pair", "BZ", "BZ") -> True,
+            ("Pair", "BZ", ("B0", "b")) -> ("iszero", "b"),
+            ("Pair", ("B0", "a"), "BZ") -> ("iszero", "a"),
+            ("Pair", ("B0", "a"), ("B0", "b")) -> app(refl, sym, trans)("bv_eq", "a", "b"),
+            ("Pair", ("B1", "a"), ("B1", "b")) -> app(refl, sym, trans)("bv_eq", "a", "b"),
+            ("Pair", "_1", "_2") -> False)))(expr)
+
+
+def iszero[A: TermExpr](expr: A) =
+    letrec("iszero" -> tp(bv -> bool) -> abs()("a" -> bv)(cases("a")(
+        "BZ" -> True,
+        ("B0", "a") -> ("iszero", "a"),
+        ("B1", "_") -> False)))(expr)
+
+
+def orderbv[A: TermExpr](expr: A) =
+    letrec("orderbv" -> tp(bv -> tp(bv -> bool)) ->
+        // TODO cannot prove connectedness nor transitivity
+        // connectedness cannot be proved because in positive we have: (bv_eq a b)=True
+        // and in negative we have a==b (syntactically)
+        abs(refl, conn)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+            ("Pair", "BZ", "_") -> True,
+            ("Pair", ("B0", "a"), "BZ") -> `not`("iszero", "a"),
+            ("Pair", ("B0", "a"), ("B0", "b")) -> app(refl, conn, trans, antisym)("orderbv", "a", "b"),
+            ("Pair", ("B0", "a"), ("B1", "b")) -> app(refl, conn, trans, antisym)("orderbv", "a", "b"),
+            ("Pair", ("B1", "a"), "BZ") -> False,
+            ("Pair", ("B1", "a"), ("B0", "b")) -> `and`(app(refl, conn, trans, antisym)("orderbv", "a", "b"))
+                                                       (`not`(app(refl, sym, trans)("bv_eq", "a", "b"))),
+            ("Pair", ("B1", "a"), ("B1", "b")) -> app(refl, conn, trans, antisym)("orderbv", "a", "b"))))(expr)
+
+def bv_max[A: TermExpr](expr: A) =
+    letrec("bv_max" -> tp(bv -> (bv -> bv)) ->
+        abs(assoc, comm)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+            ("Pair", "BZ", "b") -> "b",
+            ("Pair", "a", "BZ") -> "a",
+            ("Pair", ("B0", "a"), ("B0", "b")) -> ("B0", app(assoc,comm)("bv_max", "a", "b")),
+            ("Pair", ("B1", "a"), ("B1", "b")) -> ("B1", app(assoc,comm)("bv_max", "a", "b")),
+            ("Pair", ("B0", "a"), ("B1", "b")) ->
+                `if`(app(refl,trans)("bv_eq", app(assoc,comm)("bv_max", "a", "b"), "b"))
+                    ("B1", "b")
+                    ("B0", "a"),
+            ("Pair", ("B1", "a"), ("B0", "b")) ->
+                `if`(app(refl,trans)("bv_eq", app(assoc,comm)("bv_max", "a", "b"), "a"))
+                    ("B1", "a")
+                    ("B0", "b"))))(expr)
+
 def gcounter_merge[A: TermExpr](expr: A) =
     letrec("gcounter_merge" -> tp(list(nat) -> (list(nat) -> list(nat))) ->
         abs(assoc, comm)("a" -> list(nat), "b" -> list(nat))(cases("Pair", "a", "b")(
@@ -207,6 +258,8 @@ def gset_merge[A: TermExpr](expr: A) =
   // println()
   // check(max(gcounter_merge(pncounter_merge("Z"))))
   // println()
-  check(plus(max(ordernat(lwwreg_merge("Z")))))
+  // check(plus(max(ordernat(lwwreg_merge("Z")))))
   // println()
   // check(gset_merge("Z"))
+  check(iszero(bv_eq(("Z"))))
+  // check(bv_eq(bv_max("Z")))
