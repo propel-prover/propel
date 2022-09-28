@@ -26,3 +26,4 @@ report/*.*
 !report/*.cls
 !report/ACM-Reference-Format.bst
 !report/*.bib
+!report/.latexmkrc
