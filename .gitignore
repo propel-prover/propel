@@ -13,16 +13,16 @@ target/
 *.ipr
 *.iws
 
-*.aux
-*.bbl
-*.blg
-*.fdb_latexmk
-*.fls
 *.lof
 *.log
 *.lot
-*.out
-*.pdf
 *.synctex.gz
 *.toc
 *.v#
+
+report/*
+!report/*.tex
+!report/*/*.tex
+!report/*.cls
+!report/ACM-Reference-Format.bst
+!report/*.bib
