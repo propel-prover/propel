@@ -9,6 +9,7 @@ import scala.collection.immutable.ListMap
 val propertiesChecking = ListMap(
   Reflexive -> reflexivity,
   Antisymmetric -> antisymmetry,
+  Symmetric -> symmetry,
   Connected -> connectivity,
   Transitive -> transitivity,
   Commutative -> commutativity,
@@ -59,6 +60,21 @@ object antisymmetry
       Equalities.pos(List(arg0 -> arg1)).toList ++
       Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())), List(List(arg0 -> arg1))).toList
 end antisymmetry
+
+
+object symmetry
+    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    with PropertyChecking.Simple:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val ab = subst(expr, Map(ident0 -> varA, ident1 -> varB))
+    val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
+    implies(ab, ba) -> Equalities.empty
+
+  def deriveSimple(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
+        if properties.contains(Symmetric) =>
+      Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.True, List()))).toList
+end symmetry
 
 
 object connectivity
