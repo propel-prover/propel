@@ -166,9 +166,19 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
         case exprs => exprs
     }
-    val propagated = propagatedList.toMap
+    val posPropagated = propagatedList.toMap
+    val posReverse = posPropagated collect {
+      case (expr0, expr1) if !(posPropagated contains expr1) && !contains(expr0, expr1) => (expr1, expr0)
+    }
+    val propagatedReverseList = propagatedList flatMap { (expr0, expr1) => 
+      propagate(posReverse, expr0) -> expr1 match
+        case expr -> _ if expr eq expr0 => None
+        case expr0 -> expr1 if expr1 < expr0 => Some(expr1 -> expr0)
+        case exprs => Some(exprs)
+    }
+    val propagated = (propagatedList ++ propagatedReverseList).toMap
     if propagated != pos then
-      val normalized = normalize(Map.empty, propagatedList.iterator) filterNot { _ == _ }
+      val normalized = normalize(Map.empty, propagatedList.iterator ++ propagatedReverseList.iterator) filterNot { _ == _ }
       if normalized != propagated then Equalities(normalized, neg).propagatePos else Equalities(normalized, neg)
     else
       this

@@ -208,9 +208,7 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                     ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
                         app(comm,assoc)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
             (app(comm,assoc)(("aux", "Z"), "a", "b")))))(expr)
-    else 
-        // associativity: no, commutativity: yes
-        // TODO there is a path that works, but the prover isn't taking it
+    else
         letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
             abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
                 ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
