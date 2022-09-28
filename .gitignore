@@ -20,9 +20,9 @@ target/
 *.toc
 *.v#
 
-report/*
+report/*.*
 !report/*.tex
-!report/*/*.tex
+!*/*.tex
 !report/*.cls
 !report/ACM-Reference-Format.bst
 !report/*.bib
