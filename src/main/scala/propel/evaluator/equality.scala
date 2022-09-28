@@ -31,7 +31,21 @@ object Equality:
 end Equality
 
 case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
+  private def contains(outer: Term, inner: Term): Boolean =
+    outer == inner || outer.size > inner.size && {
+    outer match
+      case Abs(_, _, _, expr) => contains(expr, inner)
+      case App(_, expr, arg) => contains(expr, inner) || contains(arg, inner)
+      case TypeAbs(_, expr) => contains(expr, inner)
+      case TypeApp(expr, _) => contains(expr, inner)
+      case Data(_, args) => args exists { contains(_, inner) }
+      case Var(_) => false
+      case Cases(scrutinee, cases) => contains(scrutinee, inner) || (cases exists { (_, expr) => contains(expr, inner) })
+    }
+
   private given Ordering[Term] =
+    case (expr0, expr1) if contains(expr0, expr1) => -1
+    case (expr0, expr1) if contains(expr1, expr0) => 1
     case (expr0: Var, expr1: Var) => termOrdering.compare(expr0, expr1)
     case (expr0: Var, expr1) => -1
     case (expr0, expr1: Var) => 1
