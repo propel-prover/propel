@@ -114,37 +114,24 @@ def bv_plus[A: TermExpr](expr: A) =
 
 def bv_eq[A: TermExpr](expr: A) =
     letrec("bv_eq" -> tp(bv -> tp(bv -> bool)) ->
-        // TODO cannot prove transitivity:
-        // we have: (bv_eq b1 b5) = True, iszero b1=True, and we want to prove iszero b5=True
-        abs(refl, sym, trans)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+        // INFO Z and (B0 Z) are not equal
+        abs(refl, sym, trans, antisym)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
             ("Pair", "BZ", "BZ") -> True,
-            ("Pair", "BZ", ("B0", "b")) -> ("iszero", "b"),
-            ("Pair", ("B0", "a"), "BZ") -> ("iszero", "a"),
-            ("Pair", ("B0", "a"), ("B0", "b")) -> app(refl, sym, trans)("bv_eq", "a", "b"),
-            ("Pair", ("B1", "a"), ("B1", "b")) -> app(refl, sym, trans)("bv_eq", "a", "b"),
+            ("Pair", ("B0", "a"), ("B0", "b")) -> app(refl, sym, trans, antisym)("bv_eq", "a", "b"),
+            ("Pair", ("B1", "a"), ("B1", "b")) -> app(refl, sym, trans, antisym)("bv_eq", "a", "b"),
             ("Pair", "_1", "_2") -> False)))(expr)
-
-
-def iszero[A: TermExpr](expr: A) =
-    letrec("iszero" -> tp(bv -> bool) -> abs()("a" -> bv)(cases("a")(
-        "BZ" -> True,
-        ("B0", "a") -> ("iszero", "a"),
-        ("B1", "_") -> False)))(expr)
 
 
 def orderbv[A: TermExpr](expr: A) =
     letrec("orderbv" -> tp(bv -> tp(bv -> bool)) ->
-        // TODO cannot prove connectedness nor transitivity
-        // connectedness cannot be proved because in positive we have: (bv_eq a b)=True
-        // and in negative we have a==b (syntactically)
-        abs(refl, conn)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+        // TODO cannot prove connectedness
+        abs(refl, conn, antisym, trans)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
             ("Pair", "BZ", "_") -> True,
-            ("Pair", ("B0", "a"), "BZ") -> `not`("iszero", "a"),
+            ("Pair", "_", "BZ") -> False,
             ("Pair", ("B0", "a"), ("B0", "b")) -> app(refl, conn, trans, antisym)("orderbv", "a", "b"),
             ("Pair", ("B0", "a"), ("B1", "b")) -> app(refl, conn, trans, antisym)("orderbv", "a", "b"),
-            ("Pair", ("B1", "a"), "BZ") -> False,
             ("Pair", ("B1", "a"), ("B0", "b")) -> `and`(app(refl, conn, trans, antisym)("orderbv", "a", "b"))
-                                                       (`not`(app(refl, sym, trans)("bv_eq", "a", "b"))),
+                                                       (`not`(app(refl, sym, trans, antisym)("bv_eq", "a", "b"))),
             ("Pair", ("B1", "a"), ("B1", "b")) -> app(refl, conn, trans, antisym)("orderbv", "a", "b"))))(expr)
 
 def bv_max[A: TermExpr](expr: A) =
@@ -162,6 +149,29 @@ def bv_max[A: TermExpr](expr: A) =
                 `if`(app(refl,trans)("bv_eq", app(assoc,comm)("bv_max", "a", "b"), "a"))
                     ("B1", "a")
                     ("B0", "b"))))(expr)
+
+
+def bvu_eq[A: TermExpr](expr: A) =
+    let("bvu_eq" -> abs(refl, sym, antisym, trans)("a" -> bvu, "b" -> bvu)(cases("Pair", "a", "b")(
+            ("Pair", "BZ", "BZ") -> True,
+            ("Pair", ("B1", "bva"), ("B1", "bvb")) -> app(refl, sym, trans, antisym)("bv_eq", "bva", "bvb"),
+            ("Pair", "_1", "_2") -> False)))(expr)
+
+def ordbvu[A: TermExpr](expr: A) =
+    letrec("ordbvu" -> tp(bvu -> tp(bvu -> bool)) ->
+        abs(refl, antisym, trans, conn)("a" -> bvu, "b" -> bvu)(cases("Pair", "a", "b")(
+            ("Pair", "BZ", "_") -> True,
+            ("Pair", "_", "BZ") -> False,
+            ("Pair", ("B1", "BZ"), ("B1", "_")) -> True,
+            ("Pair", ("B1", "_"), ("B1", "BZ")) -> False,
+            ("Pair", ("B1", ("B0", "a")), ("B1", ("B1", "b"))) -> False,
+            ("Pair", ("B1", ("B1", "a")), ("B1", ("B0", "b"))) -> True,
+            ("Pair", ("B1", ("B0", "a")), ("B1", ("B0", "b"))) ->
+                app(refl, antisym, trans, conn)("ordbvu", ("B1", "a"), ("B1", "b")),
+            ("Pair", ("B1", ("B1", "a")), ("B1", ("B1", "b"))) ->
+                app(refl, antisym, trans, conn)("ordbvu", ("B1", "a"), ("B1", "b")))))(expr)
+
+
 
 def gcounter_merge[A: TermExpr](expr: A) =
     letrec("gcounter_merge" -> tp(list(nat) -> (list(nat) -> list(nat))) ->
@@ -259,5 +269,6 @@ def gset_merge[A: TermExpr](expr: A) =
   // check(plus(max(ordernat(lwwreg_merge("Z")))))
   // println()
   // check(gset_merge("Z"))
-  check(iszero(bv_eq(("Z"))))
+  // check(bv_eq(orderbv("Z")))
   // check(bv_eq(bv_max("Z")))
+  check(bv_eq(bvu_eq(ordbvu("Z"))))
