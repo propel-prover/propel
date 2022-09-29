@@ -204,7 +204,7 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                           ("Pair", app(comm,assoc)("max", "d1", "d2"), "t1")
                           ("Pair", "d2", "t2"))
                      ("Pair", "d1", "t1"))))(expr)
-    else if withAcc // commutativity: no, associativity: no, TODO equality modulo alpha renaming should be done at some point
+    else if withAcc // commutativity: yes, associativity: no (because `aux acc` is not associative for an arbitrary `acc`)
     then
         let("lwwreg_merge" -> abs()("a" -> lwwreg, "b" -> lwwreg)(
             (letrec("aux" -> tp(nat -> (lwwreg -> (lwwreg -> lwwreg))) ->

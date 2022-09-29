@@ -32,7 +32,7 @@ end Equality
 
 case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   private def contains(outer: Term, inner: Term): Boolean =
-    outer == inner || outer.size > inner.size && {
+    equivalent(outer, inner) || {
     outer match
       case Abs(_, _, _, expr) => contains(expr, inner)
       case App(_, expr, arg) => contains(expr, inner) || contains(arg, inner)
@@ -161,7 +161,9 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       None
 
   private def propagatePos: Equalities =
-    val propagatedList = pos.toList map { (expr0, expr1) => 
+    val posList = pos.toList
+
+    val propagatedList = posList map { (expr0, expr1) => 
       propagate(pos - expr0, expr0) -> propagate(pos, expr1) match
         case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
         case exprs => exprs
@@ -176,9 +178,37 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         case expr0 -> expr1 if expr1 < expr0 => Some(expr1 -> expr0)
         case exprs => Some(exprs)
     }
-    val propagated = (propagatedList ++ propagatedReverseList).toMap
+
+    def process(pos: List[(Term, Term)]): List[(Term, Term)] = pos match
+      case Nil => Nil
+      case (_: Data, _: Data) :: tail0 => process(tail0)
+      case (expr0a, expr1a) :: tail0 =>
+        def processTail(pos: List[(Term, Term)]): List[(Term, Term)] = pos match
+          case Nil => Nil
+          case (_: Data, _: Data) :: tail1 => processTail(tail1)
+          case (expr0b, expr1b) :: tail1 =>
+            val element0 = (expr0a, expr0b) match
+              case (_, _: Data) | (_: Data, _) => Nil
+              case element0 @ (expr0a, expr0b)
+                  if equivalent(expr0a, expr0b) && equal(expr1a, expr1b) == Equality.Indeterminate =>
+                element0 :: Nil
+              case _ => Nil
+            val element1 = (expr1a, expr1b) match
+              case (_, _: Data) | (_: Data, _) => Nil
+              case element1 @ (expr1a, expr1b)
+                  if equivalent(expr1a, expr1b) && equal(expr0a, expr0b) == Equality.Indeterminate =>
+                element1 :: Nil
+              case _ => Nil
+            element0 ++ element1 ++ processTail(tail1)
+        process(tail0) ++ processTail(tail0)
+
+    val equivalentList = process(posList)
+
+    def iterator = propagatedList.iterator ++ propagatedReverseList.iterator ++ equivalentList.iterator
+
+    val propagated = Map.from(iterator)
     if propagated != pos then
-      val normalized = normalize(Map.empty, propagatedList.iterator ++ propagatedReverseList.iterator) filterNot { _ == _ }
+      val normalized = normalize(Map.empty, iterator) filterNot { _ == _ }
       if normalized != propagated then Equalities(normalized, neg).propagatePos else Equalities(normalized, neg)
     else
       this
