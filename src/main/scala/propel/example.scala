@@ -124,7 +124,6 @@ def bv_eq[A: TermExpr](expr: A) =
 
 def orderbv[A: TermExpr](expr: A) =
     letrec("orderbv" -> tp(bv -> tp(bv -> bool)) ->
-        // TODO cannot prove connectedness
         abs(refl, conn, antisym, trans)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
             ("Pair", "BZ", "_") -> True,
             ("Pair", "_", "BZ") -> False,

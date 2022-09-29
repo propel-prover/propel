@@ -267,9 +267,13 @@ object Symbolic:
                           constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
                             case Some(consts, equals) =>
                               config.derive(equals).foldLeft[(List[Reduction], Control)](List.empty -> control) {
-                                case ((reductions, control), equals) =>
-                                  val result -> resultControl = eval(subst(expr, substs), consts, equals, control, nested)
-                                  reductions ++ result.reductions -> resultControl
+                                case (result @ (reductions, control), equals) =>
+                                  constraintsFromEqualities(Some(consts), normalize(equals, config, cache)) match
+                                    case Some(consts, equals) =>
+                                      val result -> resultControl = eval(subst(expr, substs), consts, equals, control, nested)
+                                      reductions ++ result.reductions -> resultControl
+                                    case _ =>
+                                      result
                               }
                             case _ =>
                               List.empty -> control
@@ -283,9 +287,13 @@ object Symbolic:
                           constraintsFromEqualities(consts, equals flatMap { normalize(_, config, cache) }) match
                             case Some(consts, equals) =>
                               config.derive(equals).foldLeft[(List[Reduction], Control)](List.empty -> posResult) {
-                                case ((reductions, control), equals) =>
-                                  val processedReductions -> processedControl = process(tail, consts, equals, control)
-                                  reductions ++ processedReductions -> processedControl
+                                case (result @ (reductions, control), equals) =>
+                                  constraintsFromEqualities(Some(consts), normalize(equals, config, cache)) match
+                                    case Some(consts, equals) =>
+                                      val processedReductions -> processedControl = process(tail, consts, equals, control)
+                                      reductions ++ processedReductions -> processedControl
+                                    case _ =>
+                                      result
                               }
                             case _ =>
                               List.empty -> posResult
