@@ -188,6 +188,7 @@ def pncounter_merge[A: TermExpr](expr: A) =
                ("Pair", app(comm,assoc)("gcounter_merge", "a1", "b1"), app(comm,assoc)("gcounter_merge", "a2", "b2"))
         ))(expr)
 
+
 // RFC677 describes it to be commutative
 def lwwreg_merge[A: TermExpr](expr: A) =
     val lwwreg = dt("Pair", nat, nat)
@@ -205,9 +206,11 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                      ("Pair", "d1", "t1"))))(expr)
     else if withAcc // commutativity: yes, associativity: no (because `aux acc` is not associative for an arbitrary `acc`)
     then
+        // HipSpec has taken more than 2hours as of the time of writing this comment and probably won't
+        // prove nor disprove commutativity nor associativity
         let("lwwreg_merge" -> abs()("a" -> lwwreg, "b" -> lwwreg)(
             (letrec("aux" -> tp(nat -> (lwwreg -> (lwwreg -> lwwreg))) ->
-                abs()("acc" -> nat)(abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
+                abs()("acc" -> nat)(abs(comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
                     ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
                         ("Pair", app(comm,assoc)("max", "d1", "d2"), "acc"),
                     ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
@@ -215,9 +218,14 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                     ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
                         ("Pair", "d2", app(comm,assoc)("+", "acc", ("S", "t2"))),
                     ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
-                        app(comm,assoc)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
-            (app(comm,assoc)(("aux", "Z"), "a", "b")))))(expr)
+                        app(comm)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
+            (let("aux_assoc" -> abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)
+                                    (app(comm)(("aux", "Z"), "a", "b")))
+                (app(comm,assoc)("aux_assoc", "a", "b"))))))(expr)
     else
+        // This would be the same implementation as argmax :: (Nat,Nat) -> (Nat,Nat) -> (Nat,Nat)
+        // we can prove it's commutative and associative, Zeno can only prove commutativity
+        // HipSpec was unable to prove either commutativity, or associativity
         letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
             abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
                 ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
@@ -270,4 +278,6 @@ def gset_merge[A: TermExpr](expr: A) =
   // check(gset_merge("Z"))
   // check(bv_eq(orderbv("Z")))
   // check(bv_eq(bv_max("Z")))
-  check(bv_eq(bvu_eq(ordbvu("Z"))))
+  // check(bv_eq(bvu_eq(ordbvu("Z"))))
+  // check(plus(max(lwwreg_merge("Z"))))
+  check(max(argmax("Z")))
