@@ -231,7 +231,7 @@ object Conjecture:
     def generalizeEvaluationResults(ident0: Symbol, ident1: Symbol, abstraction: Abstraction, calls: List[Term]) =
       val call = calls.head
 
-      result unwrap { result =>
+      result unlinked { result =>
         val names = UniqueNames.usedNames.toSet
 
         val (patternName0, patternName1) = let(Naming.dropSubscript(ident0.name), Naming.dropSubscript(ident1.name)) { case names @ (name0, name1) =>
@@ -349,8 +349,8 @@ object Conjecture:
 
     (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
       case (Some(abstraction), calls @ _ :: _) =>
-        Normalization.distinct(generalizeEvaluationResults(ident0, ident1, abstraction, calls)) sortBy {
-          case Normalization(pattern, result, _, _, _, _) => (pattern, result)
+        generalizeEvaluationResults(ident0, ident1, abstraction, calls) unwrap {
+          Normalization.distinct(_) sortBy { case Normalization(pattern, result, _, _, _, _) => (pattern, result) }
         }
       case _ =>
         List.empty

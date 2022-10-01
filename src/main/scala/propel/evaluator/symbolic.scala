@@ -87,11 +87,11 @@ object Symbolic:
 
 
   case class Result(reductions: List[Reduction]) extends AnyVal:
-    def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration()) =
+    def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration())(using UniqueNaming) =
       Result(reductions flatMap { _.withConstraints(patternConstraints, config) })
 
   case class Reduction(expr: Term, constraints: Constraints, equalities: Equalities):
-    def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration()) =
+    def withConstraints(patternConstraints: PatternConstraints, config: Configuration = Configuration())(using UniqueNaming) =
       constraints.withPosConstraints(patternConstraints) flatMap { constraints =>
         equalities.withEqualities(patternConstraints) map { equalities =>
           Reduction(normalize(expr, equalities, config, mutable.Map.empty), constraints, equalities)
@@ -109,19 +109,21 @@ object Symbolic:
   extension (reductions: Reductions)
     private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints, reductions.equalities)
 
-  private def normalize(expr: Term, equalities: Equalities, config: Configuration, cache: mutable.Map[(Term, Equalities), Term]): Term =
+  private def normalize(expr: Term, equalities: Equalities, config: Configuration, cache: mutable.Map[(Term, Equalities), Term])(using UniqueNaming): Term =
     val term = substEqualities(expr, equalities)
-    cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
+    val normalized = cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
+    if term != normalized then UniqueNames.convert(normalized) else normalized
 
-  private def normalize(equalities: Equalities, config: Configuration, cache: mutable.Map[(Term, Equalities), Term]): Option[Equalities] =
+  private def normalize(equalities: Equalities, config: Configuration, cache: mutable.Map[(Term, Equalities), Term])(using UniqueNaming): Option[Equalities] =
     def normalize(term: Term) =
-      cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
+      val normalized = cache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
+      if term != normalized then UniqueNames.convert(normalized) else normalized
 
-    val additional = (equalities.pos.toList map { (expr0, expr1) =>
+    val additional = equalities.pos.iterator flatMap { (expr0, expr1) =>
       val normalized0 = normalize(expr0)
       val normalized1 = normalize(expr1)
       Option.when(expr0 != normalized0 || expr1 != normalized1)(normalized0 -> normalized1)
-    }).flatten
+    }
 
     equalities.withEqualities(additional)
 

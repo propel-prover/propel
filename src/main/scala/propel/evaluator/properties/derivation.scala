@@ -25,7 +25,13 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
         Set(term)
       case App(properties, expr, arg) =>
         val max = 1 << (maxBit / 2)
-        top(max, process(expr)) flatMap { expr => top(max, process(arg)) map { App(term)(properties, expr, _).withSyntacticInfo } }
+        top(max, process(expr)) flatMap { expr =>
+          top(max, process(arg)) map { arg =>
+            val result = App(term)(properties, expr, arg).withSyntacticInfo
+            val overlap = expr.syntacticInfo.boundVars exists { arg.syntacticInfo.boundVars contains _ }
+            if overlap then UniqueNames.convert(result) unwrap { _.withSyntacticInfo } else result
+          }
+        }
       case TypeApp(expr, tpe) =>
         process(expr) map { TypeApp(term)(_, tpe).withSyntacticInfo }
       case Data(ctor, args) =>
@@ -33,7 +39,16 @@ def explode(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: 
         val processedArgs = args.foldRight(Set(List.empty[Term])) { (arg, args) =>
           top(max, process(arg)) flatMap { arg => args map { arg :: _ } }
         }
-        processedArgs map { Data(term)(ctor, _).withSyntacticInfo }
+        processedArgs map { args =>
+          val result = Data(term)(ctor, args).withSyntacticInfo
+          val (_, overlap) = args.foldLeft[(Set[Symbol], Boolean)](Set.empty -> false) {
+            case (result @ (_, true), _) => result
+            case ((idents, _), arg) =>
+              val bound = arg.syntacticInfo.boundVars
+              if bound exists { idents contains _ } then Set.empty -> true else idents ++ bound -> false
+          }
+          if overlap then UniqueNames.convert(result) unwrap { _.withSyntacticInfo } else result
+        }
 
     def explode(exprs: Set[Term], exploded: Set[Term]): Set[Term] =
       val (continue, stop) = (normalize.iterator
