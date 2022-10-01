@@ -280,4 +280,4 @@ def gset_merge[A: TermExpr](expr: A) =
   // check(bv_eq(bv_max("Z")))
   // check(bv_eq(bvu_eq(ordbvu("Z"))))
   // check(plus(max(lwwreg_merge("Z"))))
-  check(max(argmax("Z")))
+  // check(max(argmax("Z")))
