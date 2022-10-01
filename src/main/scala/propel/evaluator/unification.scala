@@ -40,7 +40,7 @@ object Unification:
         case Match(patternCtor, List()) -> Data(exprCtor, List()) =>
           Option.when(patternCtor == exprCtor)(Map.empty, Map.empty)
         case Match(patternCtor, patternArgs) -> Data(exprCtor, exprArgs) =>
-          Option.when(patternCtor == exprCtor && patternArgs.size == exprArgs.size) {
+          Option.when(patternCtor == exprCtor && patternArgs.sizeCompare(exprArgs) == 0) {
             patternArgs zip exprArgs mapIfDefined unify flatMap { unified =>
               val (substss, constraintss) = unified.unzip
               constraintss.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map { (substss.mergeLeft, _) }
@@ -96,7 +96,7 @@ object Unification:
       case Match(ctor0, List()) -> Match(ctor1, List()) =>
         Option.when(ctor0 == ctor1)(pattern0, Map.empty, Map.empty)
       case Match(ctor0, args0) -> Match(ctor1, args1) =>
-        Option.when(ctor0 == ctor1 && args0.size == args1.size) {
+        Option.when(ctor0 == ctor1 && args0.sizeCompare(args1) == 0) {
           args0 zip args1 mapIfDefined { unify(_, _) } flatMap { unified =>
             val (args, constraintss0, constraintss1) = unified.unzip3
             constraintss0.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } flatMap { constraints0 =>

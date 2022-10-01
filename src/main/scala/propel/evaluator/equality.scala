@@ -32,6 +32,11 @@ object Equality:
 end Equality
 
 case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
+  override val hashCode = scala.util.hashing.MurmurHash3.productHash(this)
+  override def equals(other: Any) = other match
+    case other: Equalities => eq(other) || hashCode == other.hashCode && pos == other.pos && neg == other.neg && other.canEqual(this)
+    case _ => false
+
   private def contains(outer: Term, inner: Term): Boolean =
     equivalent(outer, inner) || {
     outer match
@@ -67,7 +72,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
           val equality -> exprs = equal(expr0, expr1)
           equality -> (terms :: exprs)
         case terms @ Data(ctor0, args0) -> Data(ctor1, args1) =>
-          if ctor0 == ctor1 && args0.size == args1.size then
+          if ctor0 == ctor1 && args0.sizeCompare(args1) == 0 then
             if args0.isEmpty then
               Equality.Equal -> List(terms)
             else
@@ -165,7 +170,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def negConstraints: Set[PatternConstraints] =
     neg flatMap { neg =>
       val negConstraints = neg flatMap { (expr0, expr1) => expr1.asPattern map { expr0 -> _ } }
-      if negConstraints.size == neg.size then PatternConstraints.make(negConstraints) else None
+      if negConstraints.sizeCompare(neg) == 0 then PatternConstraints.make(negConstraints) else None
     }
 
   extension (pattern: Pattern) private def asTerm: Term = pattern match
@@ -274,7 +279,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     def destruct(expr0: Term, expr1: Term): List[(Term, Term)] = expr0 -> expr1 match
       case TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if equivalent(tpe0, tpe1) =>
         destruct(expr0, expr1)
-      case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 && args0.size == args1.size =>
+      case Data(ctor0, args0) -> Data(ctor1, args1) if ctor0 == ctor1 && args0.sizeCompare(args1) == 0 =>
         args0 zip args1 flatMap destruct
       case _ if expr1 < expr0 =>
         List(expr1 -> expr0)

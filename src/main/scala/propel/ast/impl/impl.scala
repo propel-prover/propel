@@ -21,6 +21,44 @@ def defaultHashCodeImpl(using Quotes) =
 end defaultHashCodeImpl
 
 
+inline def defaultEquals: Boolean = ${ defaultEqualsImpl }
+
+def defaultEqualsImpl(using Quotes) =
+  import quotes.reflect.*
+
+  def equalsSymbol(symbol: Symbol): Symbol =
+    if symbol.exists && symbol.name != "equals" then equalsSymbol(symbol.owner) else symbol
+
+  val equals = equalsSymbol(Symbol.spliceOwner)
+  val classSymbol = equals.owner
+  val classTree = TypeIdent(classSymbol)
+
+  val List(List(other)) = equals.paramSymss
+  val args :: _ = classSymbol.primaryConstructor.paramSymss map { _ map { arg => classSymbol.fieldMember(arg.name) } }
+
+  val canEqual = TypeRepr.of[Equals].typeSymbol.methodMember("canEqual").head
+  val isInstanceOf = defn.AnyClass.methodMember("isInstanceOf").head
+  val asInstanceOf = defn.AnyClass.methodMember("asInstanceOf").head
+  val hashCode = defn.AnyClass.methodMember("hashCode").head
+  val eq = defn.AnyRefClass.methodMember("eq").head
+  val == = defn.AnyClass.methodMember("==").head
+  val && = defn.BooleanClass.methodMember("&&").head
+  val || = defn.BooleanClass.methodMember("||").head
+
+  val otherAnyRef = Ref(other).select(asInstanceOf).appliedToTypeTrees(List(TypeIdent(defn.AnyRefClass)))
+
+  This(classSymbol).select(eq).appliedTo(otherAnyRef).select(||).appliedTo(
+    Ref(other).select(isInstanceOf).appliedToTypeTrees(List(classTree)).select(&&).appliedTo(
+      ValDef.let(Symbol.spliceOwner, "other", Ref(other).select(asInstanceOf).appliedToTypeTrees(List(classTree))) { other =>
+        val hashvalue = This(classSymbol).select(hashCode).select(==).appliedTo(other.select(hashCode))
+        val arguments = args.foldLeft(hashvalue) { (cond, arg) =>
+          cond.select(&&).appliedTo(This(classSymbol).select(arg).select(==).appliedTo(other.select(arg)))
+        }
+        arguments.select(&&).appliedTo(other.select(canEqual).appliedTo(This(classSymbol)))
+      })).asExprOf[Boolean]
+end defaultEqualsImpl
+
+
 inline def defaultApply[T]: T = ${ defaultApplyImpl[T] }
 
 def defaultApplyImpl[T: Type](using Quotes) =

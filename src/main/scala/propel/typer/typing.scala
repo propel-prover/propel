@@ -94,7 +94,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
 
           val result = (unfolded collect {
             case Sum(sum) =>
-              sum collectFirst { case (`ctor`, tpes) if tpes.size == args.size =>
+              sum collectFirst { case (`ctor`, tpes) if tpes.sizeCompare(args) == 0 =>
                 val (typedArgs, argInfos) = (args zip tpes map { (arg, tpe) =>
                   arg.withExtrinsicInfo(Specified(Right(tpe))).typed
                 }).unzip
@@ -235,7 +235,7 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
 
         case Data(ctor, args) =>
           val expectedArgTypes = (context.expected collect { case Sum(sum) =>
-            sum collectFirst { case `ctor` -> argsTypes if argsTypes.size == args.size => argsTypes map { Some(_) } }
+            sum collectFirst { case `ctor` -> argsTypes if argsTypes.sizeCompare(args) == 0 => argsTypes map { Some(_) } }
           }).flatten
 
           val typedArgs = expectedArgTypes getOrElse List.fill(args.size)(None) zip args map { (expectedArgType, arg) =>

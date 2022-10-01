@@ -38,6 +38,7 @@ sealed trait Pattern extends Enrichable[Pattern]:
 object Pattern:
   case class Match private[Pattern] (ctor: Constructor, args: List[Pattern]) (val enrichments: Enrichments) extends Pattern:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = args.foldLeft(1) { _ + _.size }
 
   object Match:
@@ -46,6 +47,7 @@ object Pattern:
 
   case class Bind private[Pattern] (ident: Symbol) (val enrichments: Enrichments) extends Pattern:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1
 
   object Bind:
@@ -65,6 +67,7 @@ sealed trait Type extends Enrichable[Type]:
 object Type:
   case class Function private[Type] (arg: Type, result: Type) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + arg.size + result.size
 
   object Function:
@@ -73,6 +76,7 @@ object Type:
 
   case class Universal private[Type] (ident: Symbol, result: Type) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + result.size
 
   object Universal:
@@ -81,6 +85,7 @@ object Type:
 
   case class Recursive private[Type] (ident: Symbol, result: Type) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + result.size
 
   object Recursive:
@@ -89,6 +94,7 @@ object Type:
 
   case class TypeVar private[Type] (ident: Symbol) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1
 
   object TypeVar:
@@ -97,6 +103,7 @@ object Type:
 
   case class Sum private[Type] (sum: List[(Constructor, List[Type])]) (val enrichments: Enrichments) extends Type:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = sum.foldLeft(1) { _ + _._2.foldLeft(0) { _ + _.size } }
 
   object Sum:
@@ -118,6 +125,7 @@ sealed trait Term extends Enrichable[Term]:
 object Term:
   case class Abs private[Term] (properties: Properties, ident: Symbol, tpe: Type, expr: Term) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + tpe.size + expr.size
 
   object Abs:
@@ -126,6 +134,7 @@ object Term:
 
   case class App private[Term] (properties: Properties, expr: Term, arg: Term) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + expr.size + arg.size
 
   object App:
@@ -134,6 +143,7 @@ object Term:
 
   case class TypeAbs private[Term] (ident: Symbol, expr: Term) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + expr.size
 
   object TypeAbs:
@@ -142,6 +152,7 @@ object Term:
 
   case class TypeApp private[Term] (expr: Term, tpe: Type) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1 + expr.size + tpe.size
 
   object TypeApp:
@@ -150,6 +161,7 @@ object Term:
 
   case class Data private[Term] (ctor: Constructor, args: List[Term]) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = args.foldLeft(1) { _ + _.size }
 
   object Data:
@@ -158,6 +170,7 @@ object Term:
 
   case class Var private[Term] (ident: Symbol) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = 1
 
   object Var:
@@ -166,6 +179,7 @@ object Term:
 
   case class Cases(scrutinee: Term, cases: List[(Pattern, Term)]) (val enrichments: Enrichments) extends Term:
     override val hashCode = impl.defaultHashCode
+    override def equals(other: Any) = impl.defaultEquals
     val size = cases.foldLeft(1) { case (size, (pattern, term)) => size + pattern.size + term.size }
 
   object Cases:

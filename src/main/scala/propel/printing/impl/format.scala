@@ -149,7 +149,7 @@ extension (expr: Term) def format: List[List[Format]] =
     (head, last) match
       case (Some(open), Some(close: Close)) if close.opening eq open =>
         format
-      case _ if format.lengthCompare(1) > 0 =>
+      case _ if format.sizeIs > 1 =>
         val open = Open("(")
         (open :: format.head) :: (format.init.tail :+ (format.last :+ Close(")")(open)))
       case _ =>
@@ -170,7 +170,7 @@ extension (expr: Term) def format: List[List[Format]] =
     if headIndex != -1 && lastIndex != -1 then
       (format.head(headIndex), format.last(lastIndex)) match
         case (open, close: Close) if close.opening eq open =>
-          if format.lengthCompare(1) > 0 then
+          if format.sizeIs > 1 then
             format.head.patch(headIndex, List.empty, 1) :: (format.init.tail :+ format.last.patch(lastIndex, List.empty, 1))
           else
             List(format.head.patch(lastIndex, List.empty, 1).patch(headIndex, List.empty, 1))
@@ -184,7 +184,7 @@ extension (expr: Term) def format: List[List[Format]] =
   def end = End(expr)
 
   def mark(format: List[List[Format]]) =
-    if format.lengthCompare(1) > 0 then
+    if format.sizeIs > 1 then
       (start :: format.head) :: (format.init.tail :+ (format.last :+ end))
     else
       List(start :: (format.head :+ end))
@@ -197,7 +197,7 @@ extension (expr: Term) def format: List[List[Format]] =
   def binaryOp(op: List[Format], a: Term, b: Term) =
     val aOp = formatNested(a)
     val bOp = formatNested(b)
-    if aOp.lengthCompare(1) > 0 || bOp.lengthCompare(1) > 0 then
+    if aOp.sizeIs > 1 || bOp.sizeIs > 1 then
       List(aOp.head) ++ indented(aOp.tail ++ (op :: indented(bOp)))
     else
       List(aOp.head ++ (Plain(" ") :: (op ++ (Plain(" ") :: bOp.head))))
@@ -221,9 +221,9 @@ extension (expr: Term) def format: List[List[Format]] =
         case (_, Cases(_, List(`trueMatch` -> _, `falseMatch` -> _)), _) => 2
         case (_, _, Cases(_, List(`trueMatch` -> _, `falseMatch` -> _))) => 2
         case _ => 0
-      if condexpr.lengthCompare(1) > 0 || nested == 1 then
+      if condexpr.sizeIs > 1 || nested == 1 then
         mark((Keyword("if") :: Plain(" ") :: condexpr.head) :: (indented(condexpr.tail) ++ (List(Keyword("then")) :: indented(thenexpr)) ++ (List(Keyword("else")) :: indented(elseexpr))))
-      else if thenexpr.lengthCompare(1) > 0 || elseexpr.lengthCompare(1) > 0 || nested == 2 then
+      else if thenexpr.sizeIs > 1 || elseexpr.sizeIs > 1 || nested == 2 then
         mark((Keyword("if") :: Plain(" ") :: (condexpr.head :+ Plain(" ") :+ Keyword("then"))) :: (indented(thenexpr) ++ (List(Keyword("else")) :: indented(elseexpr))))
       else
         mark(List((Keyword("if") :: Plain(" ") :: condexpr.head) ++ (Plain(" ") :: Keyword("then") :: Plain(" ") :: thenexpr.head) ++ (Plain(" ") :: Keyword("else") :: Plain(" ") :: elseexpr.head)))
@@ -231,9 +231,9 @@ extension (expr: Term) def format: List[List[Format]] =
       val letbound = bound.format
       val letexpr = expr.format
       val letpattern = Keyword("let") :: Plain(" ") :: (pattern.format :+ Plain(" ") :+ Keyword("="))
-      if letbound.lengthCompare(1) > 0 then
+      if letbound.sizeIs > 1 then
         mark(letpattern :: indented(letbound) ++ (List(Keyword("in")) :: indented(letexpr)))
-      else if letexpr.lengthCompare(1) > 0 then
+      else if letexpr.sizeIs > 1 then
         mark(letpattern ++ (Plain(" ") :: (letbound.head :+ Plain(" ") :+ Keyword("in"))) :: indented(letexpr))
       else
         mark(List(letpattern ++ (Plain(" ") :: (letbound.head ++ (Plain(" ") :: Keyword("in") :: Plain(" ") :: letexpr.head)))))
@@ -248,12 +248,12 @@ extension (expr: Term) def format: List[List[Format]] =
     case App(properties, expr, arg) =>
       val format = formatNested(expr)
       val appexpr = expr match
-        case _: (App | TypeApp) if properties.isEmpty && format.lengthCompare(1) == 0 =>
+        case _: (App | TypeApp) if properties.isEmpty && format.sizeIs == 1 =>
           deparenthesize(format)
         case _ =>
           format
       val apparg = formatNested(arg)
-      if appexpr.lengthCompare(1) > 0 || apparg.lengthCompare(1) > 0 then
+      if appexpr.sizeIs > 1 || apparg.sizeIs > 1 then
         mark(parenthesize((Plain(annotation(properties)) :: appexpr.head) :: (indented(appexpr.tail) ++ indented(apparg))))
       else
         mark(List(Plain(annotation(properties)) :: (appexpr.head ++ (Plain(" ") :: apparg.head))))
@@ -280,7 +280,7 @@ extension (expr: Term) def format: List[List[Format]] =
     case Data(ctor, args) =>
       val dataargss = args map formatNested
       val dataargs = dataargss.flatten
-      if dataargss exists { _.lengthCompare(1) > 0 } then
+      if dataargss exists { _.sizeIs > 1 } then
         mark(parenthesize(List(Plain(ctor.show)) :: indented(dataargs)))
       else
         mark(List(Plain(ctor.show) :: (dataargs flatMap { Plain(" ") :: _ })))
@@ -292,7 +292,7 @@ extension (expr: Term) def format: List[List[Format]] =
         val caseexpr = expr.format
         (pattern.format ++ (Plain(" ") :: Keyword("⇒") :: Plain(" ") :: caseexpr.head)) :: indented(caseexpr.tail)
       }
-      if casesscrutinee.lengthCompare(1) > 0 then
+      if casesscrutinee.sizeIs > 1 then
         List(start, Keyword("cases"), end) :: (indented(casesscrutinee) ++ (List(Keyword("of")) :: indented(caselist.flatten)))
       else
         (start :: Keyword("cases") :: end :: Plain(" ") :: (casesscrutinee.head :+ Plain(" ") :+ Keyword("of"))) :: indented(caselist.flatten)

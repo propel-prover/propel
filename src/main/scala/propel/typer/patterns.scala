@@ -11,7 +11,7 @@ def diff(tpe: Type, pattern: Pattern): Option[Type] = tpe -> pattern match
     unfold(tpe) flatMap { diff(_, pattern) } map fold
   case Sum(sum) -> Match(ctor, matchArgs) =>
     val elements = sum map {
-      case `ctor` -> sumArgs if sumArgs.size == matchArgs.size =>
+      case `ctor` -> sumArgs if sumArgs.sizeCompare(matchArgs) == 0 =>
         def process(sumArgs: List[Type], matchArgs: List[Pattern]): Option[List[List[Type]]] = (sumArgs, matchArgs) match
           case (List(sumArg), List(matchArg)) =>
             diff(sumArg, matchArg) map { arg => List(List(arg)) }

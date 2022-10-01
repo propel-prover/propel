@@ -223,9 +223,15 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
             else
               List.empty
 
+          val generalizedConjectures =
+            if closedBinaryOperation then
+              Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result)
+            else
+              List.empty
+
           unaryDistributivityConjectures ++
           binaryDistributivityConjectures ++
-          Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
+          generalizedConjectures filterNot {
             Normalization.specializationForSameAbstraction(_, facts)
           }
         else
@@ -404,7 +410,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
         println()
         println(indent(2, "Proven properties:"))
         println()
-        provenProperties map { property => println(indent(4, property.show)) }
+        provenProperties foreach { property => println(indent(4, property.show)) }
 
       val error = properties collectFirstDefined { property =>
         propertiesChecking get property match

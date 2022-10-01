@@ -81,7 +81,7 @@ private object Sums:
   def equal(element0: Element, element1: Element): Boolean =
     val (ctor0, args0) = element0
     val (ctor1, args1) = element1
-    ctor0 == ctor1 && (args0.size == args1.size) && (args0 zip args1 forall { typer.equal(_, _) })
+    ctor0 == ctor1 && args0.sizeCompare(args1) == 0 && (args0 zip args1 forall { typer.equal(_, _) })
 
   def equal(sum0: Sum, sum1: Sum): Boolean =
     def flag(sum: FlaggedSum, element: Element): (FlaggedSum, Boolean) = sum match
@@ -105,7 +105,7 @@ private object Sums:
     def contains(sum: Sum, element: Element): Boolean =
       val (ctor, args) = element
       sum exists {
-        case `ctor` -> sumElementArgs => args.size == sumElementArgs.size
+        case `ctor` -> sumElementArgs => args.sizeCompare(sumElementArgs) == 0
         case _ => false
       }
 
@@ -125,7 +125,7 @@ private object Sums:
     sum match
       case ctor -> args0 :: tail0 =>
         def processTail(args0: List[Type], sum: Sum): Option[(List[Type], Sum)] = sum match
-          case `ctor` -> args1 :: tail1 if args0.size == args1.size =>
+          case `ctor` -> args1 :: tail1 if args0.sizeCompare(args1) == 0 =>
             args0 zip args1 mapIfDefined { typer.bound(_, _, direction) } flatMap { processTail(_, tail1) }
           case head :: tail =>
             processTail(args0, tail) map { (args, sum) => args -> (head :: sum) }

@@ -29,7 +29,7 @@ object Abstraction extends Enrichment.Extrinsic[Type | Term, Abstraction]:
       case Sum(fromSum) -> Sum(toSum) =>
         Sum(to)(toSum map { case sum @ (ctor -> toArgs) =>
           (fromSum
-            collectFirst { case `ctor` -> fromArgs if fromArgs.size == toArgs.size =>
+            collectFirst { case `ctor` -> fromArgs if fromArgs.sizeCompare(toArgs) == 0 =>
               ctor -> (fromArgs zip toArgs map assign)
             }
             getOrElse sum)
