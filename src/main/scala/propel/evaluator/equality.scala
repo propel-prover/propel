@@ -2,6 +2,7 @@ package propel
 package evaluator
 
 import ast.*
+import typer.*
 
 enum Equality:
   case Equal
@@ -108,6 +109,26 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         }
         if unequal then Equality.Unequal else equality
   end equal
+
+  def contradictionIndeducible: Boolean =
+    def isVar(expr: Term): Boolean = expr match
+      case Var(_) => true
+      case _ => false
+
+    def isInductive(expr: Term): Boolean = expr match
+      case Var(_) => true
+      case Data(_, args) => args forall isInductive
+      case _ => false
+
+    def hasSameType(expr0: Term, expr1: Term) =
+      expr0.termType exists { tpe => expr1.termType exists { equivalent(tpe, _) } }
+
+    (neg forall { _ forall { (expr0, expr1) => isInductive(expr0) && isInductive(expr1) } }) &&
+    (pos forall { (expr0, expr1) =>
+      isVar(expr0) || isVar(expr1) ||
+      hasSameType(expr0, expr1) && (isInductive(expr0) || isInductive(expr1))
+    })
+  end contradictionIndeducible
 
   def withEqualities(equalities: Equalities): Option[Equalities] =
     withEqualities(equalities.pos) flatMap { _.withUnequalities(equalities.neg) }

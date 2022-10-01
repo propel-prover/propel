@@ -35,6 +35,8 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
     s"Property Deduction Error\n\nExpected function definition of shape ${definition.show} to check ${property.show} property.")
   def propertyDeductionError(property: Property) = Error(
     s"Property Deduction Error\n\nUnable to prove ${property.show} property.")
+  def propertyDisprovenError(property: Property) = Error(
+    s"Property Deduction Error\n\nDisproved ${property.show} property.")
 
   val typedExpr = expr.typedTerm
 
@@ -305,30 +307,47 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
               val result = Symbolic.eval(converted, equalities, config)
 
+              val check = checking.check(result.wrapped)
+              val proved = check exists { _.reductions.isEmpty }
+              val disproved = check.isLeft
+
               if printReductionDebugInfo then
                 println()
                 println(indent(2, "Evaluation result for conjecture check:"))
+                if !proved then
+                  println(indent(2, "(some cases may not be fully reduced)"))
                 println()
                 println(indent(4, result.wrapped.show))
-
-              val successful = checking.check(result.wrapped).reductions.isEmpty
-
-              if printReductionDebugInfo then
+                if !proved then
+                  println()
+                  println(indent(2, "Offending cases for conjecture check:"))
+                  println(indent(2, "(some cases may not be fully reduced)"))
+                  println()
+                  println(indent(4, check.merge.show))
                 println()
-                if successful then
+                if proved then
                   println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
+                else if disproved then
+                  println(indent(4, "  Conjecture disproved".toUpperCase.nn))
                 else
-                  println(indent(4, "✘ Conjecture could not be proven".toUpperCase.nn))
+                  println(indent(4, "✘ Conjecture could not be proved".toUpperCase.nn))
 
-              successful
+              (proved, disproved)
             end checkConjecture
 
-            if checkConjecture(checking) || (reverseChecking exists checkConjecture) then
+            val (proved, disproved) =
+              val result @ (proved, disproved) = checkConjecture(checking)
+              if !proved && !disproved && reverseChecking.isDefined then checkConjecture(reverseChecking.get)
+              else result
+
+            if proved then
               conjecture.reverse match
                 case Some(reverseConjecture) =>
                   (remaining, (conjecture -> normalizeConjecture) :: (reverseConjecture -> reverseNormalizeConjecture.head) :: proven)
                 case _ =>
                   (remaining, (conjecture -> normalizeConjecture) :: proven)
+            else if disproved then
+              (remaining, proven)
             else
               (conjecture :: remaining, proven)
           else
@@ -381,7 +400,7 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
       addCollectedNormalizations(env, abstraction, provenProperties)
 
-      if printDeductionDebugInfo && provenProperties.nonEmpty then
+      if printDeductionDebugInfo && conjectures.nonEmpty && provenProperties.nonEmpty then
         println()
         println(indent(2, "Proven properties:"))
         println()
@@ -415,27 +434,36 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
 
               val result = Symbolic.eval(converted, equalities, config)
 
-              val failedResult = checking.check(result.wrapped)
-              val successful = failedResult.reductions.isEmpty
+              val check = checking.check(result.wrapped)
+              val proved = check exists { _.reductions.isEmpty }
+              val disproved = check.isLeft
 
               if printReductionDebugInfo then
                 println()
                 println(indent(2, s"Evaluation result for ${property.show} property check:"))
+                if !proved then
+                  println(indent(2, "(some cases may not be fully reduced)"))
                 println()
                 println(indent(4, result.wrapped.show))
-                println()
-                println(indent(2, s"Failed cases for ${property.show} property check:"))
-                println()
-                println(indent(4, failedResult.show))
+                if !proved then
+                  println()
+                  println(indent(2, s"Offending cases for ${property.show} property check:"))
+                  println(indent(2, "(some cases may not be fully reduced)"))
+                  println()
+                  println(indent(4, check.merge.show))
 
               if printReductionDebugInfo || printDeductionDebugInfo then
                 println()
-                if successful then
+                if proved then
                   println(indent(4, s"✔ ${property.show} property proven".toUpperCase.nn))
+                else if disproved then
+                  println(indent(4, s"✘ ${property.show} property disproved".toUpperCase.nn))
                 else
-                  println(indent(4, s"✘ ${property.show} property could not be proven".toUpperCase.nn))
+                  println(indent(4, s"✘ ${property.show} property could not be proved".toUpperCase.nn))
 
-              Option.when(!successful)(propertyDeductionError(property))
+              if disproved then Some(propertyDisprovenError(property))
+              else if !proved then Some(propertyDeductionError(property))
+              else None
       }
       error match
         case Some(error) => term.withExtrinsicInfo(error)
