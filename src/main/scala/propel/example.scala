@@ -245,8 +245,8 @@ def gset_merge[A: TermExpr](expr: A) =
 
 
 @main def example =
-  def check(expr: Term, assumedConjectures: List[Normalization] = List.empty) =
-    val result = properties.check(expr, assumedConjectures, printDeductionDebugInfo = true, printReductionDebugInfo = true)
+  def check(expr: Term, assumedUncheckedConjectures: List[Normalization] = List.empty) =
+    val result = properties.check(expr, assumedUncheckedConjectures, printDeductionDebugInfo = true, printReductionDebugInfo = true)
     val errors = result.showErrors
     if errors.nonEmpty then
       println()

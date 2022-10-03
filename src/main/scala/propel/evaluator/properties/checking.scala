@@ -7,7 +7,11 @@ import printing.*
 import typer.*
 import util.*
 
-def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, printDeductionDebugInfo: Boolean = false, printReductionDebugInfo: Boolean = false): Term =
+def check(
+    expr: Term,
+    assumedUncheckedConjectures: List[Normalization] = List.empty,
+    printDeductionDebugInfo: Boolean = false,
+    printReductionDebugInfo: Boolean = false): Term =
   var debugInfoPrinted = false
 
   def indent(indentation: Int, string: String) =
@@ -40,27 +44,38 @@ def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, prin
 
   val typedExpr = expr.typedTerm
 
-  val (abstractionProperties, abstractionResultTypes) =
-    def abstractionPropertiesResultTypes(term: Term): Map[Abstraction, (Properties, Type)] = term match
-      case Abs(properties, _, _, expr) =>
-        term.info(Abstraction) flatMap { abstraction =>
-          expr.termType map { tpe =>
-            abstractionPropertiesResultTypes(expr) + (abstraction -> (properties, tpe))
-          }
-        } getOrElse abstractionPropertiesResultTypes(expr)
-      case App(_, expr, arg) => abstractionPropertiesResultTypes(expr) ++ abstractionPropertiesResultTypes(arg)
-      case TypeAbs(_, expr) => abstractionPropertiesResultTypes(expr)
-      case TypeApp(expr, _) => abstractionPropertiesResultTypes(expr)
-      case Data(_, args) => (args flatMap abstractionPropertiesResultTypes).toMap
-      case Var(ident) => Map.empty
-      case Cases(scrutinee, cases) =>
-        abstractionPropertiesResultTypes(scrutinee) ++ (cases flatMap { (_, expr) =>
-          abstractionPropertiesResultTypes(expr)
-        })
+  val (abstractionProperties, abstractionResultTypes, abstractionNames) =
+    def abstractionInfos(term: Term)
+      : (Map[Abstraction, Properties], Map[Abstraction, Type], Map[Abstraction, String]) =
+      term match
+        case Abs(properties, _, _, expr) =>
+          term.info(Abstraction) flatMap { abstraction =>
+            expr.termType map { tpe =>
+              val (exprProperties, exprResultTypes, exprNames) = abstractionInfos(expr)
+              (exprProperties + (abstraction -> properties), exprResultTypes + (abstraction -> tpe), exprNames)
+            }
+          } getOrElse abstractionInfos(expr)
+        case App(_, expr, arg) =>
+          val (exprProperties, exprResultTypes, exprNames) = abstractionInfos(expr)
+          val (argProperties, argResultTypes, argNames) = abstractionInfos(arg)
+          (exprProperties ++ argProperties, exprResultTypes ++ argResultTypes, exprNames ++ argNames)
+        case TypeAbs(_, expr) =>
+          abstractionInfos(expr)
+        case TypeApp(expr, _) =>
+          abstractionInfos(expr)
+        case Data(_, args) =>
+          val (argsProperties, argsResultTypes, argsNames) = (args map abstractionInfos).unzip3
+          (argsProperties.flatten.toMap, argsResultTypes.flatten.toMap, argsNames.flatten.toMap)
+        case Var(ident) =>
+          (Map.empty, Map.empty, (term.info(Abstraction) map { _ -> ident.name }).toMap)
+        case Cases(scrutinee, cases) =>
+          val (scrutineeProperties, scrutineeResultTypes, scrutineeNames) = abstractionInfos(scrutinee)
+          val (casesProperties, casesResultTypes, casesNames) = (cases map { (_, expr) => abstractionInfos(expr) }).unzip3
+          (scrutineeProperties ++ casesProperties.flatten.toMap,
+           scrutineeResultTypes ++ casesResultTypes.flatten.toMap,
+           scrutineeNames ++ casesNames.flatten.toMap)
 
-    val propertiesResultTypes = abstractionPropertiesResultTypes(typedExpr)
-    (propertiesResultTypes.view mapValues { (properties, _) => properties }).toMap ->
-    (propertiesResultTypes.view mapValues { (_, tpe) => tpe }).toMap
+    abstractionInfos(typedExpr)
 
   def typeContradiction(abstraction: Term, expr: Term) =
     abstraction.info(Abstraction) exists { abstraction =>
@@ -119,24 +134,26 @@ def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, prin
 
   def check(term: Term, env: Map[Symbol, Term]): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
+      val abstractions = env flatMap { (_, expr) => expr.info(Abstraction) map { _ -> expr } }
+
+      val (abstraction, call) = (term.info(Abstraction), recursiveCalls(term)) match
+        case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
+        case _ => (None, None)
+
+      val names = env.keys map { _.name }
+
+      val name = term.info(Abstraction) flatMap abstractionNames.get
+
+      val collectedNormalize = collectedNormalizations flatMap { _(abstractions.get) }
+
       if printReductionDebugInfo || printDeductionDebugInfo then
         if debugInfoPrinted then
           println()
         else
           debugInfoPrinted = true
-        println("Checking properties for definition:")
+        println(s"Checking properties for definition${ name map { name => s" ($name)" } getOrElse "" }:")
         println()
         println(indent(2, term.show))
-
-      val names = env.keys map { _.name }
-
-      val abstractions = env flatMap { (_, expr) => expr.info(Abstraction) map { _ -> expr } }
-
-      val collectedNormalize = collectedNormalizations flatMap { _(abstractions.get) }
-
-      val (abstraction, call) = (term.info(Abstraction), recursiveCalls(term)) match
-        case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
-        case _ => (None, None)
 
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
@@ -254,22 +271,10 @@ def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, prin
           println()
           conjectures map { conjecture => println(indent(4, conjecture.show)) }
 
-      val assumedNormalizeConjecture =
-        if call.nonEmpty then assumedConjectures map { conjecture =>
-            conjecture.checking(
-                  call.get,
-                  _ forall { _.info(Abstraction) contains abstraction.get },
-                  _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                    val abstraction = expr.info(Abstraction)
-                    abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-                  } },
-                  (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
-        } else List.empty
-
       def proveConjectures(
           conjectures: List[Normalization],
-          provenConjectures: List[Normalization] = assumedConjectures,
-          normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = assumedNormalizeConjecture)
+          provenConjectures: List[Normalization] = List.empty,
+          normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = List.empty)
       : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
 
         val init = (List.empty[Normalization], List.empty[(Normalization, Equalities => PartialFunction[Term, Term])])
@@ -380,9 +385,25 @@ def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, prin
           proveConjectures(remaining, provenConjectures ++ proven, normalizeConjectures ++ normalize)
       end proveConjectures
 
-      val (provenConjectures, normalizeConjectures) = proveConjectures(conjectures sortWith {
-        !Normalization.specializationForSameAbstraction(_, _)
-      })
+      val (uncheckedConjectures, uncheckedNormalizeConjecture) =
+        if call.nonEmpty then
+          (assumedUncheckedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
+            conjecture -> conjecture.checking(
+              call.get,
+              _ forall { _.info(Abstraction) contains abstraction.get },
+              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                val abstraction = expr.info(Abstraction)
+                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+              } },
+              (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
+          }).unzip
+        else
+          List.empty -> List.empty
+
+      val (provenConjectures, normalizeConjectures) = proveConjectures(
+        conjectures sortWith { !Normalization.specializationForSameAbstraction(_, _) },
+        uncheckedConjectures,
+        uncheckedNormalizeConjecture)
 
       val (provenProperties, normalize) =
         type Properties = List[(Normalization, Equalities => PartialFunction[Term, Term])]
@@ -418,7 +439,7 @@ def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, prin
 
       addCollectedNormalizations(env, abstraction, provenProperties)
 
-      if printDeductionDebugInfo && conjectures.nonEmpty && provenProperties.nonEmpty then
+      if printDeductionDebugInfo && (conjectures.nonEmpty || uncheckedConjectures.nonEmpty) && provenProperties.nonEmpty then
         println()
         println(indent(2, "Proven properties:"))
         println()
@@ -491,18 +512,20 @@ def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, prin
       if properties.nonEmpty then
         term.withExtrinsicInfo(illshapedDefinitionError(properties.head))
       else
+        val abstraction = term.info(Abstraction)
+
+        val names = env.keys map { _.name }
+
+        val name = abstraction flatMap abstractionNames.get
+
         if printReductionDebugInfo || printDeductionDebugInfo then
           if debugInfoPrinted then
             println()
           else
             debugInfoPrinted = true
-          println("Checking properties for definition:")
+          println(s"Checking properties for definition${ name map { name => s" ($name)" } getOrElse "" }:")
           println()
           println(indent(2, term.show))
-
-        val names = env.keys map { _.name }
-
-        val abstraction = term.info(Abstraction)
 
         val facts = exprArgumentPrefixes(term) flatMap { (idents, expr) =>
           Conjecture.basicFacts(properties, term, idents, Symbolic.eval(UniqueNames.convert(expr, names)))
