@@ -7,7 +7,7 @@ import printing.*
 import typer.*
 import util.*
 
-def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDebugInfo: Boolean = false): Term =
+def check(expr: Term, assumedConjectures: List[Normalization] = List.empty, printDeductionDebugInfo: Boolean = false, printReductionDebugInfo: Boolean = false): Term =
   var debugInfoPrinted = false
 
   def indent(indentation: Int, string: String) =
@@ -254,10 +254,22 @@ def check(expr: Term, printDeductionDebugInfo: Boolean = false, printReductionDe
           println()
           conjectures map { conjecture => println(indent(4, conjecture.show)) }
 
+      val assumedNormalizeConjecture =
+        if call.nonEmpty then assumedConjectures map { conjecture =>
+            conjecture.checking(
+                  call.get,
+                  _ forall { _.info(Abstraction) contains abstraction.get },
+                  _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                    val abstraction = expr.info(Abstraction)
+                    abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+                  } },
+                  (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
+        } else List.empty
+
       def proveConjectures(
           conjectures: List[Normalization],
-          provenConjectures: List[Normalization] = List.empty,
-          normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = List.empty)
+          provenConjectures: List[Normalization] = assumedConjectures,
+          normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = assumedNormalizeConjecture)
       : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
 
         val init = (List.empty[Normalization], List.empty[(Normalization, Equalities => PartialFunction[Term, Term])])

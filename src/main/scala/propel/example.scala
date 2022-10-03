@@ -6,6 +6,7 @@ import dsl.sugar.*
 import printing.*
 import typer.*
 import evaluator.*
+import evaluator.properties.Normalization
 
 
 def merge[A: TermExpr](expr: A) =
@@ -210,7 +211,7 @@ def lwwreg_merge[A: TermExpr](expr: A) =
         // prove nor disprove commutativity nor associativity
         let("lwwreg_merge" -> abs()("a" -> lwwreg, "b" -> lwwreg)(
             (letrec("aux" -> tp(nat -> (lwwreg -> (lwwreg -> lwwreg))) ->
-                abs()("acc" -> nat)(abs(comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
+                abs()("acc" -> nat)(abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
                     ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
                         ("Pair", app(comm,assoc)("max", "d1", "d2"), "acc"),
                     ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
@@ -218,10 +219,8 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                     ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
                         ("Pair", "d2", app(comm,assoc)("+", "acc", ("S", "t2"))),
                     ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
-                        app(comm)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
-            (let("aux_assoc" -> abs(comm,assoc)("a" -> lwwreg, "b" -> lwwreg)
-                                    (app(comm)(("aux", "Z"), "a", "b")))
-                (app(comm,assoc)("aux_assoc", "a", "b"))))))(expr)
+                        app(comm,assoc)(("aux", ("S", "acc")), ("Pair", "d1", "t1"), ("Pair", "d2", "t2"))))))
+                (app(comm,assoc)(("aux", "Z"), "a", "b")))))(expr)
     else
         // This would be the same implementation as argmax :: (Nat,Nat) -> (Nat,Nat) -> (Nat,Nat)
         // we can prove it's commutative and associative, Zeno can only prove commutativity
@@ -246,8 +245,8 @@ def gset_merge[A: TermExpr](expr: A) =
 
 
 @main def example =
-  def check(expr: Term) =
-    val result = properties.check(expr, printDeductionDebugInfo = true, printReductionDebugInfo = true)
+  def check(expr: Term, assumedConjectures: List[Normalization] = List.empty) =
+    val result = properties.check(expr, assumedConjectures, printDeductionDebugInfo = true, printReductionDebugInfo = true)
     val errors = result.showErrors
     if errors.nonEmpty then
       println()
@@ -280,4 +279,14 @@ def gset_merge[A: TermExpr](expr: A) =
   // check(bv_eq(bv_max("Z")))
   // check(bv_eq(bvu_eq(ordbvu("Z"))))
   // check(plus(max(lwwreg_merge("Z"))))
-  // check(max(argmax("Z")))
+
+  check(plus(max(lwwreg_merge("Z"))),
+    List(
+      Normalization(app(comm,assoc)(("aux", ("S", "acc")), "a", "b"),
+                    cases(app(comm,assoc)(("aux", "acc"), "a", "b"))
+                        (("Pair", "d", "t") -> ("Pair", "d", ("S", "t"))),
+                    Symbol("aux"),
+                    None,
+                    Set(Symbol("acc"), Symbol("a"), Symbol("b")),
+                    false)
+    ))
