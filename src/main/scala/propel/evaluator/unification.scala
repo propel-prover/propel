@@ -78,8 +78,12 @@ object Unification:
           Some(constraints0 ++ constraints1 ++ constraints2)
       }
 
+    def contains(pattern: Pattern, identx: Symbol): Boolean = pattern match
+      case Match(ctor, args) => args exists { contains(_, identx) }
+      case Bind(ident) => ident == identx
+
     def propagate(constraints: Constraints): Constraints =
-      val substs = constraints collect { case Var(ident) -> pattern => ident -> pattern }
+      val substs = constraints collect { case Var(ident) -> pattern if !contains(pattern, ident) => ident -> pattern }
       val propagated = (constraints.view mapValues { subst(_, substs) }).toMap
       if constraints != propagated then propagate(propagated) else propagated
 
