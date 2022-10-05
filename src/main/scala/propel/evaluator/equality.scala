@@ -152,6 +152,19 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     else
       Some(this)
 
+  def withoutEqualities(pos: (Term, Term)): Equalities =
+    withoutEqualities(Iterator(pos))
+
+  def withoutEqualities(pos: IterableOnce[(Term, Term)]): Equalities =
+    Equalities(
+      pos.iterator.foldLeft(this.pos) {
+        case (pos, (expr0, expr1)) if expr1 < expr0 =>
+          if pos.get(expr1) contains expr0 then pos - expr1 else pos
+        case (pos, (expr0, expr1)) =>
+          if pos.get(expr0) contains expr1 then pos - expr0 else pos
+      },
+      this.neg)
+
   def withUnequalities(neg: PatternConstraints): Option[Equalities] =
     withUnequalities(List(neg.iterator map { _ -> _.asTerm }))
 
@@ -186,23 +199,29 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     case _ =>
       None
 
-  private def propagatePos: Equalities =
-    val posList = pos.toList
+  def posExpanded: Map[Term, Term] =
+    val posReverse = pos.foldLeft(Map.empty[Term, Term]) { case (posReverse, (expr0, expr1)) =>
+      if !(pos contains expr1) && !contains(expr0, expr1) && (posReverse.get(expr1) forall { _ < expr0 }) then
+        posReverse + (expr1 -> expr0)
+      else
+        posReverse
+    }
 
-    val propagatedList = posList map { (expr0, expr1) => 
-      propagate(pos - expr0, expr0) -> propagate(pos, expr1) match
-        case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
-        case exprs => exprs
-    }
-    val posPropagated = propagatedList.toMap
-    val posReverse = posPropagated collect {
-      case (expr0, expr1) if !(posPropagated contains expr1) && !contains(expr0, expr1) => (expr1, expr0)
-    }
-    val propagatedReverseList = propagatedList flatMap { (expr0, expr1) => 
+    val propagatedReverseExpanded = pos flatMap { (expr0, expr1) => 
       propagate(posReverse, expr0) -> expr1 match
         case expr -> _ if expr eq expr0 => None
         case expr0 -> expr1 if expr1 < expr0 => Some(expr1 -> expr0)
         case exprs => Some(exprs)
+    }
+
+    propagatedReverseExpanded ++ pos
+  end posExpanded
+
+  private def propagatePos: Equalities =
+    val propagatedList = pos.toList map { (expr0, expr1) => 
+      propagate(pos - expr0, expr0) -> propagate(pos, expr1) match
+        case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
+        case exprs => exprs
     }
 
     def process(pos: List[(Term, Term)]): List[(Term, Term)] = pos match
@@ -228,16 +247,21 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
             element0 ++ element1 ++ processTail(tail1)
         process(tail0) ++ processTail(tail0)
 
-    val equivalentList = process(posList)
+    val equivalentList = process(propagatedList)
 
-    def iterator = propagatedList.iterator ++ propagatedReverseList.iterator ++ equivalentList.iterator
+    def iterator = propagatedList.iterator ++ equivalentList.iterator
 
     val propagated = Map.from(iterator)
+
     if propagated != pos then
       val normalized = normalize(Map.empty, iterator) filterNot { _ == _ }
-      if normalized != propagated then Equalities(normalized, neg).propagatePos else Equalities(normalized, neg)
+      if normalized != pos then
+        if normalized != propagated then Equalities(normalized, neg).propagatePos else Equalities(normalized, neg)
+      else
+        this
     else
       this
+  end propagatePos
 
   private def propagateNeg: Equalities =
     val propagatedList = neg map {
@@ -246,12 +270,18 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         case exprs => exprs
       }
     }
+
     val propagated = propagatedList map { _.toMap }
+
     if propagated != neg then
       val normalized = propagatedList map { neg => normalize(Map.empty, neg.iterator) }
-      if normalized != propagated then Equalities(pos, normalized).propagateNeg else Equalities(pos, normalized)
+      if normalized != neg then
+        if normalized != propagated then Equalities(pos, normalized).propagateNeg else Equalities(pos, normalized)
+      else
+        this
     else
       this
+  end propagateNeg
 
   private def propagate(pos: Map[Term, Term], expr: Term): Term = pos.getOrElse(expr, expr) match
     case term @ Abs(properties, ident, tpe, expr) =>
