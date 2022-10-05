@@ -355,4 +355,93 @@ object Conjecture:
       case _ =>
         List.empty
   end generalizedConjectures
+
+  def distributivityConjectures(properties: Properties, abstraction: Term): List[Normalization] =
+    def freeVars(expr: Term, bound: Set[Symbol]): Map[Term, Properties] = expr match
+      case Abs(_, ident, _, expr) => freeVars(expr, bound + ident)
+      case App(properties, expr @ Var(ident), arg) if !(bound contains ident) => freeVars(arg, bound) + (expr -> properties)
+      case App(_, expr, arg) => freeVars(expr, bound) ++ freeVars(arg, bound)
+      case TypeAbs(_, expr) => freeVars(expr, bound)
+      case TypeApp(expr, _) => freeVars(expr, bound)
+      case Data(_, args) => (args flatMap { freeVars(_, bound) }).toMap
+      case Var(_) => Map.empty
+      case Cases(scrutinee, cases) => freeVars(scrutinee, bound) ++ (cases flatMap { (_, expr) => freeVars(expr, bound) })
+
+    def binaryBinaryConjectures(binary0: Term, binary0Properties: Properties, binary1: Term, binary1Properties: Properties) =
+      def side0(properties0: Properties, expr0: Term, properties1: Properties, expr1: Term) = App(Set.empty,
+        App(properties0, expr0, Var(Symbol("a"))),
+        App(Set.empty, App(properties1, expr1, Var(Symbol("b"))), Var(Symbol("c"))))
+
+      def side1(properties0: Properties, expr0: Term, properties1: Properties, expr1: Term) = App(Set.empty,
+        App(properties1, expr1, App(Set.empty, App(properties0, expr0, Var(Symbol("a"))), Var(Symbol("b")))),
+        App(Set.empty, App(properties0, expr0, Var(Symbol("a"))), Var(Symbol("c"))))
+
+      def normalization(side0: Term, side1: Term) =
+        Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b"), Symbol("c")), reversible = true)
+
+      List(
+        normalization(
+          side0(binary0Properties, binary0, binary1Properties, binary1),
+          side1(binary0Properties, binary0, binary1Properties, binary1)),
+        normalization(
+          side0(binary1Properties, binary1, binary0Properties, binary0),
+          side1(binary1Properties, binary1, binary0Properties, binary0)))
+
+    def unaryBinaryConjectures(unary: Term, unaryProperties: Properties, binary: Term, binaryProperties: Properties) =
+      val side0 = App(unaryProperties, unary,
+        App(Set.empty, App(binaryProperties, binary, Var(Symbol("a"))), Var(Symbol("b"))))
+
+      val side1a = App(Set.empty,
+        App(binaryProperties, binary, App(unaryProperties, unary, Var(Symbol("a")))), Var(Symbol("b")))
+
+      val side1b = App(Set.empty,
+        App(binaryProperties, binary, Var(Symbol("a"))), App(unaryProperties, unary, Var(Symbol("b"))))
+
+      def normalization(side0: Term, side1: Term) =
+        Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b")), reversible = true)
+
+      List(
+        normalization(side0, side1a),
+        normalization(side0, side1b))
+
+    def unaryUnaryConjectures(unary0: Term, unary0Properties: Properties, unary1: Term, unary1Properties: Properties) =
+      def side(properties0: Properties, expr0: Term, properties1: Properties, expr1: Term) =
+        App(properties0, expr0, App(properties1, expr1, Var(Symbol("a"))))
+
+      def normalization(side0: Term, side1: Term) =
+        Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a")), reversible = true)
+
+      List(
+        normalization(
+          side(unary0Properties, unary0, unary1Properties, unary1),
+          side(unary1Properties, unary1, unary0Properties, unary0)))
+
+    abstraction.termType match
+      case Some(Function(tpe0, Function(tpe1, tpe2))) if equivalent(tpe0, tpe1) && equivalent(tpe1, tpe2) =>
+        val unaryType = Function(tpe0, tpe0)
+        val binaryType = Function(tpe0, Function(tpe0, tpe0))
+
+        freeVars(abstraction, Set.empty).toList sortBy { (expr, _) => expr } flatMap { (expr, exprProperties) =>
+          expr.termType.toList flatMap { tpe =>
+            if equivalent(tpe, unaryType) then unaryBinaryConjectures(expr, exprProperties, Var(Symbol("∘")), properties)
+            else if equivalent(tpe, binaryType) then binaryBinaryConjectures(expr, exprProperties, Var(Symbol("∘")), properties)
+            else List.empty
+          }
+        }
+
+      case Some(Function(tpe0, tpe1)) if equivalent(tpe0, tpe1) =>
+        val unaryType = Function(tpe0, tpe0)
+        val binaryType = Function(tpe0, Function(tpe0, tpe0))
+
+        freeVars(abstraction, Set.empty).toList sortBy { (expr, _) => expr } flatMap { (expr, exprProperties) =>
+          expr.termType.toList flatMap { tpe =>
+            if equivalent(tpe, unaryType) then unaryUnaryConjectures(Var(Symbol("∘")), properties, expr, exprProperties)
+            else if equivalent(tpe, binaryType) then binaryBinaryConjectures(Var(Symbol("∘")), properties, expr, exprProperties)
+            else List.empty
+          }
+        }
+
+      case _ =>
+        List.empty
+  end distributivityConjectures
 end Conjecture

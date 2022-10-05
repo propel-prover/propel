@@ -201,72 +201,8 @@ def check(
 
       val conjectures =
         if call.nonEmpty then
-          val closedBinaryOperation = expr1.termType exists { equivalent(tpe0, _) }
-
-          val unaryDistributivityConjectures =
-            if closedBinaryOperation then
-              val tpe = Function(tpe0, tpe0)
-              (expr1.syntacticInfo.freeVars.keySet.toList.sorted collect {
-                case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
-                  val identProperties = env(ident).info(Abstraction) flatMap abstractionProperties.get getOrElse Set.empty
-
-                  val side0 = App(identProperties, Var(ident),
-                    App(Set.empty, App(properties, Var(Symbol("∘")), Var(Symbol("a"))), Var(Symbol("b"))))
-
-                  val side1a = App(Set.empty,
-                    App(properties, Var(Symbol("∘")), App(identProperties, Var(ident), Var(Symbol("a")))), Var(Symbol("b")))
-
-                  val side1b = App(Set.empty,
-                    App(properties, Var(Symbol("∘")), Var(Symbol("a"))), App(identProperties, Var(ident), Var(Symbol("b"))))
-
-                  def normalization(side0: Term, side1: Term) =
-                    Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b")), reversible = true)
-
-                  List(
-                    normalization(side0, side1a),
-                    normalization(side0, side1b))
-              }).flatten
-            else
-              List.empty
-
-          val binaryDistributivityConjectures =
-            if closedBinaryOperation then
-              val tpe = Function(tpe0, Function(tpe0, tpe0))
-              (expr1.syntacticInfo.freeVars.keySet.toList.sorted collect {
-                case ident if env.get(ident) exists { _.termType exists { equivalent(tpe, _) } } =>
-                  val identProperties = env(ident).info(Abstraction) flatMap abstractionProperties.get getOrElse Set.empty
-
-                  def side0(properties0: Properties, ident0: Symbol, properties1: Properties, ident1: Symbol) = App(Set.empty,
-                    App(properties0, Var(ident0), Var(Symbol("a"))),
-                    App(Set.empty, App(properties1, Var(ident1), Var(Symbol("b"))), Var(Symbol("c"))))
-
-                  def side1(properties0: Properties, ident0: Symbol, properties1: Properties, ident1: Symbol) = App(Set.empty,
-                    App(properties1, Var(ident1), App(Set.empty, App(properties0, Var(ident0), Var(Symbol("a"))), Var(Symbol("b")))),
-                    App(Set.empty, App(properties0, Var(ident0), Var(Symbol("a"))), Var(Symbol("c"))))
-
-                  def normalization(side0: Term, side1: Term) =
-                    Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b"), Symbol("c")), reversible = true)
-
-                  List(
-                    normalization(
-                      side0(properties, Symbol("∘"), identProperties, ident),
-                      side1(properties, Symbol("∘"), identProperties, ident)),
-                    normalization(
-                      side0(identProperties, ident, properties, Symbol("∘")),
-                      side1(identProperties, ident, properties, Symbol("∘"))))
-              }).flatten
-            else
-              List.empty
-
-          val generalizedConjectures =
-            if closedBinaryOperation then
-              Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result)
-            else
-              List.empty
-
-          unaryDistributivityConjectures ++
-          binaryDistributivityConjectures ++
-          generalizedConjectures filterNot {
+          Conjecture.distributivityConjectures(properties, term) ++
+          Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
             Normalization.specializationForSameAbstraction(_, facts)
           }
         else
