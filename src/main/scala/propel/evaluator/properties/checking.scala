@@ -399,16 +399,18 @@ def check(
         println()
         provenProperties foreach { property => println(indent(4, property.show)) }
 
+      val resultType = term.termType collect { case Function(_, Function(_, result)) => result }
+
       val error = properties collectFirstDefined { property =>
         propertiesChecking get property match
           case None =>
             Some(unknownPropertyError(property))
           case Some(checking) =>
             if checking.propertyType == PropertyType.Relation &&
-               (!equivalent(tpe0, tpe1) || (expr1.termType forall { !equivalent(boolType, _) })) then
+               (!equivalent(tpe0, tpe1) || (resultType forall { !equivalent(boolType, _) })) then
               Some(illformedRelationTypeError(property, term.termType))
             else if checking.propertyType == PropertyType.Function &&
-               (!equivalent(tpe0, tpe1) || (expr1.termType forall { !equivalent(tpe0, _) })) then
+               (!equivalent(tpe0, tpe1) || (resultType forall { !equivalent(tpe0, _) })) then
               Some(illformedFunctionTypeError(property, term.termType))
             else
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
