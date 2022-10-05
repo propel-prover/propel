@@ -35,7 +35,8 @@ object PropertyChecking:
         val (extensionalArg0, extensionalArg1) = extensional(arg0, arg1)
         val control =
           if extensionalArg0 == extensionalArg1 then Symbolic.Control.Stop
-          else if equalities.equal(extensionalArg0, extensionalArg1) == Equality.Unequal then Symbolic.Control.Terminate
+          else if equalities.equal(extensionalArg0, extensionalArg1) == Equality.Unequal &&
+                  equalities.contradictionIndeducible then Symbolic.Control.Terminate
           else Symbolic.Control.Continue
         (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)), Equalities.empty, control)
       case _ =>
@@ -61,7 +62,8 @@ object PropertyChecking:
       val control =
         if nested then Symbolic.Control.Continue
         else if expr == Data(Constructor.True, List()) then Symbolic.Control.Stop
-        else if equalities.equal(expr, Data(Constructor.True, List())) == Equality.Unequal then Symbolic.Control.Terminate
+        else if equalities.equal(expr, Data(Constructor.True, List())) == Equality.Unequal &&
+                equalities.contradictionIndeducible then Symbolic.Control.Terminate
         else Symbolic.Control.Continue
       (expr, Equalities.empty, control)
 
