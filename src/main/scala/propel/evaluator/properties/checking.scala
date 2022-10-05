@@ -134,7 +134,25 @@ def check(
 
   def check(term: Term, env: Map[Symbol, Term]): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
-      val abstractions = env flatMap { (_, expr) => expr.info(Abstraction) map { _ -> expr } }
+      val abstractions =
+        def abstractions(expr: Term): Map[Abstraction, Term] = expr.termType match
+          case Some(Function(Sum(List(ctor -> List())), _)) =>
+            val abstraction = expr.info(Abstraction)
+            val properties = abstraction flatMap abstractionProperties.get getOrElse Set.empty
+            val result = App(properties, expr, Data(ctor, List.empty)).typedTerm
+            abstractions(result) ++ (abstraction map { _ -> result })
+          case Some(Sum(List(ctor -> args))) =>
+            val size = args.size
+            (args.zipWithIndex flatMap { (arg, index) =>
+              val name = arg.info(Abstraction) map { abstractionNames.get(_) getOrElse "∘" } getOrElse "∙"
+              val args = List.tabulate(size) { i => Bind(Symbol(if i == index then name else "_")) }
+              val result = Cases(expr, List(Match(ctor, args) -> Var(Symbol(name)))).typedTerm
+              abstractions(result)
+            }).toMap
+          case _ =>
+           (expr.info(Abstraction) map { _ -> expr }).toMap
+
+        env flatMap { (_, expr) => abstractions(expr) }
 
       val (abstraction, call) = (term.info(Abstraction), recursiveCalls(term)) match
         case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
