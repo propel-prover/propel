@@ -555,7 +555,21 @@ def check(
           println()
           facts map { fact => println(indent(4, fact.show)) }
 
-        addCollectedNormalizations(env, abstraction, facts)
+        val uncheckedConjectures = assumedUncheckedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
+          conjecture
+        }
+
+        if printDeductionDebugInfo && uncheckedConjectures.nonEmpty then
+          println()
+          println(indent(2, "Generalized conjectures:"))
+          println()
+          uncheckedConjectures map { conjecture => println(indent(4, conjecture.show)) }
+          println()
+          println(indent(2, "Proven properties:"))
+          println()
+          uncheckedConjectures foreach { property => println(indent(4, property.show)) }
+
+        addCollectedNormalizations(env, abstraction, facts ++ uncheckedConjectures)
 
         Abs(term)(properties, ident, tpe, check(expr, env + (ident -> typedArgVar(ident, term.termType))))
 
