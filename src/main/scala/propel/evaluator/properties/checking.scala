@@ -158,6 +158,8 @@ def check(
         case (abstraction @ Some(_), call :: _) => (abstraction, Some(call))
         case _ => (None, None)
 
+      val resultType = term.termType collect { case Function(_, Function(_, result)) => result }
+
       val names = env.keys map { _.name }
 
       val name = term.info(Abstraction) flatMap abstractionNames.get
@@ -200,7 +202,7 @@ def check(
           List.empty
 
       val conjectures =
-        if call.nonEmpty then
+        if call.nonEmpty && (equivalent(tpe0, tpe1) && (resultType exists { equivalent(tpe0, _) })) then
           Conjecture.distributivityConjectures(properties, term) ++
           Conjecture.generalizedConjectures(properties, term, ident0, ident1, tpe0, result) filterNot {
             Normalization.specializationForSameAbstraction(_, facts)
@@ -398,8 +400,6 @@ def check(
         println(indent(2, "Proven properties:"))
         println()
         provenProperties foreach { property => println(indent(4, property.show)) }
-
-      val resultType = term.termType collect { case Function(_, Function(_, result)) => result }
 
       val error = properties collectFirstDefined { property =>
         propertiesChecking get property match
