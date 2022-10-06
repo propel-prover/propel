@@ -117,7 +117,7 @@ object Symbolic:
   private def derive(equalities: Equalities, config: Configuration, cache: mutable.Map[Equalities, List[Equalities]]) =
     cache.getOrElseUpdate(equalities, config.derive(equalities))
 
-  private def substEqualities(expr: Term, equalities: Equalities): Term =
+  private def substEqualities(expr: Term, equalities: Equalities)(using UniqueNaming): Term =
     replaceByEqualities(expr, equalities) match
       case term @ Abs(properties, ident, tpe, expr) =>
         Abs(term)(properties, ident, tpe, substEqualities(expr, equalities))
@@ -136,9 +136,9 @@ object Symbolic:
           pattern -> substEqualities(expr, equalities)
         })
 
-  private def replaceByEqualities(expr: Term, equalities: Equalities): Term =
+  private def replaceByEqualities(expr: Term, equalities: Equalities)(using UniqueNaming): Term =
     equalities.pos.get(expr) match
-      case Some(expr) => replaceByEqualities(expr, equalities)
+      case Some(expr) => replaceByEqualities(UniqueNames.convert(expr), equalities)
       case None => expr
 
   private def constraintsFromEqualities(using UniqueNaming)(
