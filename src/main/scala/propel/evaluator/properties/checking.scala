@@ -183,7 +183,9 @@ def check(
             Symbolic.eval(UniqueNames.convert(expr, names))
           else
             result
-        Conjecture.basicFacts(properties, term, idents, evaluationResult)
+
+        Conjecture.basicFacts(abstractionProperties.get, term, idents, evaluationResult) ++
+        Conjecture.auxiliaryArgumentsFacts(abstractionProperties.get, term, idents, evaluationResult)
       }
 
       val normalizeFacts =
@@ -484,7 +486,7 @@ def check(
           println(indent(2, term.show))
 
         val facts = exprArgumentPrefixes(term) flatMap { (idents, expr) =>
-          Conjecture.basicFacts(properties, term, idents, Symbolic.eval(UniqueNames.convert(expr, names)))
+          Conjecture.basicFacts(abstractionProperties.get, term, idents, Symbolic.eval(UniqueNames.convert(expr, names)))
         }
 
         if printDeductionDebugInfo && facts.nonEmpty then

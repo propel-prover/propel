@@ -7,6 +7,20 @@ import typer.*
 import util.*
 
 object Conjecture:
+  private def containsReference(expr: Term, abstraction: Abstraction): Boolean =
+    (expr.info(Abstraction) contains abstraction) || {
+      expr match
+        case Abs(_, _, _, expr) => containsReference(expr, abstraction)
+        case App(_, expr, arg) => containsReference(expr, abstraction) || containsReference(arg, abstraction)
+        case TypeAbs(ident, expr) => containsReference(expr, abstraction)
+        case TypeApp(expr, tpe) => containsReference(expr, abstraction)
+        case Data(_, args) => args exists { containsReference(_, abstraction) }
+        case Var(_) => false
+        case Cases(scrutinee, cases) => containsReference(scrutinee, abstraction) || (cases exists { (_, expr) =>
+          containsReference(expr, abstraction)
+        })
+    }
+
   private def replaceAbstraction(term: Term, from: Abstraction, to: Term): Term =
     if term.info(Abstraction) contains from then
       to
@@ -63,14 +77,15 @@ object Conjecture:
     }
 
   private def directNormalization(
-      properties: Properties,
+      properties: Abstraction => Option[Properties],
+      tpe: Option[Type],
       args: List[Term],
       rhs: Term,
       abstraction: Abstraction,
       unbound: Set[Symbol],
       names: Set[String]) =
     val ident = Naming.freshIdent(Symbol("∘"), names)
-    val lhs = app(properties, Var(ident), args)
+    val lhs = app(properties, Var(ident), args, tpe)
     createNormalization(lhs, rhs, ident, abstraction, List.empty, unbound, names)
 
   private def createNormalization(
@@ -112,21 +127,35 @@ object Conjecture:
     }
   end createNormalization
 
-  private def app(properties: Properties, function: Term, args: List[Term]) =
-    if args.isEmpty then
-      function
-    else
-      args.tail.foldLeft(App(properties, function, args.head)) { App(Set.empty, _, _) }
+  private object app:
+    def apply(properties: Abstraction => Option[Properties], expr: Term, args: List[Term], tpe: Option[Type] = None) =
+      def makeApp(expr: Term, arg: Term, tpe: Option[Type]) =
+        val info = tpe collect { case x @ Function(arg, result) => (x.info(Abstraction), result) }
+        App(info flatMap { (abstraction, _) => abstraction } flatMap properties getOrElse Set.empty, expr, arg) ->
+        (info map { (_, result) => result })
+
+      if args.isEmpty then
+        expr
+      else
+        val (result, _) = args.tail.foldLeft(makeApp(expr, args.head, tpe)) { case ((expr, tpe), arg) => makeApp(expr, arg, tpe) }
+        result
+
+    def unapply(expr: Term): Option[(Term, List[Term])] = expr match
+      case App(_, expr, arg) => unapply(expr) match
+        case Some(expr, args) => Some(expr, args :+ arg)
+        case _ => Some(expr, List(arg))
+      case _ =>
+        None
 
   def basicFacts(
-      properties: Properties,
+      properties: Abstraction => Option[Properties],
       abstraction: Term,
       idents: List[Symbol],
       result: UniqueNames[Symbolic.Result]): List[Normalization] =
     val unbound = abstraction.syntacticInfo.freeVars.keySet
 
-    (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
-      case (Some(abstraction), calls) =>
+    (abstraction.termType, abstraction.info(Abstraction), recursiveCalls(abstraction)) match
+      case (tpe, Some(abstraction), calls) =>
         val call = calls.headOption
 
         result unwrap { result =>
@@ -146,9 +175,9 @@ object Conjecture:
 
                 val lhs -> normalization = call match
                   case Some(call) =>
-                    recursiveNormalization(app(properties, call, args), expr, abstraction, calls, unbound, names)
+                    recursiveNormalization(app(properties, call, args, tpe), expr, abstraction, calls, unbound, names)
                   case _ =>
-                    directNormalization(properties, args, expr, abstraction, unbound, names)
+                    directNormalization(properties, tpe, args, expr, abstraction, unbound, names)
 
                 (lhs :: patterns) -> (normalization match {
                   case Some(normalization)
@@ -168,6 +197,140 @@ object Conjecture:
       case _ =>
         List.empty
   end basicFacts
+
+  def auxiliaryArgumentsFacts(
+      properties: Abstraction => Option[Properties],
+      abstraction: Term,
+      idents: List[Symbol],
+      result: UniqueNames[Symbolic.Result]): List[Normalization] =
+    enum Struct:
+      def dependent: Boolean
+      def independent: Boolean
+      case Node(ctor: Constructor, args: List[Struct], dependent: Boolean, independent: Boolean)
+      case Leaf(dependent: Boolean, independent: Boolean)
+
+    (abstraction.termType, abstraction.info(Abstraction), recursiveCalls(abstraction)) match
+      case (tpe, Some(abstraction), call :: _) =>
+        idents.zipWithIndex flatMap { (ident, index) =>
+          result unwrap { result =>
+            val argumentAndStructs = result.reductions.foldLeft[Option[(Option[Term], Option[Struct])]](Some(None, None)) {
+              case (None, _) =>
+                None
+              case (argumentAndStucts @ Some(argument, struct), Symbolic.Reduction(expr, _, equalities)) =>
+                def createStruct(expr: Term): Struct = expr match
+                  case Data(ctor, List()) =>
+                    Struct.Node(ctor, List(), dependent = false, independent = true)
+                  case Data(ctor, args) =>
+                    let(args map createStruct) { args =>
+                      Struct.Node(ctor, args, args forall { _.dependent }, args forall { _.independent })
+                    }
+                  case _ =>
+                    val dependents = (equalities.pos.get(Var(ident)).toSet flatMap { _.syntacticInfo.freeVars.keys }) + ident
+                    val dependent = expr.syntacticInfo.freeVars.keys exists { dependents contains _ }
+                    Struct.Leaf(dependent, !dependent)
+
+                def unifyStructs(struct0: Struct, struct1: Struct): Option[Struct] = struct0 -> struct1 match
+                  case Struct.Node(ctor0, args0, dependent0, independent0) ->
+                       Struct.Node(ctor1, args1, dependent1, independent1) if ctor0 == ctor1 =>
+                    args0 zip args1 mapIfDefined unifyStructs map { args =>
+                      Struct.Node(ctor0, args, args forall { _.dependent }, args forall { _.independent })
+                    }
+                  case _ =>
+                    Option.when((struct0.dependent && struct1.dependent) != (struct0.independent && struct1.independent)) {
+                      Struct.Leaf(struct0.dependent && struct1.dependent, struct0.independent && struct1.independent)
+                    }
+
+                if equalities.pos forall { !containsReference(_, abstraction) && !containsReference(_, abstraction) } then
+                  expr match
+                    case app(expr, args)
+                      if (expr.info(Abstraction) contains abstraction) &&
+                         (args forall { !containsReference(_, abstraction) }) =>
+                      args.drop(index).headOption flatMap { arg =>
+                        argument match
+                          case Some(argument) => if equivalent(argument, arg) then argumentAndStucts else None
+                          case _ => Some(Some(arg) -> struct)
+                      }
+                    case _ if !containsReference(expr, abstraction) =>
+                      struct match
+                        case Some(struct) => unifyStructs(struct, createStruct(expr)) map { argument -> Some(_) }
+                        case _ => Some(argument -> Some(createStruct(expr)))
+                    case _ =>
+                      None
+                else
+                  None
+            }
+
+            def hasDependent(struct: Struct): Boolean = struct match
+              case Struct.Node(_, args, dependent, _) => dependent || (args exists hasDependent)
+              case Struct.Leaf(dependent, _) => dependent
+
+            (argumentAndStructs collect { case (Some(argument), Some(struct)) if hasDependent(struct) =>
+              val argumentInfo = argument.syntacticInfo
+
+              Option.when(argumentInfo.freeVars contains ident) {
+                val initialNames = (argumentInfo.boundVars map { _.name }) ++ (argumentInfo.freeVars map { (ident, _) => ident.name })
+
+                val (abstractionIdent :: argumentIdents, names) =
+                  (Symbol("∘") :: idents).foldRight[(List[Symbol], Set[String])](List.empty -> initialNames) {
+                    case (ident, (idents, names)) =>
+                      val fresh = Naming.freshIdent(ident, names)
+                      (fresh :: idents) -> (names + fresh.name)
+                  }
+
+                val abstractionExpr = Var(abstractionIdent)
+                val abstractionArgs = argumentIdents map { Var(_) }
+
+                val rhs = app(
+                  properties,
+                  abstractionExpr,
+                  abstractionArgs.updated(index, subst(argument, Map(ident -> abstractionArgs(index)))),
+                  tpe)
+
+                struct match
+                  case Struct.Leaf(_, _) =>
+                    Normalization(
+                      rhs,
+                      subst(argument, Map(ident -> app(properties, abstractionExpr, abstractionArgs, tpe))),
+                      abstractionIdent,
+                      None,
+                      argumentIdents.toSet,
+                      reversible = false)
+
+                  case _ =>
+                    def createStruct(struct: Struct, names: Set[String]): (Pattern, Term, Set[String]) = struct match
+                      case Struct.Node(ctor, args, _, _) =>
+                        val (patterns, exprs, updatedNames) =
+                          args.foldLeft[(List[Pattern], List[Term], Set[String])](List.empty, List.empty, names) {
+                            case ((patterns, exprs, names), arg) =>
+                              let(createStruct(arg, names)) { (pattern, expr, updatedNames) =>
+                                (patterns :+ pattern, exprs :+ expr, updatedNames)
+                              }
+                          }
+                        (Match(ctor, patterns), Data(ctor, exprs), updatedNames)
+                      case Struct.Leaf(dependent, _) =>
+                        val fresh = Naming.freshIdent(Symbol("v"), names)
+                        if dependent then
+                          (Bind(fresh), subst(argument, Map(ident -> Var(fresh))), names + fresh.name)
+                        else
+                          (Bind(fresh), Var(fresh), names + fresh.name)
+
+                    val (pattern, expr, _) = createStruct(struct, names)
+
+                    Normalization(
+                      rhs,
+                      Cases(app(properties, abstractionExpr, abstractionArgs, tpe), List(pattern -> expr)),
+                      abstractionIdent,
+                      None,
+                      argumentIdents.toSet,
+                      reversible = false)
+              }
+            }).flatten
+          }
+        }
+
+      case _ =>
+        List.empty
+  end auxiliaryArgumentsFacts
 
   def generalizedConjectures(
       properties: Properties,
@@ -216,17 +379,6 @@ object Conjecture:
       else
         result
     end injectRecursiveCallBasedOnType
-
-    def containsReference(expr: Term, abstraction: Abstraction): Boolean = expr match
-      case Abs(_, _, _, expr) => containsReference(expr, abstraction)
-      case App(_, expr, arg) => containsReference(expr, abstraction) || containsReference(arg, abstraction)
-      case TypeAbs(ident, expr) => containsReference(expr, abstraction)
-      case TypeApp(expr, tpe) => containsReference(expr, abstraction)
-      case Data(_, args) => args exists { containsReference(_, abstraction) }
-      case Var(_) => expr.info(Abstraction) contains abstraction
-      case Cases(scrutinee, cases) => containsReference(scrutinee, abstraction) || (cases exists { (_, expr) =>
-        containsReference(expr, abstraction)
-      })
 
     def generalizeEvaluationResults(ident0: Symbol, ident1: Symbol, abstraction: Abstraction, calls: List[Term]) =
       val call = calls.head
