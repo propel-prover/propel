@@ -184,8 +184,7 @@ def check(
           else
             result
 
-        Conjecture.basicFacts(abstractionProperties.get, term, idents, evaluationResult) ++
-        Conjecture.auxiliaryArgumentsFacts(abstractionProperties.get, term, idents, evaluationResult)
+        Conjecture.basicFacts(abstractionProperties.get, term, idents, evaluationResult)
       }
 
       val normalizeFacts =

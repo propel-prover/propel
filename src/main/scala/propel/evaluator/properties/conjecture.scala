@@ -198,7 +198,7 @@ object Conjecture:
         List.empty
   end basicFacts
 
-  def auxiliaryArgumentsFacts(
+  def auxiliaryArgumentsConjectures(
       properties: Abstraction => Option[Properties],
       abstraction: Term,
       idents: List[Symbol],
@@ -330,7 +330,7 @@ object Conjecture:
 
       case _ =>
         List.empty
-  end auxiliaryArgumentsFacts
+  end auxiliaryArgumentsConjectures
 
   def generalizedConjectures(
       properties: Properties,
