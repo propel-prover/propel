@@ -140,7 +140,7 @@ def check(
             val abstraction = expr.info(Abstraction)
             val properties = abstraction flatMap abstractionProperties.get getOrElse Set.empty
             val result = App(properties, expr, Data(ctor, List.empty)).typedTerm
-            abstractions(result) ++ (abstraction map { _ -> result })
+            abstractions(result) ++ (abstraction map { _ -> expr })
           case Some(Sum(List(ctor -> args))) =>
             val size = args.size
             (args.zipWithIndex flatMap { (arg, index) =>
