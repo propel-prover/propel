@@ -41,12 +41,6 @@ object Conjecture:
         case Cases(scrutinee, cases) =>
           Cases(term)(replaceAbstraction(scrutinee, from, to), cases map { _ -> replaceAbstraction(_, from, to) })
 
-  private def formToCoverIdents(call: Term, idents: Set[Symbol]): (Term, Set[Symbol]) = call match
-    case App(properties, expr, arg @ Var(ident)) if idents contains ident =>
-      let(formToCoverIdents(expr, idents - ident)) { App(call)(properties, _, arg) -> _ }
-    case _ =>
-      Var(Symbol("∘")) -> idents
-
   private def normalizable(normalize: PartialFunction[Term, ?], expr: Term): Boolean =
     (normalize isDefinedAt expr) || {
     expr match
@@ -65,14 +59,14 @@ object Conjecture:
       lhs: Term,
       rhs: Term,
       abstraction: Abstraction,
-      calls: List[Term],
+      call: Option[Term],
       unbound: Set[Symbol],
       names: Set[String]) =
     val ident = Naming.freshIdent(Symbol("∘"), names)
     val variable = Var(ident)
     let(replaceAbstraction(lhs, abstraction, variable)) { lhs =>
       let(replaceAbstraction(rhs, abstraction, variable)) { rhs =>
-        createNormalization(lhs, rhs, ident, abstraction, calls, unbound, names)
+        createNormalization(lhs, rhs, ident, abstraction, call, unbound, Symbolic.Constraints.empty, names)
       }
     }
 
@@ -83,44 +77,40 @@ object Conjecture:
       rhs: Term,
       abstraction: Abstraction,
       unbound: Set[Symbol],
+      constraints: Symbolic.Constraints,
       names: Set[String]) =
     val ident = Naming.freshIdent(Symbol("∘"), names)
     val lhs = app(properties, Var(ident), args, tpe)
-    createNormalization(lhs, rhs, ident, abstraction, List.empty, unbound, names)
+    createNormalization(lhs, rhs, ident, abstraction, None, unbound, constraints, names)
 
   private def createNormalization(
       lhs: Term,
       rhs: Term,
       ident: Symbol,
       abstraction: Abstraction,
-      calls: List[Term],
+      call: Option[Term],
       unbound: Set[Symbol],
+      constraints: Symbolic.Constraints,
       names: Set[String]) =
     let(rhs.syntactic) { (rhs, rhsInfo) =>
       let(lhs.syntactic) { (lhs, lhsInfo) =>
+        val constrained = constraints.pos.keys flatMap { _.syntacticInfo.freeVars.keys }
         val remaining = rhsInfo.freeVars.keySet -- lhsInfo.freeVars.keySet - ident
-        if remaining forall { unbound contains _ } then
-          val forms = calls map { formToCoverIdents(_, remaining) }
-          val form = forms.toSet.toList match
-            case List(Var(_) -> remaining) => None -> remaining
-            case List(form -> remaining) => Some(form) -> remaining
-            case _ => None -> remaining
 
-          let(form) { (form, remaining) =>
-            def dummy = Data(Constructor(Symbol("∅")), List.empty)
-            val variables = rhsInfo.freeVars.keySet ++ lhsInfo.freeVars.keySet -- unbound - ident
-            val normalization = Normalization(lhs, rhs, ident, form, variables, reversible = false)
-            val checking = normalization.checking(
-              calls.headOption getOrElse dummy,
-              _ forall { _.info(Abstraction) contains abstraction },
-              _ forall { (ident, exprs) => exprs forall {
-                case expr @ Var(_) => expr.ident == ident
-                case _ => false
-              } },
-              (normalization.free map { ident => ident -> Var(ident) }).toMap)
-            val normalize = checking.normalize(Equalities.empty)
-            lhs -> Option.when(!normalizable(normalize, normalization.checking.result))(normalization)
-          }
+        if !(constrained exists { unbound contains _ }) && (remaining forall { unbound contains _ }) then
+          def dummy = Data(Constructor(Symbol("∅")), List.empty)
+          val variables = rhsInfo.freeVars.keySet ++ lhsInfo.freeVars.keySet -- unbound - ident
+          val normalization = Normalization(lhs, rhs, ident, variables, reversible = false)
+          val checking = normalization.checking(
+            call getOrElse dummy,
+            _ forall { _.info(Abstraction) contains abstraction },
+            _ forall { (ident, exprs) => exprs forall {
+              case expr @ Var(_) => expr.ident == ident
+              case _ => false
+            } },
+            (normalization.free map { ident => ident -> Var(ident) }).toMap)
+          val normalize = checking.normalize(Equalities.empty)
+          lhs -> Option.when(!normalizable(normalize, normalization.checking.result))(normalization)
         else
           lhs -> None
       }
@@ -130,9 +120,15 @@ object Conjecture:
   private object app:
     def apply(properties: Abstraction => Option[Properties], expr: Term, args: List[Term], tpe: Option[Type] = None) =
       def makeApp(expr: Term, arg: Term, tpe: Option[Type]) =
-        val info = tpe collect { case x @ Function(arg, result) => (x.info(Abstraction), result) }
-        App(info flatMap { (abstraction, _) => abstraction } flatMap properties getOrElse Set.empty, expr, arg) ->
-        (info map { (_, result) => result })
+        val info = tpe collect { case tpe @ Function(_, result) => (tpe.info(Abstraction), result.info(Abstraction), result) }
+        val tpeAbstraction = info flatMap { (abstraction, _, _) => abstraction }
+        val resultAbstraction = info flatMap { (_, abstraction, _) => abstraction }
+        val result = info map { (_, _, result) => result }
+        val term = App(tpeAbstraction flatMap properties getOrElse Set.empty, expr, arg)
+
+        resultAbstraction match
+          case Some(abstraction) => term.withExtrinsicInfo(abstraction) -> result
+          case _ => term -> result
 
       if args.isEmpty then
         expr
@@ -149,20 +145,21 @@ object Conjecture:
 
   def basicFacts(
       properties: Abstraction => Option[Properties],
+      isAbstraction: Symbol => Boolean,
       abstraction: Term,
+      recursiveCall: Option[Term],
       idents: List[Symbol],
       result: UniqueNames[Symbolic.Result]): List[Normalization] =
     val unbound = abstraction.syntacticInfo.freeVars.keySet
+    val tpe = abstraction.termType
 
-    (abstraction.termType, abstraction.info(Abstraction), recursiveCalls(abstraction)) match
-      case (tpe, Some(abstraction), calls) =>
-        val call = calls.headOption
-
+    abstraction.info(Abstraction) match
+      case Some(abstraction) =>
         result unwrap { result =>
           val names = UniqueNames.usedNames.toSet
 
           val (_, normalizations) = result.reductions.foldLeft(List.empty[Term], List.empty[Normalization]) {
-            case ((patterns, normalizations), Symbolic.Reduction(expr, _, equalities)) =>
+            case ((patterns, normalizations), Symbolic.Reduction(expr, constraints, equalities)) =>
               let(expr.syntactic) { (expr, exprInfo) =>
                 val freeVars = exprInfo.freeVars.keySet
 
@@ -173,16 +170,17 @@ object Conjecture:
 
                 val (vars, args) = variableArgs.unzip
 
-                val lhs -> normalization = call match
+                val lhs -> normalization = recursiveCall match
                   case Some(call) =>
-                    recursiveNormalization(app(properties, call, args, tpe), expr, abstraction, calls, unbound, names)
+                    recursiveNormalization(app(properties, call, args, tpe), expr, abstraction, recursiveCall, unbound, names)
                   case _ =>
-                    directNormalization(properties, tpe, args, expr, abstraction, unbound, names)
+                    directNormalization(properties, tpe, args, expr, abstraction, unbound, constraints, names)
 
                 (lhs :: patterns) -> (normalization match {
                   case Some(normalization)
                       if (patterns forall { Unification.refutable(normalization.checking.pattern, _) }) &&
-                         (variableArgs exists { _ != _ }) =>
+                         (variableArgs exists { _ != _ }) &&
+                         (normalization.free forall isAbstraction) =>
                     normalization :: normalizations
                   case _ =>
                     normalizations
@@ -191,7 +189,7 @@ object Conjecture:
           }
 
           Normalization.distinct(normalizations) sortBy {
-            case Normalization(pattern, result, _, _, _, _) => (pattern, result)
+            case Normalization(pattern, result, _, _, _) => (pattern, result)
           }
         }
       case _ =>
@@ -292,7 +290,6 @@ object Conjecture:
                       rhs,
                       subst(argument, Map(ident -> app(properties, abstractionExpr, abstractionArgs, tpe))),
                       abstractionIdent,
-                      None,
                       argumentIdents.toSet,
                       reversible = false)
 
@@ -320,7 +317,6 @@ object Conjecture:
                       rhs,
                       Cases(app(properties, abstractionExpr, abstractionArgs, tpe), List(pattern -> expr)),
                       abstractionIdent,
-                      None,
                       argumentIdents.toSet,
                       reversible = false)
               }
@@ -333,29 +329,34 @@ object Conjecture:
   end auxiliaryArgumentsConjectures
 
   def generalizedConjectures(
-      properties: Properties,
+      properties: Abstraction => Option[Properties],
+      isAbstraction: Symbol => Boolean,
       abstraction: Term,
-      ident0: Symbol,
-      ident1: Symbol,
-      tpe: Type,
+      recursiveCall: Term,
+      idents: List[Symbol],
       result: UniqueNames[Symbolic.Result]): List[Normalization] =
     val unbound = abstraction.syntacticInfo.freeVars.keySet
 
-    def injectRecursiveCallBasedOnType(term: Term, call: Term, argument: Either[Term, Term]): List[Term] =
+    def injectRecursiveCallBasedOnType(
+        term: Term,
+        baseType: Option[Type],
+        binaryType: Type,
+        idents: List[Term],
+        argument: Either[Term, Term]): List[Term] =
       val result = term match
         case Abs(properties, ident, tpe, expr) =>
-          injectRecursiveCallBasedOnType(expr, call, argument) collect { Abs(term)(properties, ident, tpe, _) }
+          injectRecursiveCallBasedOnType(expr, baseType, binaryType, idents, argument) collect { Abs(term)(properties, ident, tpe, _) }
         case App(properties, expr, arg) =>
-          (injectRecursiveCallBasedOnType(expr, call, argument) collect { App(term)(properties, _, arg) }) ++
-          (injectRecursiveCallBasedOnType(arg, call, argument) collect { App(term)(properties, expr, _)  })
+          (injectRecursiveCallBasedOnType(expr, baseType, binaryType, idents, argument) collect { App(term)(properties, _, arg) }) ++
+          (injectRecursiveCallBasedOnType(arg, baseType, binaryType, idents, argument) collect { App(term)(properties, expr, _)  })
         case TypeAbs(ident, expr) =>
-          injectRecursiveCallBasedOnType(expr, call, argument) collect { TypeAbs(ident, _) }
+          injectRecursiveCallBasedOnType(expr, baseType, binaryType, idents, argument) collect { TypeAbs(ident, _) }
         case TypeApp(expr, tpe) =>
-          injectRecursiveCallBasedOnType(expr, call, argument) collect { TypeApp(_, tpe) }
+          injectRecursiveCallBasedOnType(expr, baseType, binaryType, idents, argument) collect { TypeApp(_, tpe) }
         case Data(ctor, args) =>
           def process(args: List[Term]): List[List[Term]] = args match
             case arg :: args =>
-              (injectRecursiveCallBasedOnType(arg, call, argument) collect { _ :: args }) ++
+              (injectRecursiveCallBasedOnType(arg, baseType, binaryType, idents, argument) collect { _ :: args }) ++
               (process(args) map { arg :: _ })
             case _ =>
               List.empty
@@ -365,45 +366,51 @@ object Conjecture:
         case Cases(scrutinee, cases) =>
           def process(cases: List[(Pattern, Term)]): List[List[(Pattern, Term)]] = cases match
             case (patternExpr @ (pattern -> expr)) :: cases =>
-              (injectRecursiveCallBasedOnType(expr, call, argument) collect { pattern -> _ :: cases }) ++
+              (injectRecursiveCallBasedOnType(expr, baseType, binaryType, idents, argument) collect { pattern -> _ :: cases }) ++
               (process(cases) map { patternExpr :: _ })
             case _ =>
               List.empty
-          (injectRecursiveCallBasedOnType(scrutinee, call, argument) collect { Cases(term)(_, cases) }) ++
+          (injectRecursiveCallBasedOnType(scrutinee, baseType, binaryType, idents, argument) collect { Cases(term)(_, cases) }) ++
           (process(cases) map { Cases(term)(scrutinee, _) })
 
-      if term.termType exists { conforms(_, tpe) } then
+      if term.termType exists { conforms(_, binaryType) } then
         argument match
-          case Left(argument) => App(Set.empty, App(properties, call, argument), term) :: result
-          case Right(argument) => App(Set.empty, App(properties, call, term), argument) :: result
+          case Left(argument) => app(properties, recursiveCall, idents ++ List(argument, term), baseType) :: result
+          case Right(argument) => app(properties, recursiveCall, idents ++ List(term, argument), baseType) :: result
       else
         result
     end injectRecursiveCallBasedOnType
 
-    def generalizeEvaluationResults(ident0: Symbol, ident1: Symbol, abstraction: Abstraction, calls: List[Term]) =
-      val call = calls.head
-
+    def generalizeEvaluationResults(
+        baseAbstraction: Abstraction,
+        baseType: Option[Type],
+        binaryAbstraction: Abstraction,
+        binaryType: Type,
+        idents: List[Term],
+        ident0: Symbol,
+        ident1: Symbol) =
       result unlinked { result =>
         val names = UniqueNames.usedNames.toSet
 
-        val (patternName0, patternName1) = let(Naming.dropSubscript(ident0.name), Naming.dropSubscript(ident1.name)) { case names @ (name0, name1) =>
-          if name0 != name1 then names
-          else if name0.length == 1 then
-            val c = name0.head.toInt
-            if c >= '0' && c <= '8' then name0 -> (c + 1).toChar.toString
-            else if c == '9' then name0 -> "8"
-            else if c >= 'A' && c <= 'Y' then name0 -> (c + 1).toChar.toString
-            else if c == 'Z' then name0 -> "Y"
-            else if c >= 'a' && c <= 'y' then name0 -> (c + 1).toChar.toString
-            else if c == 'z' then name0 -> "y"
+        val (patternName0, patternName1) = let(Naming.dropSubscript(ident0.name), Naming.dropSubscript(ident1.name)) {
+          case names @ (name0, name1) =>
+            if name0 != name1 then names
+            else if name0.length == 1 then
+              val c = name0.head.toInt
+              if c >= '0' && c <= '8' then name0 -> (c + 1).toChar.toString
+              else if c == '9' then name0 -> "8"
+              else if c >= 'A' && c <= 'Y' then name0 -> (c + 1).toChar.toString
+              else if c == 'Z' then name0 -> "Y"
+              else if c >= 'a' && c <= 'y' then name0 -> (c + 1).toChar.toString
+              else if c == 'z' then name0 -> "y"
+              else s"$name0:a" -> s"$name0:b"
             else s"$name0:a" -> s"$name0:b"
-          else s"$name0:a" -> s"$name0:b"
         }
 
         val var0 = Var(if ident0.name == ident1.name then Naming.freshIdent(ident0, names) else ident0)
         val var1 = Var(ident1)
 
-        val normalizedType = normalize(tpe)
+        val normalizedType = normalize(binaryType)
 
         val patterns0 = normalizedType map { patternsByType(_, patternName0, names) map { _.withSyntacticInfo } } getOrElse List.empty
         val patterns1 = normalizedType map { patternsByType(_, patternName1, names) map { _.withSyntacticInfo } } getOrElse List.empty
@@ -416,7 +423,7 @@ object Conjecture:
                   val arg0 = equalities.pos.getOrElse(var0, var0)
                   val arg1 = equalities.pos.getOrElse(var1, var1)
 
-                  val lhs = App(Set.empty, App(properties, call, arg0), arg1)
+                  val lhs = app(properties, recursiveCall, idents ++ List(arg0, arg1), baseType)
                   val (rhs, rhsInfo) = expr.syntactic
 
                   val generalizations =
@@ -428,21 +435,21 @@ object Conjecture:
                     val var1dependents = (equalities.pos.get(var1).toSet flatMap { _.syntacticInfo.freeVars.keys }) + var1.ident
                     val exprDependsOnVar1 = freeVars exists { var1dependents contains _ }
 
-                    val lhsVar0 = App(Set.empty, App(properties, call, var0), arg1)
-                    val lhsVar1 = App(Set.empty, App(properties, call, arg0), var1)
-                    val lhsVar01 = App(Set.empty, App(properties, call, var0), var1)
+                    val lhsVar0 = app(properties, recursiveCall, idents ++ List(var0, arg1), baseType)
+                    val lhsVar1 = app(properties, recursiveCall, idents ++ List(arg0, var1), baseType)
+                    val lhsVar01 = app(properties, recursiveCall, idents ++ List(var0, var1), baseType)
 
                     val generalizedVar0 = Option.when(rhs == arg1)(lhsVar0 -> var0)
                     val generalizedVar1 = Option.when(rhs == arg0)(lhsVar1 -> var1)
 
                     val generalizedRecursiveCalls =
-                      if ident0.name != ident1.name && !containsReference(rhs, abstraction) then
+                      if ident0.name != ident1.name && !containsReference(rhs, baseAbstraction) then
                         if !exprDependsOnVar0 && exprDependsOnVar1 then
-                          injectRecursiveCallBasedOnType(rhs.typedTerm, call, Left(var0)) collect {
+                          injectRecursiveCallBasedOnType(rhs.typedTerm, baseType, binaryType, idents, Left(var0)) collect {
                             case rhs if equalities.equal(rhs, lhsVar0) != Equality.Equal => lhsVar0 -> rhs
                           }
                         else if exprDependsOnVar0 && !exprDependsOnVar1 then
-                          injectRecursiveCallBasedOnType(rhs.typedTerm, call, Right(var1)) collect {
+                          injectRecursiveCallBasedOnType(rhs.typedTerm, baseType, binaryType, idents, Right(var1)) collect {
                             case rhs if equalities.equal(rhs, lhsVar1) != Equality.Equal => lhsVar1 -> rhs
                           }
                         else
@@ -453,7 +460,7 @@ object Conjecture:
                     def swap(term: Term): Term = term match
                       case Abs(properties, ident, tpe, expr) =>
                         Abs(term)(properties, ident, tpe, swap(expr))
-                      case App(properties1, expr1 @ App(properties0, expr0, arg0), arg1) if expr0.info(Abstraction) contains abstraction =>
+                      case App(properties1, expr1 @ App(properties0, expr0, arg0), arg1) if expr0.info(Abstraction) contains binaryAbstraction =>
                         App(term)(properties1, App(expr1)(properties0, swap(expr0), swap(arg1)), swap(arg0))
                       case App(properties, expr, arg) =>
                         App(term)(properties, swap(expr), swap(arg))
@@ -489,8 +496,8 @@ object Conjecture:
                   end generalizations
 
                   generalizations flatMap { (lhs, rhs) =>
-                    val _ -> normalization = recursiveNormalization(lhs, rhs, abstraction, calls, unbound, names)
-                    normalization
+                    val _ -> normalization = recursiveNormalization(lhs, rhs, baseAbstraction, Some(recursiveCall), unbound, names)
+                    normalization filter { _.free forall isAbstraction }
                   }
                 }
               }
@@ -499,10 +506,22 @@ object Conjecture:
         }
       }
 
-    (abstraction.info(Abstraction), recursiveCalls(abstraction)) match
-      case (Some(abstraction), calls @ _ :: _) =>
-        generalizeEvaluationResults(ident0, ident1, abstraction, calls) unwrap {
-          Normalization.distinct(_) sortBy { case Normalization(pattern, result, _, _, _, _) => (pattern, result) }
+    def binaryArguments(tpe: Type, idents: List[?]): Option[(Type, Abstraction)] = tpe match
+      case Function(arg0, Function(arg1, _)) if idents.isEmpty =>
+        tpe.info(Abstraction) collect { case abstraction if equivalent(arg0, arg1) => arg0 -> abstraction }
+      case Function(_, result) if idents.nonEmpty =>
+        binaryArguments(result, idents.tail)
+      case _ =>
+        None
+
+    val tpe = abstraction.termType
+    val identsInit = idents.dropRight(2)
+    val identsTail = idents.takeRight(2)
+
+    (abstraction.termType.flatMap { binaryArguments(_, identsInit) }, abstraction.info(Abstraction), identsTail) match
+      case (Some(binaryType, binaryAbstraction), Some(abstraction), List(ident0, ident1)) =>
+        generalizeEvaluationResults(abstraction, tpe, binaryAbstraction, binaryType, identsInit map { Var(_) }, ident0, ident1) unwrap {
+          Normalization.distinct(_) sortBy { case Normalization(pattern, result, _, _, _) => (pattern, result) }
         }
       case _ =>
         List.empty
@@ -529,7 +548,7 @@ object Conjecture:
         App(Set.empty, App(properties0, expr0, Var(Symbol("a"))), Var(Symbol("c"))))
 
       def normalization(side0: Term, side1: Term) =
-        Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b"), Symbol("c")), reversible = true)
+        Normalization(side0, side1, Symbol("∘"), Set(Symbol("a"), Symbol("b"), Symbol("c")), reversible = true)
 
       List(
         normalization(
@@ -550,7 +569,7 @@ object Conjecture:
         App(binaryProperties, binary, Var(Symbol("a"))), App(unaryProperties, unary, Var(Symbol("b"))))
 
       def normalization(side0: Term, side1: Term) =
-        Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a"), Symbol("b")), reversible = true)
+        Normalization(side0, side1, Symbol("∘"), Set(Symbol("a"), Symbol("b")), reversible = true)
 
       List(
         normalization(side0, side1a),
@@ -561,7 +580,7 @@ object Conjecture:
         App(properties0, expr0, App(properties1, expr1, Var(Symbol("a"))))
 
       def normalization(side0: Term, side1: Term) =
-        Normalization(side0, side1, Symbol("∘"), None, Set(Symbol("a")), reversible = true)
+        Normalization(side0, side1, Symbol("∘"), Set(Symbol("a")), reversible = true)
 
       List(
         normalization(

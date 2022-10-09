@@ -75,9 +75,7 @@ extension (result: evaluator.Symbolic.Result) def show: String =
   }).mkString("\n\n")
 
 extension (normalization: evaluator.properties.Normalization) def show: String =
-  val functionForm = if normalization.form.isEmpty then "" else s" of form ${normalization.form.get.show}"
-
-  val function = s" for function ${normalization.abstraction.name}$functionForm"
+  val function = s" for function ${normalization.abstraction.name}"
 
   val functionNames =
     if normalization.free.nonEmpty then

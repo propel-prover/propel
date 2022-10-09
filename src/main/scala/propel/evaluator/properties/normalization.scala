@@ -9,7 +9,6 @@ case class Normalization private (
     pattern: Term,
     result: Term,
     abstraction: Symbol,
-    form: Option[Term],
     variables: Set[Symbol],
     reversible: Boolean)(
     reversed: Normalization | Null):
@@ -51,7 +50,7 @@ case class Normalization private (
 
   val reverse = Option.when(reversible) {
     if reversed == null then
-      Normalization(result, pattern, abstraction, form, variables, reversible)(this)
+      Normalization(result, pattern, abstraction, variables, reversible)(this)
     else
       reversed
   }
@@ -84,11 +83,6 @@ case class Normalization private (
         renamed
       }).toList
 
-    val renamedForm = form map { form =>
-      val (renamedForm, formMapping) = rename(form, Map.empty, Set.empty)
-      renamedForm.withSyntacticInfo -> mappingVariables(formMapping)
-    }
-
     val (renamedPattern, patternMapping) = rename(pattern, Map.empty, Set.empty)
 
     val renamedResult = subst(result, mappingSubst(patternMapping))
@@ -98,22 +92,20 @@ case class Normalization private (
       renamedResult.withSyntacticInfo,
       mappingAbstractions(patternMapping),
       mappingVariables(patternMapping),
-      renamedForm,
       mappingFree(patternMapping))(
       this)
   end checking
 end Normalization
 
 object Normalization:
-  def apply(pattern: Term, result: Term, abstraction: Symbol, form: Option[Term], variables: Set[Symbol], reversible: Boolean): Normalization =
-    Normalization(pattern, result, abstraction, form, variables, reversible)(null)
+  def apply(pattern: Term, result: Term, abstraction: Symbol, variables: Set[Symbol], reversible: Boolean): Normalization =
+    Normalization(pattern, result, abstraction, variables, reversible)(null)
 
   case class Checking private[Normalization] (
       pattern: Term,
       result: Term,
       abstraction: Set[Symbol],
       equivalents: List[Set[Symbol]],
-      form: Option[(Term, List[Set[Symbol]])],
       free: Map[Symbol, Symbol])(
       val normalization: Normalization):
     def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term]) =
@@ -145,10 +137,6 @@ object Normalization:
           Data(equalDataConstructor, List(expandCalls(normalization.pattern), expandCalls(normalization.result))) -> Equalities.empty
 
         def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
-          val (formPattern, formEquivalents) = form match
-            case Some(formPattern, formEquivalents) => Some(formPattern) -> formEquivalents
-            case _ => None -> List.empty
-
           freeSubsts flatMap { freeSubsts =>
             Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
               def abstractionCheck = abstraction flatMap { substs.get(_) }
@@ -159,25 +147,13 @@ object Normalization:
                 }
               }
 
-              if substsReverse.isEmpty && checkAbstraction(abstractionCheck) && checkFree(freeCheck) && valid(substs, equivalents) then
-                val formSubsts = formPattern map { formPattern =>
-                  abstraction flatMap {
-                    substs.get(_) map {
-                      Unification.unify(formPattern, _) collect { case (substs, substsReverse) if substsReverse.isEmpty => substs }
-                    }
-                  }
-                }
-
-                if formSubsts.isEmpty || (formSubsts.get.size == 1 && formSubsts.get.head.isDefined) then
-                  let(formSubsts map { _.head.get } getOrElse Map.empty) { formSubsts =>
-                    Option.when(valid(formSubsts, formEquivalents)) {
-                      subst(result, substs ++ formSubsts ++ freeSubsts ++ (abstraction map { _ -> expr }))
-                    }
-                  }
-                else
-                  None
-              else
-                None
+              Option.when(
+                  substsReverse.isEmpty &&
+                  checkAbstraction(abstractionCheck) &&
+                  checkFree(freeCheck) &&
+                  valid(substs, equivalents)) {
+                subst(result, substs ++ freeSubsts ++ (abstraction map { _ -> expr }))
+              }
             }
           }
         }
@@ -199,15 +175,7 @@ object Normalization:
       }
 
     specialization(special.checking, general.checking, special.checking.pattern, general.checking.pattern) exists { (substs, _) =>
-      special.checking.result == subst(general.checking.result, substs) &&
-      (special.checking.form.isEmpty && general.checking.form.isEmpty ||
-        (special.checking.form exists { (form, _) =>
-          general.checking.form exists { (formPattern, formEquivalents) =>
-            Unification.unify(formPattern, form) exists { (substs, substsReverse) =>
-              valid(substs, formEquivalents) && substsReverse.isEmpty
-            }
-          }
-        }))
+      special.checking.result == subst(general.checking.result, substs)
     }
   end specializationForSameAbstraction
 

@@ -286,7 +286,6 @@ def gset_merge[A: TermExpr](expr: A) =
                     cases(app(comm,assoc)(("aux", "acc"), "a", "b"))
                         (("Pair", "d", "t") -> ("Pair", "d", ("S", "t"))),
                     Symbol("aux"),
-                    None,
                     Set(Symbol("acc"), Symbol("a"), Symbol("b")),
                     false)
     ))
