@@ -3,9 +3,14 @@ package evaluator
 package properties
 
 import ast.*
+import typer.*
 import scala.collection.mutable
 
-def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr: Term, equalities: Equalities): Term =
+def normalize(
+    normalizing: List[Equalities => PartialFunction[Term, Term]],
+    contractAbstraction: Abstraction => Boolean,
+    expr: Term,
+    equalities: Equalities): Term =
   val maxSize = expr.size * 11 / 10 + 8
   val maxBit = 8
   val max = 1 << maxBit
@@ -22,8 +27,56 @@ def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr
     else if n <= 1 then Set(exprs.max)
     else exprs.toList.sorted.takeRight(n).toSet
 
+  val abstractions =
+    def merge(abstractions0: Map[Abstraction, Term], abstractions1: Map[Abstraction, Term]) =
+      abstractions0.foldLeft(abstractions1) { case (result, entry0 @ (abstraction0, expr0)) =>
+        (result.get(abstraction0)
+          collect { case expr1 if expr1 < expr0 => result }
+          getOrElse result + entry0)
+      }
+
+    def abstractions(term: Term): Map[Abstraction, Term] = term match
+      case Abs(_, _, _, expr) => abstractions(expr)
+      case App(_, expr, arg) => merge(abstractions(expr), abstractions(arg))
+      case TypeAbs(_, expr) => abstractions(expr)
+      case TypeApp(expr, _) => abstractions(expr)
+      case Data(_, args) =>
+        args.foldLeft[Map[Abstraction, Term]](Map.empty) { (result, arg) =>
+          merge(abstractions(arg), result)
+        }
+      case Var(ident) =>
+        (term.termType flatMap { _.info(Abstraction) } collect {
+          case abstraction if contractAbstraction(abstraction) && !(equalities.pos contains term) =>
+            abstraction -> term
+        }).toMap
+      case Cases(scrutinee, cases) =>
+        cases.foldLeft(abstractions(scrutinee)) { case (result, (_, expr)) =>
+          merge(abstractions(expr), result)
+        }
+
+    merge(
+      abstractions(expr),
+      equalities.pos flatMap { (expr0, expr1) =>
+        merge(abstractions(expr0.withSyntacticInfo), abstractions(expr1.withSyntacticInfo))
+      })
+  end abstractions
+
+  def normalizeAbstraction(term: Term): Term =
+    term.info(Abstraction) flatMap abstractions.get getOrElse {
+      term match
+        case Abs(properties, ident, tpe, expr) => Abs(term)(properties, ident, tpe, normalizeAbstraction(expr))
+        case App(properties, expr, arg) => App(term)(properties, normalizeAbstraction(expr), normalizeAbstraction(arg))
+        case TypeAbs(ident, expr) => TypeAbs(term)(ident, normalizeAbstraction(expr))
+        case TypeApp(expr, tpe) => TypeApp(term)(normalizeAbstraction(expr), tpe)
+        case Data(ctor, args) => Data(term)(ctor, args map normalizeAbstraction)
+        case Var(_) => term
+        case Cases(scrutinee, cases) => Cases(term)(normalizeAbstraction(scrutinee), cases map { (pattern, expr) =>
+          pattern -> normalizeAbstraction(expr)
+        })
+    }
+
   def process(term: Term): Set[Term] =
-    val processed = term match
+    val processed = normalizeAbstraction(term) match
       case Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_) =>
         Set(term)
       case App(properties, expr, arg) =>
@@ -58,6 +111,7 @@ def normalize(normalizing: List[Equalities => PartialFunction[Term, Term]], expr
     def explode(exprs: Iterable[Term]): Unit =
       val (continue, stop) = (normalize.iterator
         flatMap { exprs flatMap _ }
+        map normalizeAbstraction
         filterNot { exploded contains _ }
         map { _.withSyntacticInfo }
         partition { _.size < maxSize })

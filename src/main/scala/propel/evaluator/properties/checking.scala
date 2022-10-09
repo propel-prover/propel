@@ -155,7 +155,7 @@ def check(
       List.empty
 
   def abstractionAccess(env: Map[Symbol, Term], dependencies: List[Term | Symbol]) =
-    def nested(expr: Term): Map[Abstraction, (Abstraction, Term)] =
+    def nested(expr: Term): Map[Abstraction, (Term, Abstraction, Boolean)] =
       expr.termType match
         case Some(Function(Sum(List(ctor -> List())), _)) =>
           val abstraction = expr.info(Abstraction)
@@ -173,12 +173,13 @@ def check(
         case _ =>
           dependent(expr, expr.info(Abstraction))
 
-    def dependent(expr: Term, base: Option[Abstraction]): Map[Abstraction, (Abstraction, Term)] =
+    def dependent(expr: Term, base: Option[Abstraction]): Map[Abstraction, (Term, Abstraction, Boolean)] =
       def dependent(
           expr: Term,
           dependencies: List[Term | Symbol],
           base: Abstraction,
-          advanceBase: Boolean): Map[Abstraction, (Abstraction, Term)] =
+          advanceBase: Boolean,
+          fundamental: Boolean): Map[Abstraction, (Term, Abstraction, Boolean)] =
         dependencies match
           case arg :: dependencies =>
             val abstraction = expr.info(Abstraction)
@@ -187,20 +188,20 @@ def check(
               case arg: Term => App(properties, expr, arg).typed -> false
               case arg: Symbol => TypeApp(expr, TypeVar(arg)).withExtrinsicInfo(Typing.Specified(Left(Set(arg)))).typed -> advanceBase
             if tpe exists { _.info(Abstraction) exists { abstractionResultTypes contains _ } } then
-              dependent(result, dependencies, if advance then result.info(Abstraction) getOrElse base else base, advance) ++
-              (abstraction map { _ -> (base -> expr) })
+              dependent(result, dependencies, if advance then result.info(Abstraction) getOrElse base else base, advance, fundamental = false) ++
+              (abstraction map { _ -> (expr, base, fundamental) })
             else
-              (abstraction map { _ -> (base -> expr) }).toMap
+              (abstraction map { _ -> (expr, base, fundamental) }).toMap
           case _ =>
-            (expr.info(Abstraction) map { _ -> (base -> expr) }).toMap
+            (expr.info(Abstraction) map { _ -> (expr, base, fundamental) }).toMap
 
       (base
         map { base =>
           (abstractionDependencies.get(base)
             collect { case baseDependencies if dependencies startsWith baseDependencies =>
-              dependent(expr, dependencies.drop(baseDependencies.size), base, advanceBase = true)
+              dependent(expr, dependencies.drop(baseDependencies.size), base, advanceBase = true, fundamental = true)
             }
-            getOrElse Map(base -> (base -> expr)))
+            getOrElse Map(base -> (expr, base, true)))
         }
         getOrElse Map.empty)
 
@@ -211,7 +212,7 @@ def check(
       val abstractions = abstractionAccess(env, dependencies)
 
       val (abstraction, call) = (term.info(Abstraction)
-        flatMap { abstractions.get(_) map { Some(_) -> Some(_) } }
+        flatMap { abstractions.get(_) map { (expr, base, _) => Some(base) -> Some(expr) } }
         getOrElse (None, None))
 
       val resultType = term.termType collect { case Function(_, Function(_, result)) => result }
@@ -220,7 +221,9 @@ def check(
 
       val name = term.info(Abstraction) flatMap abstractionNames.get
 
-      val collectedNormalize = collectedNormalizations flatMap { _(abstractions.get(_) map { (_, expr) => expr }) }
+      val fundamentalAbstractions = (abstractions collect { case abstraction -> (_, _, true) => abstraction }).toSet
+
+      val collectedNormalize = collectedNormalizations flatMap { _(abstractions.get(_) map { (expr, _, _) => expr }) }
 
       if printReductionDebugInfo || printDeductionDebugInfo then
         if debugInfoPrinted then
@@ -357,7 +360,8 @@ def check(
                   reverseNormalizeConjecture ++
                   normalizeConjectures ++
                   collectedNormalize ++
-                  normalizing), _, _),
+                  normalizing),
+                  fundamentalAbstractions.contains, _, _),
                 evaluator.properties.derive(
                   derivingCompound,
                   deriveTypeContradiction :: derivingSimple, _),
@@ -502,8 +506,12 @@ def check(
                 println(indent(4, converted.wrapped.show))
 
               val config = Symbolic.Configuration(
-                evaluator.properties.normalize(normalize ++ collectedNormalize ++ normalizing, _, _),
-                evaluator.properties.derive(derivingCompound, deriveTypeContradiction :: derivingSimple, _),
+                evaluator.properties.normalize(
+                  normalize ++ collectedNormalize ++ normalizing,
+                  fundamentalAbstractions.contains, _, _),
+                evaluator.properties.derive(
+                  derivingCompound,
+                  deriveTypeContradiction :: derivingSimple, _),
                 checking.control)
 
               val result = Symbolic.eval(converted, equalities, config)
@@ -553,7 +561,7 @@ def check(
         val abstractions = abstractionAccess(env, dependencies)
 
         val (abstraction, call) = (term.info(Abstraction)
-          flatMap { abstractions.get(_) map { Some(_) -> Some(_) } }
+          flatMap { abstractions.get(_) map { (expr, base, _) => Some(base) -> Some(expr) } }
           getOrElse (None, None))
 
         val names = env.keys map { _.name }
