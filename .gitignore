@@ -13,6 +13,12 @@ target/
 *.ipr
 *.iws
 
+*.o
+*.hi
+*.thy
+ROOT.ML
+*~
+
 *.lof
 *.log
 *.lot
