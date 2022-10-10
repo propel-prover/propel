@@ -33,3 +33,5 @@ report/*.*
 !report/ACM-Reference-Format.bst
 !report/*.bib
 !report/.latexmkrc
+
+!evaluation/haskell/**/*.log
