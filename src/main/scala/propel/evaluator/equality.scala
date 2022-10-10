@@ -254,14 +254,8 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
       def iterator = propagatedList.iterator ++ equivalentList.iterator
 
-      val propagated = Map.from(iterator)
-
-      if propagated != pos then
-        val normalized = normalize(Map.empty, iterator) filterNot { _ == _ }
-        if normalized != pos then
-          if normalized != propagated then Equalities(normalized, neg).propagatePos else Some(Equalities(normalized, neg))
-        else
-          Some(this)
+      if Map.from(iterator) != pos then
+        Equalities(normalize(Map.empty, iterator) filterNot { _ == _ }, neg).propagatePos
       else
         Some(this)
     }
@@ -278,14 +272,8 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       }
     }
 
-    val propagated = propagatedList map { _.toMap }
-
-    if propagated != neg then
-      val normalized = propagatedList map { neg => normalize(Map.empty, neg.iterator) }
-      if normalized != neg then
-        if normalized != propagated then Equalities(pos, normalized).propagateNeg else Equalities(pos, normalized)
-      else
-        this
+    if (propagatedList map { _.toMap }) != neg then
+      Equalities(pos, propagatedList map { neg => normalize(Map.empty, neg.iterator) }).propagateNeg
     else
       this
   end propagateNeg
