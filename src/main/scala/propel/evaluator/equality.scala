@@ -149,7 +149,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     val iterator = pos.iterator
     if iterator.nonEmpty then
       Equalities(normalize(this.pos, iterator) filterNot { _ == _ }, this.neg)
-        .propagatePos.propagateNeg.consolidateNeg
+        .propagatePos flatMap { _.propagateNeg.consolidateNeg }
     else
       Some(this)
 
@@ -208,21 +208,22 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         posReverse
     }
 
-    val propagatedReverseExpanded = pos flatMap { (expr0, expr1) => 
-      propagate(posReverse, expr0) -> expr1 match
-        case expr -> _ if expr eq expr0 => None
-        case expr0 -> expr1 if expr1 < expr0 => Some(expr1 -> expr0)
-        case exprs => Some(exprs)
+    val propagatedReverseExpanded = pos flatMap { case (expr0, expr1) =>
+      propagate(posReverse, expr0) collect { case expr if expr ne expr0 =>
+        if expr1 < expr then expr1 -> expr else expr -> expr1
+      }
     }
 
     propagatedReverseExpanded ++ pos
   end posExpanded
 
-  private def propagatePos: Equalities =
-    val propagatedList = pos.toList map { (expr0, expr1) => 
-      propagate(pos - expr0, expr0) -> propagate(pos, expr1) match
-        case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
-        case exprs => exprs
+  private def propagatePos: Option[Equalities] =
+    val propagatedList = pos.toList mapIfDefined { (expr0, expr1) =>
+      propagate(pos - expr0, expr0) flatMap { expr0 =>
+        propagate(pos, expr1) map { expr1 =>
+          if expr1 < expr0 then expr1 -> expr0 else expr0 -> expr1
+        }
+      }
     }
 
     def process(pos: List[(Term, Term)]): List[(Term, Term)] = pos match
@@ -248,27 +249,32 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
             element0 ++ element1 ++ processTail(tail1)
         process(tail0) ++ processTail(tail0)
 
-    val equivalentList = process(propagatedList)
+    propagatedList flatMap { propagatedList => 
+      val equivalentList = process(propagatedList)
 
-    def iterator = propagatedList.iterator ++ equivalentList.iterator
+      def iterator = propagatedList.iterator ++ equivalentList.iterator
 
-    val propagated = Map.from(iterator)
+      val propagated = Map.from(iterator)
 
-    if propagated != pos then
-      val normalized = normalize(Map.empty, iterator) filterNot { _ == _ }
-      if normalized != pos then
-        if normalized != propagated then Equalities(normalized, neg).propagatePos else Equalities(normalized, neg)
+      if propagated != pos then
+        val normalized = normalize(Map.empty, iterator) filterNot { _ == _ }
+        if normalized != pos then
+          if normalized != propagated then Equalities(normalized, neg).propagatePos else Some(Equalities(normalized, neg))
+        else
+          Some(this)
       else
-        this
-    else
-      this
+        Some(this)
+    }
   end propagatePos
 
   private def propagateNeg: Equalities =
     val propagatedList = neg map {
-      _.toList map { propagate(pos, _) -> propagate(pos, _) match
-        case expr0 -> expr1 if expr1 < expr0 => expr1 -> expr0
-        case exprs => exprs
+      _.toList flatMap { (expr0, expr1) =>
+        propagate(pos, expr0) flatMap { expr0 =>
+          propagate(pos, expr1) map { expr1 =>
+            if expr1 < expr0 then expr1 -> expr0 else expr0 -> expr1
+          }
+        }
       }
     }
 
@@ -284,37 +290,38 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       this
   end propagateNeg
 
-  private def propagate(pos: Map[Term, Term], expr: Term): Term =
+  private def propagate(pos: Map[Term, Term], expr: Term): Option[Term] =
     def propagate(pos: Map[Term, Term], expr: Term, substituted: Set[Term]): Option[Term] =
-      Option.when(!(substituted contains expr)) {
-        val (ropagatedExpr, ropagatedSubstituted) = pos.get(expr) match
-          case Some(ropagatedExpr) => ropagatedExpr -> (substituted + expr)
+      if !(substituted contains expr) then
+        val (propagatedExpr, propagatedSubstituted) = pos.get(expr) match
+          case Some(propagatedExpr) => propagatedExpr -> (substituted + expr)
           case _ => expr -> substituted
 
-        ropagatedExpr match
+        propagatedExpr match
           case term @ Abs(properties, ident, tpe, expr) =>
-            propagate(pos, expr, ropagatedSubstituted) map { Abs(term)(properties, ident, tpe, _) } getOrElse expr
+            propagate(pos, expr, propagatedSubstituted) map { Abs(term)(properties, ident, tpe, _) }
           case term @ App(properties, expr, arg) =>
-            propagate(pos, expr, ropagatedSubstituted) flatMap { expr =>
-              propagate(pos, arg, ropagatedSubstituted) map { App(term)(properties, expr, _) }
-            } getOrElse expr
+            propagate(pos, expr, propagatedSubstituted) flatMap { expr =>
+              propagate(pos, arg, propagatedSubstituted) map { App(term)(properties, expr, _) }
+            }
           case term @ TypeAbs(ident, expr) =>
-            propagate(pos, expr, ropagatedSubstituted) map { TypeAbs(term)(ident, _) } getOrElse expr
+            propagate(pos, expr, propagatedSubstituted) map { TypeAbs(term)(ident, _) }
           case term @ TypeApp(expr, tpe) =>
-            propagate(pos, expr, ropagatedSubstituted) map { TypeApp(term)(_, tpe) } getOrElse expr
+            propagate(pos, expr, propagatedSubstituted) map { TypeApp(term)(_, tpe) }
           case term @ Data(ctor, args) =>
-            args mapIfDefined { propagate(pos, _, ropagatedSubstituted) } map { Data(term)(ctor, _) } getOrElse expr
+            args mapIfDefined { propagate(pos, _, propagatedSubstituted) } map { Data(term)(ctor, _) }
           case term @ Var(_) =>
-            term
+            Some(term)
           case term @ Cases(scrutinee, cases) =>
-            propagate(pos, scrutinee, ropagatedSubstituted) flatMap { scrutinee =>
-              cases mapIfDefined { (pattern, expr) => propagate(pos, expr, ropagatedSubstituted) map { pattern -> _ } } map {
-                Cases(term)(scrutinee, _)
+            propagate(pos, scrutinee, propagatedSubstituted) flatMap { scrutinee =>
+              cases mapIfDefined { (pattern, expr) =>
+                propagate(pos, expr, propagatedSubstituted) map { pattern -> _ } } map { Cases(term)(scrutinee, _)
               }
-            } getOrElse expr
-      }
+            }
+      else
+        None
 
-    propagate(pos, expr, Set.empty).get
+    propagate(pos, expr, Set.empty)
 
   private def consolidateNeg: Option[Equalities] =
     val checkNeg = Equalities(Map.empty, Set.empty)
