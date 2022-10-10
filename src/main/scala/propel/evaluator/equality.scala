@@ -51,8 +51,6 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     }
 
   private given Ordering[Term] =
-    case (expr0, expr1) if contains(expr0, expr1) => -1
-    case (expr0, expr1) if contains(expr1, expr0) => 1
     case (expr0: Var, expr1: Var) => termOrdering.compare(expr0, expr1)
     case (expr0: Var, expr1) => -1
     case (expr0, expr1: Var) => 1
