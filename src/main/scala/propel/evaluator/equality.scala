@@ -3,6 +3,7 @@ package evaluator
 
 import ast.*
 import typer.*
+import util.*
 
 enum Equality:
   case Equal
@@ -60,7 +61,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def equal(expr0: Term, expr1: Term): Equality =
     def equal(expr0: Term, expr1: Term): (Equality, List[(Term, Term)]) =
       pos.getOrElse(expr0, expr0) -> pos.getOrElse(expr1, expr1) match
-        case (expr0: (Abs | TypeAbs | Cases)) -> (expr1: (Abs | TypeAbs | Cases)) if equivalent(expr0, expr1) =>
+        case _ if equivalent(expr0, expr1) =>
           Equality.Equal -> List.empty
         case terms @ App(_, expr0, arg0) -> App(_, expr1, arg1) =>
           equal(expr0, expr1) match
@@ -283,21 +284,37 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       this
   end propagateNeg
 
-  private def propagate(pos: Map[Term, Term], expr: Term): Term = pos.getOrElse(expr, expr) match
-    case term @ Abs(properties, ident, tpe, expr) =>
-      Abs(term)(properties, ident, tpe, propagate(pos, expr))
-    case term @ App(properties, expr, arg) =>
-      App(term)(properties, propagate(pos, expr), propagate(pos, arg))
-    case term @ TypeAbs(ident, expr) =>
-      TypeAbs(term)(ident, propagate(pos, expr))
-    case term @ TypeApp(expr, tpe) =>
-      TypeApp(term)(propagate(pos, expr), tpe)
-    case term @ Data(ctor, args) =>
-      Data(term)(ctor, args map { propagate(pos, _) })
-    case term @ Var(_) =>
-      term
-    case term @ Cases(scrutinee, cases) =>
-      Cases(term)(propagate(pos, scrutinee), cases map { (pattern, expr) => pattern -> propagate(pos, expr) })
+  private def propagate(pos: Map[Term, Term], expr: Term): Term =
+    def propagate(pos: Map[Term, Term], expr: Term, substituted: Set[Term]): Option[Term] =
+      Option.when(!(substituted contains expr)) {
+        val (ropagatedExpr, ropagatedSubstituted) = pos.get(expr) match
+          case Some(ropagatedExpr) => ropagatedExpr -> (substituted + expr)
+          case _ => expr -> substituted
+
+        ropagatedExpr match
+          case term @ Abs(properties, ident, tpe, expr) =>
+            propagate(pos, expr, ropagatedSubstituted) map { Abs(term)(properties, ident, tpe, _) } getOrElse expr
+          case term @ App(properties, expr, arg) =>
+            propagate(pos, expr, ropagatedSubstituted) flatMap { expr =>
+              propagate(pos, arg, ropagatedSubstituted) map { App(term)(properties, expr, _) }
+            } getOrElse expr
+          case term @ TypeAbs(ident, expr) =>
+            propagate(pos, expr, ropagatedSubstituted) map { TypeAbs(term)(ident, _) } getOrElse expr
+          case term @ TypeApp(expr, tpe) =>
+            propagate(pos, expr, ropagatedSubstituted) map { TypeApp(term)(_, tpe) } getOrElse expr
+          case term @ Data(ctor, args) =>
+            args mapIfDefined { propagate(pos, _, ropagatedSubstituted) } map { Data(term)(ctor, _) } getOrElse expr
+          case term @ Var(_) =>
+            term
+          case term @ Cases(scrutinee, cases) =>
+            propagate(pos, scrutinee, ropagatedSubstituted) flatMap { scrutinee =>
+              cases mapIfDefined { (pattern, expr) => propagate(pos, expr, ropagatedSubstituted) map { pattern -> _ } } map {
+                Cases(term)(scrutinee, _)
+              }
+            } getOrElse expr
+      }
+
+    propagate(pos, expr, Set.empty).get
 
   private def consolidateNeg: Option[Equalities] =
     val checkNeg = Equalities(Map.empty, Set.empty)
