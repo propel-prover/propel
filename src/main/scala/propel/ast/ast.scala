@@ -13,6 +13,7 @@ enum Property:
   case Commutative
   case Associative
   case Idempotent
+  case Selection
   case Reflexive
   case Irreflexive
   case Symmetric

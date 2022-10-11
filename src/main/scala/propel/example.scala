@@ -136,17 +136,17 @@ def orderbv[A: TermExpr](expr: A) =
 
 def bv_max[A: TermExpr](expr: A) =
     letrec("bv_max" -> tp(bv -> (bv -> bv)) ->
-        abs(assoc, comm)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+        abs(assoc, comm, sel)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
             ("Pair", "BZ", "b") -> "b",
             ("Pair", "a", "BZ") -> "a",
-            ("Pair", ("B0", "a"), ("B0", "b")) -> ("B0", app(assoc,comm)("bv_max", "a", "b")),
-            ("Pair", ("B1", "a"), ("B1", "b")) -> ("B1", app(assoc,comm)("bv_max", "a", "b")),
+            ("Pair", ("B0", "a"), ("B0", "b")) -> ("B0", app(assoc, comm, sel)("bv_max", "a", "b")),
+            ("Pair", ("B1", "a"), ("B1", "b")) -> ("B1", app(assoc, comm, sel)("bv_max", "a", "b")),
             ("Pair", ("B0", "a"), ("B1", "b")) ->
-                `if`(app(refl,trans)("bv_eq", app(assoc,comm)("bv_max", "a", "b"), "b"))
+                `if`(app(refl, sym, trans, antisym)("bv_eq", app(assoc, comm, sel)("bv_max", "a", "b"), "b"))
                     ("B1", "b")
                     ("B0", "a"),
             ("Pair", ("B1", "a"), ("B0", "b")) ->
-                `if`(app(refl,trans)("bv_eq", app(assoc,comm)("bv_max", "a", "b"), "a"))
+                `if`(app(refl, sym, trans, antisym)("bv_eq", app(assoc, comm, sel)("bv_max", "a", "b"), "a"))
                     ("B1", "a")
                     ("B0", "b"))))(expr)
 

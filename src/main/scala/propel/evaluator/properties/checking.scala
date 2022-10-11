@@ -362,6 +362,7 @@ def check(
                   collectedNormalize ++
                   normalizing),
                   fundamentalAbstractions.contains, _, _),
+                evaluator.properties.select(selecting, _, _),
                 evaluator.properties.derive(
                   derivingCompound,
                   deriveTypeContradiction :: derivingSimple, _),
@@ -369,7 +370,7 @@ def check(
 
               val result = Symbolic.eval(converted, equalities, config)
 
-              val check = checking.check(result.wrapped)
+              val check = checking.check(List(ident0, ident1), result.wrapped)
               val proved = check exists { _.reductions.isEmpty }
               val disproved = check.isLeft
 
@@ -509,6 +510,7 @@ def check(
                 evaluator.properties.normalize(
                   normalize ++ collectedNormalize ++ normalizing,
                   fundamentalAbstractions.contains, _, _),
+                evaluator.properties.select(selecting, _, _),
                 evaluator.properties.derive(
                   derivingCompound,
                   deriveTypeContradiction :: derivingSimple, _),
@@ -516,7 +518,7 @@ def check(
 
               val result = Symbolic.eval(converted, equalities, config)
 
-              val check = checking.check(result.wrapped)
+              val check = checking.check(List(ident0, ident1), result.wrapped)
               val proved = check exists { _.reductions.isEmpty }
               val disproved = check.isLeft
 

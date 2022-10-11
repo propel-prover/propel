@@ -13,13 +13,16 @@ val propertiesChecking = ListMap(
   Connected -> connectivity,
   Transitive -> transitivity,
   Commutative -> commutativity,
-  Associative -> associativity)
+  Associative -> associativity,
+  Selection -> selectivity)
 
 val derivingSimple = (propertiesChecking.values collect { case property: PropertyChecking.Simple => property.deriveSimple }).toList
 
 val derivingCompound = (propertiesChecking.values collect { case property: PropertyChecking.Compound => property.deriveCompound }).toList
 
 val normalizing = (propertiesChecking.values collect { case property: PropertyChecking.Normal => property.normalize }).toList
+
+val selecting = (propertiesChecking.values collect { case property: PropertyChecking.Selecting => property.select }).toList
 
 
 object reflexivity
@@ -165,3 +168,18 @@ object associativity
            equalities.equal(expr0, expr1) == Equality.Equal =>
       App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
 end associativity
+
+
+object selectivity
+    extends PropertyChecking with PropertyChecking.FunctionSelectionResult
+    with PropertyChecking.Selecting:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    Data(resultDataConstructor, List(expr)) -> Equalities.empty
+
+  def select(equalities: Equalities) =
+    case expr @ App(props, App(properties, _, arg0), arg1)
+        if properties.contains(Selection) =>
+    (Equalities.pos(List(expr -> arg0, arg0 -> arg1)).toList map { arg0 -> _ }) ++
+    (Equalities.make(List(expr -> arg0), List(List(arg0 -> arg1))).toList map { arg0 -> _ }) ++
+    (Equalities.make(List(expr -> arg1), List(List(arg0 -> arg1))).toList map { arg1 -> _ })
+end selectivity

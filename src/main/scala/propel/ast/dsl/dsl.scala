@@ -27,6 +27,8 @@ def assoc = Associative
 
 def idem = Idempotent
 
+def sel = Selection
+
 def refl = Reflexive
 
 def irefl = Irreflexive

@@ -8,6 +8,7 @@ extension (property: Property) def show: String = property match
   case Commutative => "comm"
   case Associative => "assoc"
   case Idempotent => "idem"
+  case Selection => "sel"
   case Reflexive => "refl"
   case Irreflexive => "irefl"
   case Symmetric => "sym"

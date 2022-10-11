@@ -17,7 +17,7 @@ trait PropertyChecking:
 
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term): (Term, Equalities)
   def control(expr: Term, equalities: Equalities, nested: Boolean): (Term, Equalities, Symbolic.Control)
-  def check(result: Symbolic.Result): Either[Symbolic.Result, Symbolic.Result]
+  def check(idents: List[Symbol], result: Symbolic.Result): Either[Symbolic.Result, Symbolic.Result]
 
 object PropertyChecking:
   trait FunctionEqualResult extends PropertyChecking:
@@ -42,7 +42,7 @@ object PropertyChecking:
       case _ =>
         (expr, Equalities.empty, Symbolic.Control.Continue)
 
-    def check(result: Symbolic.Result) =
+    def check(idents: List[Symbol], result: Symbolic.Result) =
       val unproven = Symbolic.Result(result.reductions filterNot {
         case Symbolic.Reduction(Data(`equalDataConstructor`, List(arg0, arg1)), _, _) => arg0 == arg1
         case _ => false
@@ -50,6 +50,28 @@ object PropertyChecking:
       val disproved = unproven.reductions exists {
         case Symbolic.Reduction(Data(`equalDataConstructor`, List(arg0, arg1)), _, equalities) =>
           equalities.equal(arg0, arg1) == Equality.Unequal && equalities.contradictionIndeducible
+        case _ =>
+          false
+      }
+      Either.cond(!disproved, unproven, unproven)
+
+  trait FunctionSelectionResult extends PropertyChecking:
+    val propertyType = PropertyType.Function
+    val resultDataConstructor = Constructor(Symbol("≛"))
+
+    def control(expr: Term, equalities: Equalities, nested: Boolean) =
+      (expr, Equalities.empty, Symbolic.Control.Continue)
+
+    def check(idents: List[Symbol], result: Symbolic.Result) =
+      val unproven = Symbolic.Result(result.reductions filterNot {
+        case Symbolic.Reduction(Data(`resultDataConstructor`, List(arg)), _, equalities) =>
+          idents exists { ident => equalities.equal(arg, Var(ident)) == Equality.Equal }
+        case _ =>
+          false
+      })
+      val disproved = unproven.reductions exists {
+        case Symbolic.Reduction(Data(`resultDataConstructor`, List(arg)), _, equalities) =>
+          (idents forall { ident => equalities.equal(arg, Var(ident)) == Equality.Unequal }) && equalities.contradictionIndeducible
         case _ =>
           false
       }
@@ -67,7 +89,7 @@ object PropertyChecking:
         else Symbolic.Control.Continue
       (expr, Equalities.empty, control)
 
-    def check(result: Symbolic.Result) =
+    def check(idents: List[Symbol], result: Symbolic.Result) =
       val unproven = Symbolic.Result(result.reductions filterNot {
         case Symbolic.Reduction(Data(Constructor.True, List()), _, _) => true
         case _ => false
@@ -86,4 +108,7 @@ object PropertyChecking:
 
   trait Normal extends PropertyChecking:
     def normalize(equalities: Equalities): PartialFunction[Term, Term]
+
+  trait Selecting extends PropertyChecking:
+    def select(equalities: Equalities): PartialFunction[Term, List[(Term, Equalities)]]
 end PropertyChecking

@@ -6,6 +6,12 @@ import ast.*
 import typer.*
 import scala.collection.mutable
 
+def select(
+    selecting: List[Equalities => PartialFunction[Term, List[(Term, Equalities)]]],
+    expr: Term,
+    equalities: Equalities) =
+  selecting flatMap { _(equalities).applyOrElse(expr, _ => List.empty) }
+
 def normalize(
     normalizing: List[Equalities => PartialFunction[Term, Term]],
     contractAbstraction: Abstraction => Boolean,
