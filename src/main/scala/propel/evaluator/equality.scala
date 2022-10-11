@@ -181,27 +181,29 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     case _ =>
       None
 
-  def posExpanded: Map[Term, Term] =
-    val posReverse = pos.foldLeft(Map.empty[Term, Term]) { case (posReverse, (expr0, expr1)) =>
-      if !(pos contains expr1) && (posReverse.get(expr1) forall { _ < expr0 }) then
-        posReverse + (expr1 -> expr0)
-      else
-        posReverse
+  def posExpanded: (Map[Term, Term], Map[Term, Term]) =
+    val posReverse = pos.foldLeft[Map[Term, Term]](Map.empty) { case (posReverse, (expr0, expr1)) =>
+      posReverse + (expr1 -> expr0)
     }
 
-    val propagatedReverseExpanded = pos flatMap { case (expr0, expr1) =>
-      propagate(posReverse, expr0) collect { case expr if expr ne expr0 =>
-        if expr1 < expr then expr1 -> expr else expr -> expr1
+    def expand(expand: (Map[Term, Term], Term) => Iterable[Term]) =
+      pos flatMap { case (expr0, expr1) =>
+        expand(posReverse, expr0) flatMap { expr =>
+          Option.when(expr ne expr0) { if expr1 < expr then expr1 -> expr else expr -> expr1 }
+        }
       }
-    }
 
-    propagatedReverseExpanded ++ pos
+    val expandedAll = expand(propagateAll)
+
+    val expandedSingleLevelVariations = expand(propagateSingleLevelVariations)
+
+    (expandedAll ++ pos, expandedSingleLevelVariations -- expandedAll.keys -- pos.keys)
   end posExpanded
 
   private def propagatePos: Option[Equalities] =
     val propagatedList = pos.toList mapIfDefined { (expr0, expr1) =>
-      propagate(pos - expr0, expr0) flatMap { expr0 =>
-        propagate(pos, expr1) map { expr1 =>
+      propagateAll(pos - expr0, expr0) flatMap { expr0 =>
+        propagateAll(pos, expr1) map { expr1 =>
           if expr1 < expr0 then expr1 -> expr0 else expr0 -> expr1
         }
       }
@@ -245,8 +247,8 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   private def propagateNeg: Equalities =
     val propagatedList = neg map {
       _.toList flatMap { (expr0, expr1) =>
-        propagate(pos, expr0) flatMap { expr0 =>
-          propagate(pos, expr1) map { expr1 =>
+        propagateAll(pos, expr0) flatMap { expr0 =>
+          propagateAll(pos, expr1) map { expr1 =>
             if expr1 < expr0 then expr1 -> expr0 else expr0 -> expr1
           }
         }
@@ -259,7 +261,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       this
   end propagateNeg
 
-  private def propagate(pos: Map[Term, Term], expr: Term): Option[Term] =
+  private def propagateAll(pos: Map[Term, Term], expr: Term): Option[Term] =
     def propagate(pos: Map[Term, Term], expr: Term, substituted: Set[Term]): Option[Term] =
       if !(substituted contains expr) then
         val (propagatedExpr, propagatedSubstituted) = pos.get(expr) match
@@ -291,6 +293,37 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         None
 
     propagate(pos, expr, Set.empty)
+
+  private def propagateSingleLevelVariations(pos: Map[Term, Term], expr: Term): List[Term] =
+    pos.get(expr).toList ++ {
+      expr match
+        case term @ Abs(properties, ident, tpe, expr) =>
+          propagateSingleLevelVariations(pos, expr) map { Abs(term)(properties, ident, tpe, _) }
+        case term @ App(properties, expr, arg) =>
+          propagateSingleLevelVariations(pos, expr) flatMap { expr =>
+            propagateSingleLevelVariations(pos, arg) map { App(term)(properties, expr, _) }
+          }
+        case term @ TypeAbs(ident, expr) =>
+          propagateSingleLevelVariations(pos, expr) map { TypeAbs(term)(ident, _) }
+        case term @ TypeApp(expr, tpe) =>
+          propagateSingleLevelVariations(pos, expr) map { TypeApp(term)(_, tpe) }
+        case term @ Data(ctor, args) =>
+          val propagatedArgs = args.foldRight[List[List[Term]]](List(List.empty)) {
+            case (arg, args) =>
+              propagateSingleLevelVariations(pos, arg) flatMap { arg => { args map { arg :: _ } } }
+          }
+          propagatedArgs map { Data(term)(ctor, _) }
+        case term @ Var(_) =>
+          List(term)
+        case term @ Cases(scrutinee, cases) =>
+          propagateSingleLevelVariations(pos, scrutinee) flatMap { scrutinee =>
+            val propagatedCases = cases.foldRight[List[List[(Pattern, Term)]]](List(List.empty)) {
+              case (pattern -> expr, cases) =>
+                propagateSingleLevelVariations(pos, expr) flatMap { expr => { cases map { (pattern -> expr) :: _ } } }
+            }
+            propagatedCases map { Cases(term)(scrutinee, _) }
+          }
+    }
 
   private def consolidateNeg: Option[Equalities] =
     val checkNeg = Equalities(Map.empty, Set.empty)

@@ -185,37 +185,54 @@ object Symbolic:
         val normalized = exprCache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
         if term != normalized then UniqueNames.convert(normalized) else normalized
 
-      val (additional, additionalControl) = equalities.posExpanded.foldLeft[(Option[List[List[(Term, Term)]]], Control)](Some(List(List.empty)) -> control) {
-        case (additional @ (None -> _), _) =>
-          additional
-        case (additional -> control, exprs @ (expr0, expr1)) =>
+      def evalEqualities(pos: Map[Term, Term]) = pos.foldLeft(List(equalities) -> control) {
+        case (evaluatedEqualities @ (List() -> _), _) =>
+          evaluatedEqualities
+        case (evaluatedEqualities -> control, exprs @ (expr0, expr1)) =>
           val reducedEqualities = equalities.withoutEqualities(exprs)
-          val result0 -> control0 = eval(normalize(expr0), constraints, reducedEqualities, control, nested = true)
-          val result1 -> control1 = eval(normalize(expr1), constraints, reducedEqualities, control, nested = true)
+
+          val normalized0 = normalize(expr0)
+          val result0 -> control0 = eval(normalized0, constraints, reducedEqualities, control, nested = true)
+
+          val normalized1 = normalize(expr1)
+          val result1 -> control1 = eval(normalized1, constraints, reducedEqualities, control, nested = true)
 
           def equivalentReduction(reduction: Reduction, expr: Term) =
             reduction.expr == expr && reduction.equalities.withoutEqualities(exprs) == reducedEqualities
 
           if control0 == Control.Terminate || control1 == Control.Terminate then
-            None -> Control.Terminate
+            List.empty -> Control.Terminate
           if result0.reductions.isEmpty || result1.reductions.isEmpty then
-            None -> control
+            List.empty -> control
           else if result0.reductions.sizeIs == 1 &&
                   result1.reductions.sizeIs == 1 &&
                   equivalentReduction(result0.reductions.head, expr0) &&
                   equivalentReduction(result1.reductions.head, expr1) then
-            additional -> control
+            evaluatedEqualities -> control
           else
-            (additional map { additional =>
-              result0.reductions flatMap { case Reduction(expr0, _, equalities0) =>
-                result1.reductions flatMap { case Reduction(expr1, _, equalities1) =>
-                  additional map { _ ++ List(expr0 -> expr1) ++ equalities0.pos ++ equalities1.pos }
+            (result0.reductions flatMap { case Reduction(expr0, _, equalities0) =>
+              result1.reductions flatMap { case Reduction(expr1, _, equalities1) =>
+                evaluatedEqualities flatMap { equalities =>
+                  equalities.withEqualities(equalities0.pos ++ equalities1.pos + (expr0 -> expr1) + (normalized0 -> normalized1))
                 }
               }
             }) -> control
       }
 
-      (additional getOrElse List.empty flatMap equalities.withEqualities) -> additionalControl
+      val (pos, posExtended) = equalities.posExpanded
+
+      val (evaluated, evaluatedControl) = evalEqualities(pos)
+
+      val (evaluatedExtended, evaluatedControlExtended) =
+        if evaluated.nonEmpty then
+          evalEqualities(posExtended)
+        else
+          List.empty -> evaluatedControl
+
+      if evaluatedExtended.nonEmpty then
+        (evaluated flatMap { evaluated => evaluatedExtended flatMap evaluated.withEqualities }) -> evaluatedControlExtended
+      else
+        List.empty -> evaluatedControlExtended
     end evalEqualities
 
     def evals(exprs: List[Term], constraints: Constraints, equalities: Equalities, control: Control): (Results, Control) =
