@@ -38,24 +38,6 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     case other: Equalities => eq(other) || hashCode == other.hashCode && pos == other.pos && neg == other.neg && other.canEqual(this)
     case _ => false
 
-  private def contains(outer: Term, inner: Term): Boolean =
-    equivalent(outer, inner) || {
-    outer match
-      case Abs(_, _, _, expr) => contains(expr, inner)
-      case App(_, expr, arg) => contains(expr, inner) || contains(arg, inner)
-      case TypeAbs(_, expr) => contains(expr, inner)
-      case TypeApp(expr, _) => contains(expr, inner)
-      case Data(_, args) => args exists { contains(_, inner) }
-      case Var(_) => false
-      case Cases(scrutinee, cases) => contains(scrutinee, inner) || (cases exists { (_, expr) => contains(expr, inner) })
-    }
-
-  private given Ordering[Term] =
-    case (expr0: Var, expr1: Var) => termOrdering.compare(expr0, expr1)
-    case (expr0: Var, expr1) => -1
-    case (expr0, expr1: Var) => 1
-    case (expr0, expr1) => termOrdering.compare(expr0, expr1)
-
   def equal(expr0: Term, expr1: Term): Equality =
     def equal(expr0: Term, expr1: Term): (Equality, List[(Term, Term)]) =
       pos.getOrElse(expr0, expr0) -> pos.getOrElse(expr1, expr1) match
@@ -201,7 +183,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
   def posExpanded: Map[Term, Term] =
     val posReverse = pos.foldLeft(Map.empty[Term, Term]) { case (posReverse, (expr0, expr1)) =>
-      if !(pos contains expr1) && !contains(expr0, expr1) && (posReverse.get(expr1) forall { _ < expr0 }) then
+      if !(pos contains expr1) && (posReverse.get(expr1) forall { _ < expr0 }) then
         posReverse + (expr1 -> expr0)
       else
         posReverse
