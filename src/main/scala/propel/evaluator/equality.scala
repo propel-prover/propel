@@ -146,8 +146,9 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def withEqualities(pos: IterableOnce[(Term, Term)]): Option[Equalities] =
     val iterator = pos.iterator
     if iterator.nonEmpty then
-      Equalities(normalize(this.pos, iterator) filterNot { _ == _ }, this.neg)
-        .propagatePos flatMap { _.propagateNeg.consolidateNeg }
+      normalize(this.pos, iterator) flatMap { pos =>
+        Equalities(pos filterNot { _ == _ }, this.neg).propagatePos flatMap { _.propagateNeg.consolidateNeg }
+      }
     else
       Some(this)
 
@@ -170,7 +171,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def withUnequalities(neg: IterableOnce[IterableOnce[(Term, Term)]]): Option[Equalities] =
     val iterator = neg.iterator
     if iterator.nonEmpty then
-      Equalities(this.pos, (iterator map { neg => normalize(Map.empty, neg.iterator) }).toSet)
+      Equalities(this.pos, (iterator flatMap { neg => normalize(Map.empty, neg.iterator) }).toSet)
         .propagateNeg.consolidateNeg map { case Equalities(pos, neg) => Equalities(pos, this.neg ++ neg) }
     else
       Some(this)
@@ -253,7 +254,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       def iterator = propagatedList.iterator ++ equivalentList.iterator
 
       if Map.from(iterator) != pos then
-        Equalities(normalize(Map.empty, iterator) filterNot { _ == _ }, neg).propagatePos
+        normalize(Map.empty, iterator) flatMap { pos => Equalities(pos filterNot { _ == _ }, neg).propagatePos }
       else
         Some(this)
     }
@@ -271,7 +272,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     }
 
     if (propagatedList map { _.toMap }) != neg then
-      Equalities(pos, propagatedList map { neg => normalize(Map.empty, neg.iterator) }).propagateNeg
+      Equalities(pos, propagatedList flatMap { neg => normalize(Map.empty, neg.iterator) }).propagateNeg
     else
       this
   end propagateNeg
@@ -326,23 +327,31 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       case exprs =>
         List(exprs)
 
-    def insert(equalities: Map[Term, Term], key: Term, value: Term): Map[Term, Term] =
-      destruct(key, value).foldLeft(equalities) { case (equalities, (key, value)) =>
-        if key != value then
-          equalities.get(key) match
-            case None =>
-              equalities + (key -> value)
-            case Some(expr) if expr != value =>
-              val otherKey -> otherValue = if expr < value then expr -> value else value -> expr
-              insert(equalities + (key -> otherValue), otherKey, otherValue)
-            case _ =>
-              equalities
-        else
-          equalities
+    def insert(equalities: Map[Term, Term], key: Term, value: Term, inserted: Set[Term]): Option[Map[Term, Term]] =
+      destruct(key, value).foldLeft[Option[Map[Term, Term]]](Some(equalities)) {
+        case (None, _) =>
+          None
+        case (current @ Some(equalities), (key, value)) =>
+          if key != value then
+            equalities.get(key) match
+              case None =>
+                Some(equalities + (key -> value))
+              case Some(expr) if expr != value =>
+                if !(inserted contains key) then
+                  val otherKey -> otherValue = if expr < value then expr -> value else value -> expr
+                  insert(equalities + (key -> otherValue), otherKey, otherValue, inserted + key)
+                else
+                  None
+              case _ =>
+                current
+          else
+            current
       }
 
-    equalities.foldLeft(pos) { case (equalities, (expr0, expr1)) =>
-      if expr0 < expr1 then insert(equalities, expr0, expr1) else insert(equalities, expr1, expr0)
+    equalities.foldLeft[Option[Map[Term, Term]]](Some(pos)) { case (equalities, (expr0, expr1)) =>
+      equalities flatMap { equalities =>
+        if expr0 < expr1 then insert(equalities, expr0, expr1, Set.empty) else insert(equalities, expr1, expr0, Set.empty)
+      }
     }
 end Equalities
 
