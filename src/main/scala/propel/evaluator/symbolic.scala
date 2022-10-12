@@ -157,6 +157,61 @@ object Symbolic:
         }
       })
 
+  private def substUniqueNames(expr: Term, substs: TermSubstitutions)(using UniqueNaming): Term =
+    def prepareSubst(term: Term, names: Set[String], idents: Map[Symbol, List[Symbol]]): (Term, Set[String], Map[Symbol, List[Symbol]]) =
+      term match
+        case Abs(properties, ident, tpe, expr) =>
+          val (exprSubst, exprNames, exprIdents) = prepareSubst(expr, names, idents)
+          (Abs(term)(properties, ident, tpe, exprSubst), exprNames, exprIdents)
+        case App(properties, expr, arg) =>
+          val (exprSubst, exprNames, exprIdents) = prepareSubst(expr, names, idents)
+          val (argSubst, argNames, argIdents) = prepareSubst(arg, exprNames, exprIdents)
+          (App(term)(properties, exprSubst, argSubst), argNames, argIdents)
+        case TypeAbs(ident, expr) =>
+          val (exprSubst, exprNames, exprIdents) = prepareSubst(expr, names, idents)
+          (TypeAbs(term)(ident, exprSubst), exprNames, exprIdents)
+        case TypeApp(expr, tpe) =>
+          val (exprSubst, exprNames, exprIdents) = prepareSubst(expr, names, idents)
+          (TypeApp(term)(exprSubst, tpe), exprNames, exprIdents)
+        case Data(ctor, args) =>
+          val (argsSubst, argsNames, argsIdents) =
+            args.foldRight[(List[Term], Set[String], Map[Symbol, List[Symbol]])](List.empty, names, idents) {
+              case (arg, (args, names, idents)) =>
+                val (argSubst, argNames, argIdents) = prepareSubst(arg, names, idents)
+                ((argSubst :: args), argNames, argIdents)
+            }
+          (Data(term)(ctor, argsSubst), argsNames, argsIdents)
+        case Var(ident) =>
+          if substs contains ident then
+            val fresh = Naming.freshIdent(Symbol("□"), names)
+            (Var(fresh), names + fresh.name, idents.updatedWith(ident) { _ map { fresh :: _ } orElse Some(List(fresh)) })
+          else
+            (term, names, idents)
+        case Cases(scrutinee, cases) =>
+          val (scrutineeSubst, scrutineeNames, scrutineeIdents) = prepareSubst(scrutinee, names, idents)
+          val (casesSubst, casesNames, casesIdents) =
+            cases.foldRight[(List[(Pattern, Term)], Set[String], Map[Symbol, List[Symbol]])](List.empty, scrutineeNames, scrutineeIdents) {
+              case (pattern -> expr, (cases, names, idents)) =>
+                val (exprSubst, exprNames, exprIdents) = prepareSubst(expr, names, idents)
+                (((pattern -> exprSubst) :: cases), exprNames, exprIdents)
+            }
+          (Cases(term)(scrutineeSubst, casesSubst), casesNames, casesIdents)
+
+    val (term, info) = expr.syntactic
+
+    if substs.keys exists { info.freeVars.getOrElse(_, 0) > 1 } then
+      val (substTerm, _, substIdents) = prepareSubst(term, UniqueNames.usedNames.toSet, Map.empty)
+      val substSubsts = substIdents flatMap { (ident, idents) =>
+        val expr = substs(ident)
+        (idents.head -> expr) :: (idents.tail map { _ -> UniqueNames.convert(expr) })
+      }
+      subst(substTerm, substSubsts)
+    else if substs.keys forall { info.freeVars.getOrElse(_, 0) > 0 } then
+      subst(term, substs)
+    else
+      term
+  end substUniqueNames
+
 
   def eval(expr: UniqueNames[Term | Result]): UniqueNames[Result] = expr linked {
     case expr: Term => eval(Result(List(Reduction(expr, Constraints.empty, Equalities.empty))), Configuration())
@@ -301,7 +356,7 @@ object Symbolic:
                     if equivalent(expr0, expr1) =>
                   (reductions :+ Reduction(App(term)(properties, expr, arg), constraints, equalities)) -> control
                 case ((reductions, control), Reductions(List(Abs(_, ident, _, expr), arg), constraints, equalities)) =>
-                  val result -> resultControl = eval(subst(expr, Map(ident -> arg)), constraints, equalities, control, nested)
+                  val result -> resultControl = eval(substUniqueNames(expr, Map(ident -> arg)), constraints, equalities, control, nested)
                   reductions ++ result.reductions -> resultControl
                 case ((reductions, control), Reductions(exprs, constraints, equalities)) =>
                   val List(expr, arg) = exprs
@@ -347,7 +402,7 @@ object Symbolic:
                     case (pattern, expr) :: tail =>
                       Unification.unify(pattern, normalize(scrutinee, equalities, config, exprCache)) match
                         case Unification.Full(substs) =>
-                          val result -> resultControl = eval(subst(expr, substs), constraints, equalities, control, nested)
+                          val result -> resultControl = eval(substUniqueNames(expr, substs), constraints, equalities, control, nested)
                           result.reductions -> resultControl
 
                         case Unification.Irrefutable(substs, posConstraints) =>
@@ -364,7 +419,7 @@ object Symbolic:
                                       case (result @ (reductions, control), equals) =>
                                         constraintsFromEqualities(consts, equals, constsCache) match
                                           case Some(consts, equals) =>
-                                            val result -> resultControl = eval(subst(expr, substs), consts, equals, control, nested)
+                                            val result -> resultControl = eval(substUniqueNames(expr, substs), consts, equals, control, nested)
                                             reductions ++ result.reductions -> resultControl
                                           case _ =>
                                             result
