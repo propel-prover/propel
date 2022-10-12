@@ -291,7 +291,23 @@ object Symbolic:
 
             case (App(properties, expr, arg), _, Some(constraints, equalities)) =>
               val results -> resultsControl = evals(List(expr, arg), constraints, equalities, control)
-              (results map { exprs => App(term)(properties, exprs.head, exprs.tail.head) }) -> resultsControl
+              val reductions -> reductionsControl = results.reductions.foldLeft[(List[Reduction], Control)](List.empty -> resultsControl) {
+                case (results @ (_, Control.Terminate), _) =>
+                  results
+                case ((reductions, control), Reductions(List(expr, arg), constraints, equalities))
+                    if equivalent(expr, arg) =>
+                  (reductions :+ Reduction(App(term)(properties, expr, arg), constraints, equalities)) -> control
+                case ((reductions, control), Reductions(List(expr @ Abs(_, _, _, App(_, expr0, expr1)), arg), constraints, equalities))
+                    if equivalent(expr0, expr1) =>
+                  (reductions :+ Reduction(App(term)(properties, expr, arg), constraints, equalities)) -> control
+                case ((reductions, control), Reductions(List(Abs(_, ident, _, expr), arg), constraints, equalities)) =>
+                  val result -> resultControl = eval(subst(expr, Map(ident -> arg)), constraints, equalities, control, nested)
+                  reductions ++ result.reductions -> resultControl
+                case ((reductions, control), Reductions(exprs, constraints, equalities)) =>
+                  val List(expr, arg) = exprs
+                  (reductions :+ Reduction(App(term)(properties, expr, arg), constraints, equalities)) -> control
+              }
+              Result(reductions) -> reductionsControl
 
             case (TypeAbs(ident, expr), _, Some(constraints, equalities)) =>
               Result(List(Reduction(term, constraints, equalities))) -> control

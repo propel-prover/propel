@@ -238,7 +238,6 @@ def lwwreg_merge[A: TermExpr](expr: A) =
                     ("Pair", "d", ("S", "t")))))(expr)
 
 def gset_merge[A: TermExpr](expr: A) =
-    // TODO fails because we do not do beta reduction
     let("gset_merge" ->
         abs(comm,assoc)("a" -> tp(nat -> bool), "b" -> tp(nat -> bool))
            (abs()("x" -> nat)(or("a", "x")("b", "x"))))(expr)
