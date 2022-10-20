@@ -1,7 +1,6 @@
 package propel
+package ast
 package dsl
-
-import ast.*
 
 
 export ast.Term
