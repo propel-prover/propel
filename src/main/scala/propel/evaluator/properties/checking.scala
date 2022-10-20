@@ -248,7 +248,7 @@ def check(
             if call.isDefined &&
                idents.sizeIs >= 2 &&
                evaluationResult.wrapped.reductions.sizeIs > 1 &&
-               (equivalent(tpe0, tpe1) && (resultType exists { equivalent(tpe0, _) })) then
+               (equivalent(tpe0, tpe1) && (resultType exists { conforms(_, tpe0) })) then
               Conjecture.generalizedConjectures(
                 abstractionProperties.get,
                 env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
@@ -491,10 +491,10 @@ def check(
             Some(unknownPropertyError(property))
           case Some(checking) =>
             if checking.propertyType == PropertyType.Relation &&
-               (!equivalent(tpe0, tpe1) || (resultType forall { !equivalent(boolType, _) })) then
+               (!equivalent(tpe0, tpe1) || (resultType forall { !conforms(_, boolType) })) then
               Some(illformedRelationTypeError(property, term.termType))
             else if checking.propertyType == PropertyType.Function &&
-               (!equivalent(tpe0, tpe1) || (resultType forall { !equivalent(tpe0, _) })) then
+               (!equivalent(tpe0, tpe1) || (resultType forall { !conforms(_, tpe0) })) then
               Some(illformedFunctionTypeError(property, term.termType))
             else
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
