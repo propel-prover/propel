@@ -528,15 +528,23 @@ object Conjecture:
   end generalizedConjectures
 
   def distributivityConjectures(properties: Properties, abstraction: Term): List[Normalization] =
-    def freeVars(expr: Term, bound: Set[Symbol]): Map[Term, Properties] = expr match
-      case Abs(_, ident, _, expr) => freeVars(expr, bound + ident)
-      case App(properties, expr @ Var(ident), arg) if !(bound contains ident) => freeVars(arg, bound) + (expr -> properties)
-      case App(_, expr, arg) => freeVars(expr, bound) ++ freeVars(arg, bound)
-      case TypeAbs(_, expr) => freeVars(expr, bound)
-      case TypeApp(expr, _) => freeVars(expr, bound)
-      case Data(_, args) => (args flatMap { freeVars(_, bound) }).toMap
-      case Var(_) => Map.empty
-      case Cases(scrutinee, cases) => freeVars(scrutinee, bound) ++ (cases flatMap { (_, expr) => freeVars(expr, bound) })
+    def freeVars(expr: Term) =
+      val abstraction = expr.info(Abstraction)
+
+      def freeVars(expr: Term, bound: Set[Symbol]): Map[Term, Properties] = expr match
+        case Abs(_, ident, _, expr) => freeVars(expr, bound + ident)
+        case App(properties, expr @ Var(ident), arg)
+            if !(bound contains ident) && !(expr.info(Abstraction) exists { abstraction contains _ }) =>
+          freeVars(arg, bound) + (expr -> properties)
+        case App(_, expr, arg) => freeVars(expr, bound) ++ freeVars(arg, bound)
+        case TypeAbs(_, expr) => freeVars(expr, bound)
+        case TypeApp(expr, _) => freeVars(expr, bound)
+        case Data(_, args) => (args flatMap { freeVars(_, bound) }).toMap
+        case Var(_) => Map.empty
+        case Cases(scrutinee, cases) => freeVars(scrutinee, bound) ++ (cases flatMap { (_, expr) => freeVars(expr, bound) })
+
+      freeVars(expr, Set.empty)
+    end freeVars
 
     def binaryBinaryConjectures(binary0: Term, binary0Properties: Properties, binary1: Term, binary1Properties: Properties) =
       def side0(properties0: Properties, expr0: Term, properties1: Properties, expr1: Term) = App(Set.empty,
@@ -592,7 +600,7 @@ object Conjecture:
         val unaryType = Function(tpe0, tpe0)
         val binaryType = Function(tpe0, Function(tpe0, tpe0))
 
-        freeVars(abstraction, Set.empty).toList sortBy { (expr, _) => expr } flatMap { (expr, exprProperties) =>
+        freeVars(abstraction).toList sortBy { (expr, _) => expr } flatMap { (expr, exprProperties) =>
           expr.termType.toList flatMap { tpe =>
             if equivalent(tpe, unaryType) then unaryBinaryConjectures(expr, exprProperties, Var(Symbol("∘")), properties)
             else if equivalent(tpe, binaryType) then binaryBinaryConjectures(expr, exprProperties, Var(Symbol("∘")), properties)
@@ -604,7 +612,7 @@ object Conjecture:
         val unaryType = Function(tpe0, tpe0)
         val binaryType = Function(tpe0, Function(tpe0, tpe0))
 
-        freeVars(abstraction, Set.empty).toList sortBy { (expr, _) => expr } flatMap { (expr, exprProperties) =>
+        freeVars(abstraction).toList sortBy { (expr, _) => expr } flatMap { (expr, exprProperties) =>
           expr.termType.toList flatMap { tpe =>
             if equivalent(tpe, unaryType) then unaryUnaryConjectures(Var(Symbol("∘")), properties, expr, exprProperties)
             else if equivalent(tpe, binaryType) then binaryBinaryConjectures(Var(Symbol("∘")), properties, expr, exprProperties)
