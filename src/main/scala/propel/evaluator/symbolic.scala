@@ -206,7 +206,7 @@ object Symbolic:
         (idents.head -> expr) :: (idents.tail map { _ -> UniqueNames.convert(expr) })
       }
       subst(substTerm, substSubsts)
-    else if substs.keys forall { info.freeVars.getOrElse(_, 0) > 0 } then
+    else if substs.keys exists { info.freeVars.getOrElse(_, 0) > 0 } then
       subst(term, substs)
     else
       term
