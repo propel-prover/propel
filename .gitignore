@@ -35,3 +35,4 @@ report/*.*
 !report/.latexmkrc
 
 !evaluation/haskell/**/*.log
+!evaluation/smtlib2/**/*.log
