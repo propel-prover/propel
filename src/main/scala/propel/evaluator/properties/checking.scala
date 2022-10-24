@@ -148,9 +148,11 @@ def check(
       }
     }
 
-  def exprArgumentPrefixes(expr: Term): List[(List[Symbol], Term)] = expr match
-    case Abs(_, ident, _, expr) =>
-      List(ident) -> expr :: (exprArgumentPrefixes(expr) map { (idents, expr) => (ident :: idents) -> expr })
+  def exprArgumentPrefixes(expr: Term): List[(List[(Symbol, Type)], Term)] = expr match
+    case Abs(_, ident, tpe, expr) =>
+      (List(ident -> tpe), expr) :: (exprArgumentPrefixes(expr) map { (identTypes, expr) =>
+        (ident -> tpe :: identTypes, expr)
+      })
     case _ =>
       List.empty
 
@@ -237,7 +239,9 @@ def check(
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
       val (facts, conjectures) =
-        val (basicFacts, generalizedConjectures) = (exprArgumentPrefixes(term) map { (idents, expr) =>
+        val (basicFacts, generalizedConjectures) = (exprArgumentPrefixes(term) map { (identTypes, expr) =>
+          val (idents, _) = identTypes.unzip
+
           val evaluationResult =
             if expr ne expr1 then
               Symbolic.eval(UniqueNames.convert(expr, names))
@@ -254,7 +258,8 @@ def check(
                 env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
                 term,
                 call.get,
-                idents, evaluationResult)
+                identTypes,
+                evaluationResult)
             else
               List.empty
 
@@ -579,7 +584,8 @@ def check(
           println()
           println(indent(2, term.show))
 
-        val facts = exprArgumentPrefixes(term) flatMap { (idents, expr) =>
+        val facts = exprArgumentPrefixes(term) flatMap { (identTypes, expr) =>
+          val (idents, _) = identTypes.unzip
           Conjecture.basicFacts(
             abstractionProperties.get,
             env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
