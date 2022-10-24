@@ -128,7 +128,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def withEqualities(pos: IterableOnce[(Term, Term)]): Option[Equalities] =
     val iterator = pos.iterator
     if iterator.nonEmpty then
-      normalize(this.pos, iterator) flatMap { pos =>
+      normalize(this.pos, homogenize(iterator)) flatMap { pos =>
         Equalities(pos filterNot { _ == _ }, this.neg).propagatePos flatMap { _.propagateNeg.consolidateNeg }
       }
     else
@@ -153,7 +153,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def withUnequalities(neg: IterableOnce[IterableOnce[(Term, Term)]]): Option[Equalities] =
     val iterator = neg.iterator
     if iterator.nonEmpty then
-      Equalities(this.pos, (iterator flatMap { neg => normalize(Map.empty, neg.iterator) }).toSet)
+      Equalities(this.pos, (iterator flatMap { neg => normalize(Map.empty, homogenize(neg.iterator)) }).toSet)
         .propagateNeg.consolidateNeg map { case Equalities(pos, neg) => Equalities(pos, this.neg ++ neg) }
     else
       Some(this)
@@ -262,74 +262,100 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   end propagateNeg
 
   private def propagateAll(pos: Map[Term, Term], expr: Term): Option[Term] =
-    def propagate(pos: Map[Term, Term], expr: Term, substituted: Set[Term]): Option[Term] =
+    def propagate(expr: Term, substituted: Set[Term], bound: Set[String]): Option[Term] =
       if !(substituted contains expr) then
-        val (propagatedExpr, propagatedSubstituted) = pos.get(expr) match
-          case Some(propagatedExpr) => propagatedExpr -> (substituted + expr)
-          case _ => expr -> substituted
+        val (propagatedExpr, propagatedSubstituted, propagatedBound) = pos.get(expr) match
+          case Some(propagatedExpr) =>
+            val syntactic @ (syntacticPropagatedExpr, syntacticInfo) = propagatedExpr.syntactic
+            val (convertedExpr, info) =
+              if syntacticInfo.freeVars.keys exists { bound contains _.name } then
+                UniqueNames.convert(expr, bound) unwrap { _.syntactic }
+              else
+                syntactic
+            (convertedExpr, substituted + expr, bound ++ (info.boundVars map { _.name }))
+          case _ =>
+            (expr, substituted, bound)
 
         propagatedExpr match
           case term @ Abs(properties, ident, tpe, expr) =>
-            propagate(pos, expr, propagatedSubstituted) map { Abs(term)(properties, ident, tpe, _) }
+            propagate(expr, propagatedSubstituted, propagatedBound) map { Abs(term)(properties, ident, tpe, _) }
           case term @ App(properties, expr, arg) =>
-            propagate(pos, expr, propagatedSubstituted) flatMap { expr =>
-              propagate(pos, arg, propagatedSubstituted) map { App(term)(properties, expr, _) }
+            propagate(expr, propagatedSubstituted, propagatedBound) flatMap { expr =>
+              propagate(arg, propagatedSubstituted, propagatedBound) map { App(term)(properties, expr, _) }
             }
           case term @ TypeAbs(ident, expr) =>
-            propagate(pos, expr, propagatedSubstituted) map { TypeAbs(term)(ident, _) }
+            propagate(expr, propagatedSubstituted, propagatedBound) map { TypeAbs(term)(ident, _) }
           case term @ TypeApp(expr, tpe) =>
-            propagate(pos, expr, propagatedSubstituted) map { TypeApp(term)(_, tpe) }
+            propagate(expr, propagatedSubstituted, propagatedBound) map { TypeApp(term)(_, tpe) }
           case term @ Data(ctor, args) =>
-            args mapIfDefined { propagate(pos, _, propagatedSubstituted) } map { Data(term)(ctor, _) }
+            args mapIfDefined { propagate(_, propagatedSubstituted, propagatedBound) } map { Data(term)(ctor, _) }
           case term @ Var(_) =>
             Some(term)
           case term @ Cases(scrutinee, cases) =>
-            propagate(pos, scrutinee, propagatedSubstituted) flatMap { scrutinee =>
+            propagate(scrutinee, propagatedSubstituted, propagatedBound) flatMap { scrutinee =>
               cases mapIfDefined { (pattern, expr) =>
-                propagate(pos, expr, propagatedSubstituted) map { pattern -> _ } } map { Cases(term)(scrutinee, _)
+                propagate(expr, propagatedSubstituted, propagatedBound) map { pattern -> _ } } map { Cases(term)(scrutinee, _)
               }
             }
       else
         None
 
-    propagate(pos, expr, Set.empty)
+    val (syntacticExpr, syntacticInfo) = expr.syntactic
+    propagate(syntacticExpr, Set.empty, syntacticInfo.boundVars map { _.name }) map UniformNames.convert
+  end propagateAll
 
   private def propagateSingleLevelVariations(pos: Map[Term, Term], expr: Term): List[Term] =
-    pos.get(expr).toList ++ {
-      expr match
-        case term @ Abs(properties, ident, tpe, expr) =>
-          propagateSingleLevelVariations(pos, expr) map { Abs(term)(properties, ident, tpe, _) }
-        case term @ App(properties, expr, arg) =>
-          propagateSingleLevelVariations(pos, expr) flatMap { expr =>
-            propagateSingleLevelVariations(pos, arg) map { App(term)(properties, expr, _) }
-          }
-        case term @ TypeAbs(ident, expr) =>
-          propagateSingleLevelVariations(pos, expr) map { TypeAbs(term)(ident, _) }
-        case term @ TypeApp(expr, tpe) =>
-          propagateSingleLevelVariations(pos, expr) map { TypeApp(term)(_, tpe) }
-        case term @ Data(ctor, args) =>
-          val propagatedArgs = args.foldRight[List[List[Term]]](List(List.empty)) {
-            case (arg, args) =>
-              propagateSingleLevelVariations(pos, arg) flatMap { arg => { args map { arg :: _ } } }
-          }
-          propagatedArgs map { Data(term)(ctor, _) }
-        case term @ Var(_) =>
-          List(term)
-        case term @ Cases(scrutinee, cases) =>
-          propagateSingleLevelVariations(pos, scrutinee) flatMap { scrutinee =>
-            val propagatedCases = cases.foldRight[List[List[(Pattern, Term)]]](List(List.empty)) {
-              case (pattern -> expr, cases) =>
-                propagateSingleLevelVariations(pos, expr) flatMap { expr => { cases map { (pattern -> expr) :: _ } } }
+    val bound = expr.syntacticInfo.boundVars map { _.name }
+
+    def propagate(expr: Term): List[Term] =
+      val convertedExpr = pos.get(expr) map { expr =>
+        if expr.syntacticInfo.freeVars.keys exists { bound contains _.name } then
+          UniqueNames.convert(expr, bound).wrapped
+        else
+          expr
+      }
+
+      convertedExpr.toList ++ {
+        expr match
+          case term @ Abs(properties, ident, tpe, expr) =>
+            propagate(expr) map { Abs(term)(properties, ident, tpe, _) }
+          case term @ App(properties, expr, arg) =>
+            propagate(expr) flatMap { expr =>
+              propagate(arg) map { App(term)(properties, expr, _) }
             }
-            propagatedCases map { Cases(term)(scrutinee, _) }
-          }
-    }
+          case term @ TypeAbs(ident, expr) =>
+            propagate(expr) map { TypeAbs(term)(ident, _) }
+          case term @ TypeApp(expr, tpe) =>
+            propagate(expr) map { TypeApp(term)(_, tpe) }
+          case term @ Data(ctor, args) =>
+            val propagatedArgs = args.foldRight[List[List[Term]]](List(List.empty)) {
+              case (arg, args) =>
+                propagate(arg) flatMap { arg => { args map { arg :: _ } } }
+            }
+            propagatedArgs map { Data(term)(ctor, _) }
+          case term @ Var(_) =>
+            List(term)
+          case term @ Cases(scrutinee, cases) =>
+            propagate(scrutinee) flatMap { scrutinee =>
+              val propagatedCases = cases.foldRight[List[List[(Pattern, Term)]]](List(List.empty)) {
+                case (pattern -> expr, cases) =>
+                  propagate(expr) flatMap { expr => { cases map { (pattern -> expr) :: _ } } }
+              }
+              propagatedCases map { Cases(term)(scrutinee, _) }
+            }
+      }
+
+    propagate(expr) map UniformNames.convert
+  end propagateSingleLevelVariations
 
   private def consolidateNeg: Option[Equalities] =
     val checkNeg = Equalities(Map.empty, Set.empty)
     Option.when((pos forall { checkNeg.equal(_, _) != Equality.Unequal }) && (neg forall { _.nonEmpty })) {
       Equalities(pos, neg filter { _ forall { checkNeg.equal(_, _) != Equality.Unequal } })
     }
+
+  private def homogenize(equalities: Iterator[(Term, Term)]) =
+    equalities map { (expr0, expr1) => UniformNames.convert(expr0) -> UniformNames.convert(expr1) }
 
   private def normalize(pos: Map[Term, Term], equalities: Iterator[(Term, Term)]) =
     def destruct(expr0: Term, expr1: Term): List[(Term, Term)] = expr0 -> expr1 match

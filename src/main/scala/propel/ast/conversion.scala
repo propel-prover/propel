@@ -103,3 +103,55 @@ object UniqueNames:
       names.makeResult(renameTerm(expr, Map.empty))
     }
 end UniqueNames
+
+object UniformNames:
+  def convert(expr: Term): Term =
+    def renamePattern(pattern: Pattern, names: Set[String]): (Pattern, Map[Symbol, Symbol], Set[String]) = pattern match
+      case Match(ctor, args) =>
+        val (argPatterns, argSubsts, argNames) =
+          args.foldLeft(List.empty[Pattern], Map.empty[Symbol, Symbol], names) { case ((args, substs, names), arg) =>
+            let(renamePattern(arg, names)) { (arg, additionalSubst, names) =>
+              (arg :: args, substs ++ additionalSubst, names)
+            }
+          }
+        (Match(pattern)(ctor, argPatterns.reverse), argSubsts, argNames)
+      case Bind(ident) =>
+        val fresh = Naming.freshIdent(ident, names)
+        (Bind(pattern)(fresh), Map(ident -> fresh), names + fresh.name)
+
+    def renameTerm(term: Term, names: Set[String], subst: Map[Symbol, Symbol]): (Term, Set[String]) = term match
+      case Abs(properties, ident, tpe, expr) =>
+        val fresh = Naming.freshIdent(ident, names)
+        let(renameTerm(expr, names + fresh.name, subst + (ident -> fresh))) { Abs(term)(properties, fresh, tpe, _) -> _ }
+      case App(properties, expr, arg) =>
+        let(renameTerm(expr, names, subst)) { (expr, names) =>
+          let(renameTerm(arg, names, subst)) { App(term)(properties, expr, _) -> _ }
+        }
+      case TypeAbs(ident, expr) =>
+        let(renameTerm(expr, names, subst)) { TypeAbs(term)(ident, _) -> _ }
+      case TypeApp(expr, tpe) =>
+        let(renameTerm(expr, names, subst)) { TypeApp(term)(_, tpe) -> _ }
+      case Data(ctor, args) =>
+        val (argTerms, argNames) =
+          args.foldLeft(List.empty[Term], names) { case ((args, names), arg) =>
+            let(renameTerm(arg, names, subst)) { (arg, names) => (arg :: args) -> names }
+          }
+        Data(term)(ctor, argTerms.reverse) -> argNames
+      case Var(ident) =>
+        (subst.get(ident) map { Var(term)(_) } getOrElse term) -> names
+      case Cases(scrutinee, cases) =>
+        val (scrutineeTerm, scrutineeNames) = renameTerm(scrutinee, names, subst)
+        val (casesPatternTerms, casesNames) =
+          cases.foldLeft(List.empty[(Pattern, Term)], scrutineeNames) { case ((cases, names), pattern -> expr) =>
+            let(renamePattern(pattern, names)) { (pattern, additionalSubst, names) =>
+              let(renameTerm(expr, names, subst ++ additionalSubst)) { (expr, names) =>
+                ((pattern -> expr) :: cases) -> names
+              }
+            }
+          }
+        Cases(term)(scrutineeTerm, casesPatternTerms.reverse) -> casesNames
+
+    let(expr.syntactic) { (expr, syntactic) =>
+      let(renameTerm(expr, (syntactic.freeVars map { (ident, _) => ident.name }).toSet, Map.empty)) { (expr, _) => expr }
+    }
+end UniformNames
