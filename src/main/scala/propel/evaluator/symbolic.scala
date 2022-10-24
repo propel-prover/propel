@@ -241,7 +241,7 @@ object Symbolic:
         val normalized = exprCache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
         if term != normalized then UniqueNames.convert(normalized) else normalized
 
-      def evalEqualities(pos: Map[Term, Term]) = pos.foldLeft(List(equalities) -> control) {
+      def evaluateEqualities(pos: Map[Term, Term]) = pos.foldLeft(List(equalities) -> control) {
         case (evaluatedEqualities @ (List() -> _), _) =>
           evaluatedEqualities
         case (evaluatedEqualities -> control, exprs @ (expr0, expr1)) =>
@@ -277,16 +277,30 @@ object Symbolic:
 
       val (pos, posExtended) = equalities.posExpanded
 
-      val (evaluated, evaluatedControl) = evalEqualities(pos)
+      val (evaluated, evaluatedControl) = evaluateEqualities(pos)
+
+      val evaluatedDerived = evaluated flatMap config.derive
 
       val (evaluatedExtended, evaluatedControlExtended) =
-        if evaluated.nonEmpty then
-          evalEqualities(posExtended)
+        if evaluatedDerived.nonEmpty then
+          evaluateEqualities(posExtended)
         else
           List.empty -> evaluatedControl
 
-      if evaluatedExtended.nonEmpty then
-        (evaluated flatMap { evaluated => evaluatedExtended flatMap evaluated.withEqualities }) -> evaluatedControlExtended
+      val evaluatedExtendedDerived = evaluatedExtended flatMap config.derive
+
+      if evaluatedExtendedDerived.nonEmpty then
+        val evaluatedCombined = evaluatedDerived flatMap { evaluatedExtendedDerived flatMap _.withEqualities }
+        if evaluatedCombined.sizeIs > 1 || evaluatedCombined.sizeIs == 1 && evaluatedCombined.head != equalities then
+          evaluatedCombined.foldLeft(List.empty[Equalities] -> evaluatedControlExtended) {
+            case (combinedEqualities @ (List() -> _), _) =>
+              combinedEqualities
+            case ((combinedEqualities, control), equalities) =>
+              val evaluatedEqualities -> evaluatedControl = evalEqualities(constraints, equalities, control)
+              (combinedEqualities ++ evaluatedEqualities) -> evaluatedControl
+          }
+        else
+          evaluatedCombined -> evaluatedControlExtended
       else
         List.empty -> evaluatedControlExtended
     end evalEqualities
@@ -476,12 +490,13 @@ object Symbolic:
               if evaluatedControl != Control.Terminate then
                 evaluatedEqualities flatMap { equalities =>
                   val normalized = normalize(expr, equalities, config, exprCache)
+
                   if expr == normalized then
-                    List(reduction)
+                    List(Reduction(expr, constraints, equalities))
                   else
                     val normalizedResult -> normalizedControl = eval(normalized, constraints, equalities, evaluatedControl, nested = false)
                     if normalizedResult.reductions.sizeIs == 1 && normalizedResult.reductions.head.expr == expr then
-                      List(reduction)
+                      List(Reduction(expr, constraints, equalities))
                     else
                       Symbolic.eval(normalizedResult, config, exprCache, equalsCache, constsCache, normalizedControl).reductions
                 }
