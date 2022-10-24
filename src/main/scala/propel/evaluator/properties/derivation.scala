@@ -10,7 +10,23 @@ def select(
     selecting: List[Equalities => PartialFunction[Term, List[(Term, Equalities)]]],
     expr: Term,
     equalities: Equalities) =
-  selecting flatMap { _(equalities).applyOrElse(expr, _ => List.empty) }
+  val selections = selecting flatMap { _(equalities).applyOrElse(expr, _ => List.empty) }
+  if selections.isEmpty then
+    expr match
+      case App(_, Abs(_, _, _, _), _) =>
+        selections
+      case App(_, _, _) =>
+        expr.termType match
+          case Some(Sum(sum)) if sum forall { (_, args) => args.isEmpty } =>
+            sum flatMap { (ctor, _) =>
+              Equalities.pos(List(expr -> Data(ctor, List.empty))) map { Data(ctor, List.empty) -> _ }
+            }
+          case _ =>
+            selections
+      case _ =>
+        selections
+  else
+    selections
 
 def normalize(
     normalizing: List[Equalities => PartialFunction[Term, Term]],
