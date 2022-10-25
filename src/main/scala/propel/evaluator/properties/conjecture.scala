@@ -414,24 +414,33 @@ object Conjecture:
 
                 val generalizations =
                   if !containsReference(rhs, baseAbstraction) then
-                    val freeVars = rhsInfo.freeVars.keys
+                    val generalizedVariables =
+                      args.zipWithIndex collect { case (arg, index) if arg == rhs =>
+                        app(properties, recursiveCall, args.updated(index, vars(index)), tpe) -> vars(index)
+                      }
 
-                    val varsDependents = vars map { variable =>
-                      (equalities.pos.get(variable).toSet flatMap { _.syntacticInfo.freeVars.keys }) + variable.ident
-                    }
+                    val generalizedRecursiveCalls =
+                      val freeVars = rhsInfo.freeVars.keys
 
-                    val exprsDependOnVar = varsDependents map { varDependents =>
-                      freeVars exists { varDependents contains _ }
-                    }
+                      val varsDependents = vars map { variable =>
+                        (equalities.pos.get(variable).toSet flatMap { _.syntacticInfo.freeVars.keys }) + variable.ident
+                      }
 
-                    exprsDependOnVar.zipWithIndex collect { case (true, index) => index } match
-                      case List(index) if args(index).termType exists { conforms(_, resultType) } =>
-                        val lhs = app(properties, recursiveCall, vars.updated(index, args(index)), tpe)
-                        injectRecursiveCallBasedOnType(rhs.typedTerm, resultType, vars, index) collect {
-                          case rhs if equalities.equal(rhs, lhs) != Equality.Equal => lhs -> rhs
-                        }
-                      case _ =>
-                        List.empty
+                      val exprsDependOnVar = varsDependents map { varDependents =>
+                        freeVars exists { varDependents contains _ }
+                      }
+
+                      exprsDependOnVar.zipWithIndex collect { case (true, index) => index } match
+                        case List(index) if args(index).termType exists { conforms(_, resultType) } =>
+                          val lhs = app(properties, recursiveCall, vars.updated(index, args(index)), tpe)
+                          injectRecursiveCallBasedOnType(rhs.typedTerm, resultType, vars, index) collect {
+                            case rhs if equalities.equal(rhs, lhs) != Equality.Equal => lhs -> rhs
+                          }
+                        case _ =>
+                          List.empty
+                    end generalizedRecursiveCalls
+
+                    generalizedVariables ++ generalizedRecursiveCalls
                   else
                     List.empty
                 end generalizations
