@@ -249,15 +249,12 @@ def check(
               result
 
           val generalizedConjectures =
-            if call.isDefined &&
-               idents.sizeIs >= 2 &&
-               evaluationResult.wrapped.reductions.sizeIs > 1 &&
-               (equivalent(tpe0, tpe1) && (resultType exists { conforms(_, tpe0) })) then
+            if evaluationResult.wrapped.reductions.sizeIs > 1 then
               Conjecture.generalizedConjectures(
                 abstractionProperties.get,
                 env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
                 term,
-                call.get,
+                call,
                 identTypes,
                 evaluationResult)
             else
@@ -315,15 +312,15 @@ def check(
       def proveConjectures(
           conjectures: List[Normalization],
           provenConjectures: List[Normalization] = List.empty,
-          normalizeConjectures: List[Equalities => PartialFunction[Term, Term]] = List.empty)
-      : (List[Normalization], List[Equalities => PartialFunction[Term, Term]]) =
+          normalizeConjectures: List[Option[Equalities => PartialFunction[Term, Term]]] = List.empty)
+      : (List[Normalization], List[Option[Equalities => PartialFunction[Term, Term]]]) =
 
-        val init = (List.empty[Normalization], List.empty[(Normalization, Equalities => PartialFunction[Term, Term])])
+        val init = (List.empty[Normalization], List.empty[(Normalization, Option[Equalities => PartialFunction[Term, Term]])])
 
         val (remaining, additional) = conjectures.foldLeft(init) { case (processed @ (remaining, proven), conjecture) =>
           if !Normalization.specializationForSameAbstraction(conjecture, proven map { case proven -> _ => proven }) then
-            val checking = conjecture.checking(
-              call.get,
+            val (checking, normalization) = conjecture.checking(
+              call,
               _ forall { _.info(Abstraction) contains abstraction.get },
               _ forall { (ident, exprs) => env.get(ident) exists { expr =>
                 val abstraction = expr.info(Abstraction)
@@ -331,22 +328,25 @@ def check(
               } },
               (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
 
-            val normalizeConjecture = checking.normalize
+            val normalizeConjecture = normalization map { _.normalize }
 
-            val reverseChecking = conjecture.reverse map {
-              _.checking(
-                call.get,
-                _ forall { _.info(Abstraction) contains abstraction.get },
-                _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                  val abstraction = expr.info(Abstraction)
-                  abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-                } },
-                (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
-            }
+            val (reverseChecking, reverseNormalization) = (conjecture.reverse
+              map { conjecture =>
+                val (checking, normalization) = conjecture.checking(
+                  call,
+                  _ forall { _.info(Abstraction) contains abstraction.get },
+                  _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                    val abstraction = expr.info(Abstraction)
+                    abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+                  } },
+                  (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+                (Some(checking), normalization)
+              }
+              getOrElse (None, None))
 
-            val reverseNormalizeConjecture = reverseChecking.toList map { _.normalize }
+            val reverseNormalizeConjecture = reverseNormalization map { _.normalize }
 
-            def checkConjecture(checking: PropertyChecking.Normal) =
+            def checkConjecture(checking: PropertyChecking) =
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
               val converted = UniqueNames.convert(expr, names)
 
@@ -358,12 +358,12 @@ def check(
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(
-                  normalizeFacts.flatten ++ (
-                  normalizeConjecture ::
-                  reverseNormalizeConjecture ++
-                  normalizeConjectures ++
+                  normalizeFacts.flatten ++
+                  normalizeConjecture.toList ++
+                  reverseNormalizeConjecture.toList ++
+                  normalizeConjectures.flatten ++
                   collectedNormalize ++
-                  normalizing),
+                  normalizing,
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),
                 evaluator.properties.derive(
@@ -409,7 +409,7 @@ def check(
             if proved then
               conjecture.reverse match
                 case Some(reverseConjecture) =>
-                  (remaining, (conjecture -> normalizeConjecture) :: (reverseConjecture -> reverseNormalizeConjecture.head) :: proven)
+                  (remaining, (conjecture -> normalizeConjecture) :: (reverseConjecture -> reverseNormalizeConjecture) :: proven)
                 case _ =>
                   (remaining, (conjecture -> normalizeConjecture) :: proven)
             else if disproved then
@@ -429,19 +429,17 @@ def check(
       end proveConjectures
 
       val (uncheckedConjectures, uncheckedNormalizeConjecture) =
-        if call.nonEmpty then
-          (assumedUncheckedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
-            conjecture -> conjecture.checking(
-              call.get,
-              _ forall { _.info(Abstraction) contains abstraction.get },
-              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                val abstraction = expr.info(Abstraction)
-                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-              } },
-              (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
-          }).unzip
-        else
-          List.empty -> List.empty
+        (assumedUncheckedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
+          val (_, normalization) = conjecture.checking(
+            call,
+            _ forall { _.info(Abstraction) contains abstraction.get },
+            _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+              val abstraction = expr.info(Abstraction)
+              abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+            } },
+            (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+          conjecture -> (normalization map { _.normalize })
+        }).unzip
 
       val (provenConjectures, normalizeConjectures) = proveConjectures(
         conjectures sortWith { !Normalization.specializationForSameAbstraction(_, _) },
@@ -464,7 +462,7 @@ def check(
             head :: distinct(distinctTail(tail))
 
         val properties = facts ++ provenConjectures
-        val normalize = normalizeFacts ++ (normalizeConjectures map { Some(_) })
+        val normalize = normalizeFacts ++ normalizeConjectures
 
         val distinctPropertiesNormalize = distinct(properties zip normalize)
         val (distinctProperties, _) = distinctPropertiesNormalize.unzip

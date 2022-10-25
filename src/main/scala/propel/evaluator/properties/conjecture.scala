@@ -332,7 +332,7 @@ object Conjecture:
       properties: Abstraction => Option[Properties],
       isAbstraction: Symbol => Boolean,
       abstraction: Term,
-      recursiveCall: Term,
+      recursiveCall: Option[Term],
       identTypes: List[(Symbol, Type)],
       result: UniqueNames[Symbolic.Result]): List[Normalization] =
     val unbound = abstraction.syntacticInfo.freeVars.keySet
@@ -342,22 +342,23 @@ object Conjecture:
     def injectRecursiveCallBasedOnType(
         term: Term,
         resultType: Type,
+        recursiveCall: Term,
         vars: List[Term],
         index: Int): List[Term] =
       val result = term match
         case Abs(properties, ident, tpe, expr) =>
-          injectRecursiveCallBasedOnType(expr, resultType, vars, index) collect { Abs(term)(properties, ident, tpe, _) }
+          injectRecursiveCallBasedOnType(expr, resultType, recursiveCall, vars, index) collect { Abs(term)(properties, ident, tpe, _) }
         case App(properties, expr, arg) =>
-          (injectRecursiveCallBasedOnType(expr, resultType, vars, index) collect { App(term)(properties, _, arg) }) ++
-          (injectRecursiveCallBasedOnType(arg, resultType, vars, index) collect { App(term)(properties, expr, _)  })
+          (injectRecursiveCallBasedOnType(expr, resultType, recursiveCall, vars, index) collect { App(term)(properties, _, arg) }) ++
+          (injectRecursiveCallBasedOnType(arg, resultType, recursiveCall, vars, index) collect { App(term)(properties, expr, _)  })
         case TypeAbs(ident, expr) =>
-          injectRecursiveCallBasedOnType(expr, resultType, vars, index) collect { TypeAbs(ident, _) }
+          injectRecursiveCallBasedOnType(expr, resultType, recursiveCall, vars, index) collect { TypeAbs(ident, _) }
         case TypeApp(expr, tpe) =>
-          injectRecursiveCallBasedOnType(expr, resultType, vars, index) collect { TypeApp(_, tpe) }
+          injectRecursiveCallBasedOnType(expr, resultType, recursiveCall, vars, index) collect { TypeApp(_, tpe) }
         case Data(ctor, args) =>
           def process(args: List[Term]): List[List[Term]] = args match
             case arg :: args =>
-              (injectRecursiveCallBasedOnType(arg, resultType, vars, index) collect { _ :: args }) ++
+              (injectRecursiveCallBasedOnType(arg, resultType, recursiveCall, vars, index) collect { _ :: args }) ++
               (process(args) map { arg :: _ })
             case _ =>
               List.empty
@@ -367,11 +368,11 @@ object Conjecture:
         case Cases(scrutinee, cases) =>
           def process(cases: List[(Pattern, Term)]): List[List[(Pattern, Term)]] = cases match
             case (patternExpr @ (pattern -> expr)) :: cases =>
-              (injectRecursiveCallBasedOnType(expr, resultType, vars, index) collect { pattern -> _ :: cases }) ++
+              (injectRecursiveCallBasedOnType(expr, resultType, recursiveCall, vars, index) collect { pattern -> _ :: cases }) ++
               (process(cases) map { patternExpr :: _ })
             case _ =>
               List.empty
-          (injectRecursiveCallBasedOnType(scrutinee, resultType, vars, index) collect { Cases(term)(_, cases) }) ++
+          (injectRecursiveCallBasedOnType(scrutinee, resultType, recursiveCall, vars, index) collect { Cases(term)(_, cases) }) ++
           (process(cases) map { Cases(term)(scrutinee, _) })
 
       if term.termType exists { conforms(resultType, _) } then
@@ -406,49 +407,58 @@ object Conjecture:
         patternsCombinations flatMap { patterns =>
           let(names ++ (patterns flatMap { (_, pattern) => pattern.syntacticInfo.boundVars map { _.name } })) { names =>
             PatternConstraints.make(patterns).toList flatMap { constraints =>
-              result.withConstraints(constraints).reductions flatMap { case Symbolic.Reduction(expr, _, equalities) =>
+              result.withConstraints(constraints).reductions flatMap { case Symbolic.Reduction(expr, constraints, equalities) =>
                 val args = patterns map { (variable, _) => equalities.pos.getOrElse(variable, variable) }
 
-                val lhs = app(properties, recursiveCall, args, tpe)
-                val (rhs, rhsInfo) = expr.syntactic
+                val normalizations = recursiveCall match
+                  case Some(recursiveCall) =>
+                    val lhs = app(properties, recursiveCall, args, tpe)
+                    val (rhs, rhsInfo) = expr.syntactic
 
-                val generalizations =
-                  if !containsReference(rhs, baseAbstraction) then
-                    val generalizedVariables =
-                      args.zipWithIndex collect { case (arg, index) if arg == rhs =>
-                        app(properties, recursiveCall, args.updated(index, vars(index)), tpe) -> vars(index)
-                      }
-
-                    val generalizedRecursiveCalls =
-                      val freeVars = rhsInfo.freeVars.keys
-
-                      val varsDependents = vars map { variable =>
-                        (equalities.pos.get(variable).toSet flatMap { _.syntacticInfo.freeVars.keys }) + variable.ident
-                      }
-
-                      val exprsDependOnVar = varsDependents map { varDependents =>
-                        freeVars exists { varDependents contains _ }
-                      }
-
-                      exprsDependOnVar.zipWithIndex collect { case (true, index) => index } match
-                        case List(index) if args(index).termType exists { conforms(_, resultType) } =>
-                          val lhs = app(properties, recursiveCall, vars.updated(index, args(index)), tpe)
-                          injectRecursiveCallBasedOnType(rhs.typedTerm, resultType, vars, index) collect {
-                            case rhs if equalities.equal(rhs, lhs) != Equality.Equal => lhs -> rhs
+                    val generalizations =
+                      if !containsReference(rhs, baseAbstraction) then
+                        val generalizedVariables =
+                          args.zipWithIndex collect { case (arg, index) if arg == rhs =>
+                            app(properties, recursiveCall, args.updated(index, vars(index)), tpe) -> vars(index)
                           }
-                        case _ =>
-                          List.empty
-                    end generalizedRecursiveCalls
 
-                    generalizedVariables ++ generalizedRecursiveCalls
-                  else
-                    List.empty
-                end generalizations
+                        val generalizedRecursiveCalls =
+                          val freeVars = rhsInfo.freeVars.keys
 
-                lhs -> rhs :: generalizations flatMap { (lhs, rhs) =>
-                  val _ -> normalization = recursiveNormalization(lhs, rhs, baseAbstraction, Some(recursiveCall), unbound, names)
-                  normalization filter { _.free forall isAbstraction }
-                }
+                          val varsDependents = vars map { variable =>
+                            (equalities.pos.get(variable).toSet flatMap { _.syntacticInfo.freeVars.keys }) + variable.ident
+                          }
+
+                          val exprsDependOnVar = varsDependents map { varDependents =>
+                            freeVars exists { varDependents contains _ }
+                          }
+
+                          exprsDependOnVar.zipWithIndex collect { case (true, index) => index } match
+                            case List(index) if args(index).termType exists { conforms(_, resultType) } =>
+                              val lhs = app(properties, recursiveCall, vars.updated(index, args(index)), tpe)
+                              injectRecursiveCallBasedOnType(rhs.typedTerm, resultType, recursiveCall, vars, index) collect {
+                                case rhs if equalities.equal(rhs, lhs) != Equality.Equal => lhs -> rhs
+                              }
+                            case _ =>
+                              List.empty
+                        end generalizedRecursiveCalls
+
+                        generalizedVariables ++ generalizedRecursiveCalls
+                      else
+                        List.empty
+                    end generalizations
+
+                    lhs -> rhs :: generalizations flatMap { (lhs, rhs) =>
+                      val _ -> normalization = recursiveNormalization(lhs, rhs, baseAbstraction, Some(recursiveCall), unbound, names)
+                      normalization
+                    }
+
+                  case _ =>
+                    val _ -> normalization = directNormalization(properties, tpe, args, expr, baseAbstraction, unbound, constraints, names)
+                    normalization.toList
+                end normalizations
+
+                normalizations filter { _.free forall isAbstraction }
               }
             }
           }
