@@ -108,56 +108,82 @@ object Normalization:
       equivalents: List[Set[Symbol]],
       free: Map[Symbol, Symbol])(
       val normalization: Normalization):
-    def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term]) =
-      val freeSubsts = Option.when(free.values forall { freeExpr contains _}) {
-        free map { (renamed, original) => renamed -> freeExpr(original) }
-      }
 
-      new PropertyChecking with PropertyChecking.FunctionEqualResult with PropertyChecking.Normal:
-        def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
-          def expandCalls(term: Term): Term = term match
-            case Abs(properties, ident, tpe, expr) =>
-              Abs(term)(properties, ident, tpe, expandCalls(expr))
-            case App(_, App(_, Var(ident), arg0), arg1) if abstraction contains ident =>
-              subst(expr, Map(ident0 -> expandCalls(arg0), ident1 -> expandCalls(arg1)))
-            case App(properties, expr, arg) =>
-              App(term)(properties, expandCalls(expr), expandCalls(arg))
-            case TypeAbs(ident, expr) =>
-              TypeAbs(term)(ident, expandCalls(expr))
-            case TypeApp(expr, tpe) =>
-              TypeApp(term)(expandCalls(expr), tpe)
-            case Data(ctor, args) =>
-              Data(term)(ctor, args map expandCalls)
-            case Var(ident) =>
-              freeSubsts flatMap { _.get(ident) } getOrElse term
-            case Cases(scrutinee, cases) =>
-              Cases(term)(expandCalls(scrutinee), cases map { (pattern, expr) =>
-                pattern -> expandCalls(expr)
-              })
-          Data(equalDataConstructor, List(expandCalls(normalization.pattern), expandCalls(normalization.result))) -> Equalities.empty
+    private trait FunctionEqualResult(
+        freeSubsts: Option[Map[Symbol, Term]]) extends PropertyChecking.FunctionEqualResult:
+      def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+        def expandCalls(term: Term): Term = term match
+          case Abs(properties, ident, tpe, expr) =>
+            Abs(term)(properties, ident, tpe, expandCalls(expr))
+          case App(_, App(_, Var(ident), arg0), arg1) if abstraction contains ident =>
+            subst(expr, Map(ident0 -> expandCalls(arg0), ident1 -> expandCalls(arg1)))
+          case App(properties, expr, arg) =>
+            App(term)(properties, expandCalls(expr), expandCalls(arg))
+          case TypeAbs(ident, expr) =>
+            TypeAbs(term)(ident, expandCalls(expr))
+          case TypeApp(expr, tpe) =>
+            TypeApp(term)(expandCalls(expr), tpe)
+          case Data(ctor, args) =>
+            Data(term)(ctor, args map expandCalls)
+          case Var(ident) =>
+            freeSubsts flatMap { _.get(ident) } getOrElse term
+          case Cases(scrutinee, cases) =>
+            Cases(term)(expandCalls(scrutinee), cases map { (pattern, expr) =>
+              pattern -> expandCalls(expr)
+            })
+        Data(equalDataConstructor, List(expandCalls(normalization.pattern), expandCalls(normalization.result))) -> Equalities.empty
 
-        def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
-          freeSubsts flatMap { freeSubsts =>
-            Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
-              def abstractionCheck = abstraction flatMap { substs.get(_) }
+    private trait Normal(
+        freeSubsts: Option[Map[Symbol, Term]],
+        expr: Term, 
+        checkAbstraction: Set[Term] => Boolean, 
+        checkFree: Map[Symbol, List[Term]] => Boolean) extends PropertyChecking.Normal:
 
-              def freeCheck = free.foldLeft(Map.empty[Symbol, List[Term]]) { case (mapping, (renamed, original)) =>
-                mapping.updatedWith(original) {
-                  _ flatMap { exprs => substs.get(renamed) map { _ :: exprs } } orElse (substs.get(renamed) map { List(_) })
-                }
+      def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
+        freeSubsts flatMap { freeSubsts =>
+          Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
+            def abstractionCheck = abstraction flatMap { substs.get(_) }
+
+            def freeCheck = free.foldLeft(Map.empty[Symbol, List[Term]]) { case (mapping, (renamed, original)) =>
+              mapping.updatedWith(original) {
+                _ flatMap { exprs => substs.get(renamed) map { _ :: exprs } } orElse (substs.get(renamed) map { List(_) })
               }
+            }
 
-              Option.when(
-                  substsReverse.isEmpty &&
-                  checkAbstraction(abstractionCheck) &&
-                  checkFree(freeCheck) &&
-                  valid(substs, equivalents)) {
-                subst(result, substs ++ freeSubsts ++ (abstraction map { _ -> expr }))
-              }
+            Option.when(
+                substsReverse.isEmpty &&
+                checkAbstraction(abstractionCheck) &&
+                checkFree(freeCheck) &&
+                valid(substs, equivalents)) {
+              subst(result, substs ++ freeSubsts ++ (abstraction map { _ -> expr }))
             }
           }
         }
-    end apply
+      }
+
+    private def substs(freeExpr: Map[Symbol, Term]) =
+      Option.when(free.values forall { freeExpr contains _}) {
+        free map { (renamed, original) => renamed -> freeExpr(original) }
+      }
+
+    def apply(freeExpr: Map[Symbol, Term])
+    : PropertyChecking.FunctionEqualResult =
+      val freeSubsts = substs(freeExpr)
+      new FunctionEqualResult(freeSubsts) { }
+
+    def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term])
+    : PropertyChecking.FunctionEqualResult with PropertyChecking.Normal =
+      val freeSubsts = substs(freeExpr)
+      new FunctionEqualResult(freeSubsts) with Normal(freeSubsts, expr, checkAbstraction, checkFree) { }
+
+    def apply(expr: Option[Term], checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term])
+    : (PropertyChecking.FunctionEqualResult, Option[PropertyChecking.Normal])=
+      expr match
+        case Some(expr) =>
+          val checking = apply(expr, checkAbstraction, checkFree, freeExpr)
+          (checking, Some(checking))
+        case _ =>
+          (apply(freeExpr), None)
   end Checking
 
   private def valid(substs: TermSubstitutions, equivalents: List[Set[Symbol]]) =

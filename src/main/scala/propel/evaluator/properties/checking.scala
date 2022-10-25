@@ -283,19 +283,17 @@ def check(
          })
 
       val normalizeFacts =
-        if call.nonEmpty then
-          facts map { fact =>
-            fact.checking(
-              call.get,
-              _ forall { _.info(Abstraction) contains abstraction.get },
-              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                val abstraction = expr.info(Abstraction)
-                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-              } },
-              (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap).normalize
-          }
-        else
-          List.empty
+        facts map { fact =>
+          val (_, normalization) = fact.checking(
+            call,
+            _ forall { _.info(Abstraction) contains abstraction.get },
+            _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+              val abstraction = expr.info(Abstraction)
+              abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+            } },
+            (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+          normalization map { _.normalize }
+        }
 
       if printDeductionDebugInfo then
         if call.isEmpty then
@@ -360,7 +358,7 @@ def check(
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(
-                  normalizeFacts ++ (
+                  normalizeFacts.flatten ++ (
                   normalizeConjecture ::
                   reverseNormalizeConjecture ++
                   normalizeConjectures ++
@@ -451,7 +449,7 @@ def check(
         uncheckedNormalizeConjecture)
 
       val (provenProperties, normalize) =
-        type Properties = List[(Normalization, Equalities => PartialFunction[Term, Term])]
+        type Properties = List[(Normalization, Option[Equalities => PartialFunction[Term, Term]])]
 
         def distinct(properties: Properties): Properties = properties match
           case Nil => Nil
@@ -466,11 +464,7 @@ def check(
             head :: distinct(distinctTail(tail))
 
         val properties = facts ++ provenConjectures
-
-        val normalize =
-          val normalize = normalizeFacts ++ normalizeConjectures
-          if normalize.isEmpty then List.fill(properties.size)((_: Equalities) => PartialFunction.empty)
-          else normalize
+        val normalize = normalizeFacts ++ (normalizeConjectures map { Some(_) })
 
         val distinctPropertiesNormalize = distinct(properties zip normalize)
         val (distinctProperties, _) = distinctPropertiesNormalize.unzip
@@ -513,7 +507,7 @@ def check(
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(
-                  normalize ++ collectedNormalize ++ normalizing,
+                  normalize.flatten ++ collectedNormalize ++ normalizing,
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),
                 evaluator.properties.derive(
