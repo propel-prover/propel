@@ -275,9 +275,7 @@ def check(
 
         (facts,
          generalizedConjectures.flatten ++
-         Conjecture.distributivityConjectures(properties, term) filterNot {
-           Normalization.specializationForSameAbstraction(_, facts)
-         })
+         Conjecture.distributivityConjectures(properties, term))
 
       val normalizeFacts =
         facts map { fact =>
@@ -402,9 +400,12 @@ def check(
             end checkConjecture
 
             val (proved, disproved) =
-              val result @ (proved, disproved) = checkConjecture(checking)
-              if !proved && !disproved && reverseChecking.isDefined then checkConjecture(reverseChecking.get)
-              else result
+              if !Normalization.specializationForSameAbstraction(conjecture, facts) then
+                val result @ (proved, disproved) = checkConjecture(checking)
+                if !proved && !disproved && reverseChecking.isDefined then checkConjecture(reverseChecking.get)
+                else result
+              else
+                (true, false)
 
             if proved then
               conjecture.reverse match
@@ -461,10 +462,7 @@ def check(
                   head :: distinctTail(tail)
             head :: distinct(distinctTail(tail))
 
-        val properties = facts ++ provenConjectures
-        val normalize = normalizeFacts ++ normalizeConjectures
-
-        val distinctPropertiesNormalize = distinct(properties zip normalize)
+        val distinctPropertiesNormalize = distinct(provenConjectures zip normalizeConjectures)
         val (distinctProperties, _) = distinctPropertiesNormalize.unzip
         (distinctPropertiesNormalize
           filterNot { (property, _) =>
