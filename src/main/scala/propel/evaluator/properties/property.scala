@@ -24,21 +24,33 @@ object PropertyChecking:
     val propertyType = PropertyType.Function
     val equalDataConstructor = Constructor(Symbol("≟"))
 
-    private def extensional(expr0: Term, expr1: Term): (Term, Term) = (expr0, expr1) match
+    private def extensional(expr0: Term, expr1: Term): (Term, Term, List[(Term, Term)]) = (expr0, expr1) match
+      case (Abs(_, ident0, _, expr0), Abs(_, ident1, _, expr1)) if ident0 < ident1 =>
+        val (extensionalExpr0, extensionalExpr1, extensionalEqualities) =
+          extensional(expr0, subst(expr1, Map(ident0 -> Var(ident1))))
+        (extensionalExpr0, extensionalExpr1, Var(ident0) -> Var(ident1) :: extensionalEqualities)
       case (Abs(_, ident0, _, expr0), Abs(_, ident1, _, expr1)) =>
-        extensional(expr0, subst(expr1, Map(ident1 -> Var(ident0))))
-      case exprs =>
-        exprs
+        val (extensionalExpr0, extensionalExpr1, extensionalEqualities) =
+          extensional(expr0, subst(expr1, Map(ident1 -> Var(ident0))))
+        (extensionalExpr0, extensionalExpr1, Var(ident1) -> Var(ident0) :: extensionalEqualities)
+      case (Abs(_, ident0, _, expr0), expr1) =>
+        extensional(expr0, App(Set.empty, expr1, Var(ident0)))
+      case (expr0, Abs(_, ident1, _, expr1)) =>
+        extensional(App(Set.empty, expr0, Var(ident1)), expr1)
+      case (ident0, expr1) =>
+        (ident0, expr1, List.empty)
 
     def control(expr: Term, equalities: Equalities, nested: Boolean) = expr match
       case Data(`equalDataConstructor`, List(arg0, arg1)) if !nested =>
-        val (extensionalArg0, extensionalArg1) = extensional(arg0, arg1)
+        val (extensionalArg0, extensionalArg1, extensionalEqualities) = extensional(arg0, arg1)
         val control =
           if extensionalArg0 == extensionalArg1 then Symbolic.Control.Stop
           else if equalities.equal(extensionalArg0, extensionalArg1) == Equality.Unequal &&
                   equalities.contradictionIndeducible then Symbolic.Control.Terminate
           else Symbolic.Control.Continue
-        (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)), Equalities.empty, control)
+        (Data(expr)(`equalDataConstructor`, List(extensionalArg0, extensionalArg1)),
+         Equalities.pos(extensionalEqualities) getOrElse Equalities.empty,
+         control)
       case _ =>
         (expr, Equalities.empty, Symbolic.Control.Continue)
 

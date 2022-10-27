@@ -239,7 +239,7 @@ def lwwreg_merge[A: TermExpr](expr: A) =
 
 def gset_merge[A: TermExpr](expr: A) =
     let("gset_merge" ->
-        abs(comm,assoc)("a" -> tp(nat -> bool), "b" -> tp(nat -> bool))
+        abs(comm,assoc,idem)("a" -> tp(nat -> bool), "b" -> tp(nat -> bool))
            (abs()("x" -> nat)(or("a", "x")("b", "x"))))(expr)
 
 
