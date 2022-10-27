@@ -34,7 +34,7 @@ def defaultEqualsImpl(using Quotes) =
   val classTree = TypeIdent(classSymbol)
 
   val List(List(other)) = equals.paramSymss
-  val args :: _ = classSymbol.primaryConstructor.paramSymss map { _ map { arg => classSymbol.fieldMember(arg.name) } }
+  val args :: _ = classSymbol.primaryConstructor.paramSymss map { _ map { arg => classSymbol.fieldMember(arg.name) } }: @unchecked
 
   val canEqual = TypeRepr.of[Equals].typeSymbol.methodMember("canEqual").head
   val isInstanceOf = defn.AnyClass.methodMember("isInstanceOf").head

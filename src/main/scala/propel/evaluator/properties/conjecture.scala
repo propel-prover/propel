@@ -268,12 +268,14 @@ object Conjecture:
               Option.when(argumentInfo.freeVars contains ident) {
                 val initialNames = (argumentInfo.boundVars map { _.name }) ++ (argumentInfo.freeVars map { (ident, _) => ident.name })
 
-                val (abstractionIdent :: argumentIdents, names) =
+                val identsAndNames =
                   (Symbol("∘") :: idents).foldRight[(List[Symbol], Set[String])](List.empty -> initialNames) {
                     case (ident, (idents, names)) =>
                       val fresh = Naming.freshIdent(ident, names)
                       (fresh :: idents) -> (names + fresh.name)
                   }
+
+                val (abstractionIdent :: argumentIdents, names) = identsAndNames: @unchecked
 
                 val abstractionExpr = Var(abstractionIdent)
                 val abstractionArgs = argumentIdents map { Var(_) }

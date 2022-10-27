@@ -18,19 +18,19 @@ object Checked:
       if errors.nonEmpty then
         report.errorAndAbort((errors map { case (_, Error(message)) => message }).mkString("", "\n\n", ""))
 
-    val Typed(fTerm, _) = f.asTerm.underlyingArgument
+    val Typed(fTerm, _) = f.asTerm.underlyingArgument: @unchecked
     val (result, recursiveSymbol, expr, typeVars) = processPropDef[T](fTerm, Set.empty, recursive)
 
     recursiveSymbol match
       case Some(recursiveSymbol) =>
-        val (tpe @ Function(t, u), _) = makeType(TypeRepr.of[T], Position.ofMacroExpansion)
+        val (tpe @ Function(t, u), _) = makeType(TypeRepr.of[T], Position.ofMacroExpansion): @unchecked
         val recursiveExpr = App(Set.empty,
           TypeApp(TypeApp(zCombinator, t), u),
           Abs(Set.empty, scala.Symbol(recursiveSymbol.name), tpe, expr))
 
         reportErrors(evaluator.properties.check(recursiveExpr))
 
-        val Block(List(recursiveDefinition), _) = '{ var rec: T = null.asInstanceOf[T] }.asTerm.underlyingArgument
+        val Block(List(recursiveDefinition), _) = '{ var rec: T = null.asInstanceOf[T] }.asTerm.underlyingArgument: @unchecked
         val recursiveCall = Ref(recursiveDefinition.symbol)
 
         Typed(
@@ -353,7 +353,7 @@ object Checked:
             case _ =>
               Type.of[T] match
                 case '[ p := (a, b) =>: r ] =>
-                  val (lambda, Abs(_, ident, tpe, expr), typeVars) = makeLambda[r]
+                  val (lambda, Abs(_, ident, tpe, expr), typeVars) = makeLambda[r]: @unchecked
                   val result = '{
                     new Unchecked.AnnotatedFunction[Unchecked.PropertyAnnotation[p, (a, b)], r]:
                       val a: Unchecked.PropertyAnnotation[p, (a, b)] { type Arguments = (a, b) } =

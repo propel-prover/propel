@@ -1,6 +1,6 @@
 name := "propel"
 
-scalaVersion := "3.1.3"
+scalaVersion := "3.2.0"
 
 scalacOptions ++= Seq("-feature", "-deprecation", "-unchecked", "-Yexplicit-nulls")
 
