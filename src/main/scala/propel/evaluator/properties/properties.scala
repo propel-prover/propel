@@ -27,7 +27,7 @@ val selecting = (propertiesChecking.values collect { case property: PropertyChec
 
 object reflexivity
     extends PropertyChecking with PropertyChecking.RelationTrueResult
-    with PropertyChecking.Normal:
+    with PropertyChecking.Normal with PropertyChecking.Simple:
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
     subst(expr, Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
@@ -36,6 +36,11 @@ object reflexivity
         if properties.contains(Reflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal =>
       Data(Constructor.True, List())
+
+  def deriveSimple(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
+        if properties.contains(Reflexive) =>
+      Equalities.neg(List(List(arg0 -> arg1))).toList
 end reflexivity
 
 
@@ -77,6 +82,9 @@ object symmetry
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
         if properties.contains(Symmetric) =>
       Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.True, List()))).toList
+    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
+        if properties.contains(Symmetric) =>
+      Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List()))).toList
 end symmetry
 
 
