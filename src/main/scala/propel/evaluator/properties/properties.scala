@@ -8,12 +8,14 @@ import scala.collection.immutable.ListMap
 
 val propertiesChecking = ListMap(
   Reflexive -> reflexivity,
+  Irreflexive -> irreflexivity,
   Antisymmetric -> antisymmetry,
   Symmetric -> symmetry,
   Connected -> connectivity,
   Transitive -> transitivity,
   Commutative -> commutativity,
   Associative -> associativity,
+  Idempotent -> idempotence,
   Selection -> selectivity)
 
 val derivingSimple = (propertiesChecking.values collect { case property: PropertyChecking.Simple => property.deriveSimple }).toList
@@ -42,6 +44,25 @@ object reflexivity
         if properties.contains(Reflexive) =>
       Equalities.neg(List(List(arg0 -> arg1))).toList
 end reflexivity
+
+
+object irreflexivity
+    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    with PropertyChecking.Normal with PropertyChecking.Simple:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    subst(not(expr), Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
+
+  def normalize(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1)
+        if properties.contains(Irreflexive) &&
+           equalities.equal(arg0, arg1) == Equality.Equal =>
+      Data(Constructor.False, List())
+
+  def deriveSimple(equalities: Equalities) =
+    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
+        if properties.contains(Irreflexive) =>
+      Equalities.neg(List(List(arg0 -> arg1))).toList
+end irreflexivity
 
 
 object antisymmetry
@@ -176,6 +197,21 @@ object associativity
            equalities.equal(expr0, expr1) == Equality.Equal =>
       App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
 end associativity
+
+
+object idempotence
+    extends PropertyChecking with PropertyChecking.FunctionEqualResult
+    with PropertyChecking.Normal:
+  def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
+    val aa = subst(expr, Map(ident0 -> varA, ident1 -> varA))
+    Data(equalDataConstructor, List(aa, varA)) -> Equalities.empty
+
+  def normalize(equalities: Equalities) =
+    case expr @ App(_, App(properties, _, arg0), arg1)
+        if properties.contains(Idempotent) &&
+           equalities.equal(arg0, arg1) == Equality.Equal =>
+      arg0
+end idempotence
 
 
 object selectivity

@@ -26,15 +26,15 @@ def merge[A: TermExpr](expr: A) =
 
 def min[A: TermExpr](expr: A) =
   letrec(
-    "min" -> tp(nat -> (nat -> nat)) -> abs(assoc, comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
-      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(assoc, comm)("min", "a", "b")),
+    "min" -> tp(nat -> (nat -> nat)) -> abs(assoc, comm, idem)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
+      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(assoc, comm, idem)("min", "a", "b")),
       ("_") -> "Z")))(
     expr)
 
 def max[A: TermExpr](expr: A) =
   letrec(
-    "max" -> tp(nat -> (nat -> nat)) -> abs(assoc, comm)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
-      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(assoc, comm)("max", "a", "b")),
+    "max" -> tp(nat -> (nat -> nat)) -> abs(assoc, comm, idem)("a" -> nat, "b" -> nat)(cases("Pair", "a", "b")(
+      ("Pair", ("S", "a"), ("S", "b")) -> ("S", app(assoc, comm, idem)("max", "a", "b")),
       ("Pair", "a", "Z") -> "a",
       ("Pair", "Z", "a") -> "a")))(
     expr)
@@ -136,17 +136,17 @@ def orderbv[A: TermExpr](expr: A) =
 
 def bv_max[A: TermExpr](expr: A) =
     letrec("bv_max" -> tp(bv -> (bv -> bv)) ->
-        abs(assoc, comm, sel)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
+        abs(assoc, comm, sel, idem)("a" -> bv, "b" -> bv)(cases("Pair", "a", "b")(
             ("Pair", "BZ", "b") -> "b",
             ("Pair", "a", "BZ") -> "a",
-            ("Pair", ("B0", "a"), ("B0", "b")) -> ("B0", app(assoc, comm, sel)("bv_max", "a", "b")),
-            ("Pair", ("B1", "a"), ("B1", "b")) -> ("B1", app(assoc, comm, sel)("bv_max", "a", "b")),
+            ("Pair", ("B0", "a"), ("B0", "b")) -> ("B0", app(assoc, comm, sel, idem)("bv_max", "a", "b")),
+            ("Pair", ("B1", "a"), ("B1", "b")) -> ("B1", app(assoc, comm, sel, idem)("bv_max", "a", "b")),
             ("Pair", ("B0", "a"), ("B1", "b")) ->
-                `if`(app(refl, sym, trans, antisym)("bv_eq", app(assoc, comm, sel)("bv_max", "a", "b"), "b"))
+                `if`(app(refl, sym, trans, antisym)("bv_eq", app(assoc, comm, sel, idem)("bv_max", "a", "b"), "b"))
                     ("B1", "b")
                     ("B0", "a"),
             ("Pair", ("B1", "a"), ("B0", "b")) ->
-                `if`(app(refl, sym, trans, antisym)("bv_eq", app(assoc, comm, sel)("bv_max", "a", "b"), "a"))
+                `if`(app(refl, sym, trans, antisym)("bv_eq", app(assoc, comm, sel, idem)("bv_max", "a", "b"), "a"))
                     ("B1", "a")
                     ("B0", "b"))))(expr)
 
@@ -175,18 +175,18 @@ def ordbvu[A: TermExpr](expr: A) =
 
 def gcounter_merge[A: TermExpr](expr: A) =
     letrec("gcounter_merge" -> tp(list(nat) -> (list(nat) -> list(nat))) ->
-        abs(assoc, comm)("a" -> list(nat), "b" -> list(nat))(cases("Pair", "a", "b")(
+        abs(assoc, comm, idem)("a" -> list(nat), "b" -> list(nat))(cases("Pair", "a", "b")(
             ("Pair", ("Cons", "ah", "as"), ("Cons", "bh", "bs")) ->
-                ("Cons", app(assoc,comm)("max", "ah", "bh"), app(assoc,comm)("gcounter_merge", "as", "bs")),
+                ("Cons", app(assoc,comm,idem)("max", "ah", "bh"), app(assoc,comm,idem)("gcounter_merge", "as", "bs")),
             (("Pair", "x", "Nil") -> "x"),
             (("Pair", "Nil", "y") -> "y")
         )))(expr)
 
 def pncounter_merge[A: TermExpr](expr: A) =
     val pncounter = dt("Pair", list(nat), list(nat))
-    let("pncounter_merge" -> abs(assoc, comm)("a" -> pncounter, "b" -> pncounter)(
+    let("pncounter_merge" -> abs(assoc, comm, idem)("a" -> pncounter, "b" -> pncounter)(
             let(("Pair", ("Pair", "a1", "a2"), ("Pair", "b1", "b2")) -> ("Pair", "a", "b"))
-               ("Pair", app(comm,assoc)("gcounter_merge", "a1", "b1"), app(comm,assoc)("gcounter_merge", "a2", "b2"))
+               ("Pair", app(comm,assoc,idem)("gcounter_merge", "a1", "b1"), app(comm,assoc,idem)("gcounter_merge", "a2", "b2"))
         ))(expr)
 
 
@@ -198,11 +198,11 @@ def lwwreg_merge[A: TermExpr](expr: A) =
     
     if withOrd
     then
-        let("lwwreg_merge" -> abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(
+        let("lwwreg_merge" -> abs(assoc,comm,idem)("a" -> lwwreg, "b" -> lwwreg)(
             let(("Pair", ("Pair", "d1", "t1"), ("Pair", "d2", "t2")) -> ("Pair", "a", "b"))
                 (`if`(app(refl, antisym, conn, trans)("ordernat", "t1", "t2"))
                      (`if`(app(refl, antisym, conn, trans)("ordernat", "t2", "t1"))
-                          ("Pair", app(comm,assoc)("max", "d1", "d2"), "t1")
+                          ("Pair", app(comm,assoc,idem)("max", "d1", "d2"), "t1")
                           ("Pair", "d2", "t2"))
                      ("Pair", "d1", "t1"))))(expr)
     else if withAcc // commutativity: yes, associativity: no (because `aux acc` is not associative for an arbitrary `acc`)
@@ -226,15 +226,15 @@ def lwwreg_merge[A: TermExpr](expr: A) =
         // we can prove it's commutative and associative, Zeno can only prove commutativity
         // HipSpec was unable to prove either commutativity, or associativity
         letrec("lwwreg_merge" -> tp(lwwreg -> (lwwreg -> lwwreg)) ->
-            abs(assoc,comm)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
+            abs(assoc,comm,idem)("a" -> lwwreg, "b" -> lwwreg)(cases("Pair", "a", "b")(
                 ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", "Z")) ->
-                    ("Pair", app(comm,assoc)("max", "d1", "d2"), "Z"),
+                    ("Pair", app(comm,assoc,idem)("max", "d1", "d2"), "Z"),
                 ("Pair", ("Pair", "d1", ("S","t1")), ("Pair", "d2", "Z")) ->
                     ("Pair", "d1", ("S", "t1")),
                 ("Pair", ("Pair", "d1", "Z"), ("Pair", "d2", ("S","t2"))) ->
                     ("Pair", "d2", ("S", "t2")),
                 ("Pair", ("Pair", "d1", ("S", "t1")), ("Pair", "d2", ("S", "t2"))) ->
-                    let(("Pair", "d", "t") -> app(comm,assoc)("lwwreg_merge", ("Pair", "d1", "t1"), ("Pair", "d2", "t2")))
+                    let(("Pair", "d", "t") -> app(comm,assoc,idem)("lwwreg_merge", ("Pair", "d1", "t1"), ("Pair", "d2", "t2")))
                     ("Pair", "d", ("S", "t")))))(expr)
 
 def gset_merge[A: TermExpr](expr: A) =
