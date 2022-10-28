@@ -46,7 +46,7 @@ def patterns(tpe: Type): List[Pattern] = tpe match
       val argsPatterns = (args map patterns).foldRight(List(List.empty[Pattern])) { (argPatterns, argsPatterns) =>
         argPatterns flatMap { argPattern => argsPatterns map { argPattern :: _ } }
       }
-      argsPatterns map { Match(ctor, _) }
+      argsPatterns map { Match(ctor, _).typedPattern }
     }
   case _ =>
-    List(Bind(Symbol("□")))
+    List(Bind(Symbol("□")).withExtrinsicInfo(Typing.Specified(Right(tpe))).typedPattern)
