@@ -36,3 +36,4 @@ report/*.*
 
 !evaluation/haskell/**/*.log
 !evaluation/smtlib2/**/*.log
+!evaluation/propel/**/*.log
