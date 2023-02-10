@@ -45,10 +45,8 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
           Equality.Equal -> List.empty
         case terms @ App(_, expr0, arg0) -> App(_, expr1, arg1) =>
           equal(expr0, expr1) match
-            case Equality.Unequal -> _ => Equality.Unequal -> List.empty
-            case equality0 -> exprs0 =>
-              val equality1 -> exprs1 = equal(arg0, arg1)
-              Equality.min(equality0, equality1) -> (terms :: exprs0 ++ exprs1)
+            case Equality.Equal -> _ => equal(arg0, arg1)
+            case _ -> _ => Equality.Indeterminate -> List.empty
         case terms @ TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if equivalent(tpe0, tpe1) =>
           val equality -> exprs = equal(expr0, expr1)
           equality -> (terms :: exprs)
