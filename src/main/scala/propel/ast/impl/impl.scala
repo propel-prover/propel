@@ -11,13 +11,35 @@ inline def defaultHashCode: Int = ${ defaultHashCodeImpl }
 def defaultHashCodeImpl(using Quotes) =
   import quotes.reflect.*
 
-  def classSymbol(symbol: Symbol): Symbol =
-    if symbol.exists && !symbol.isClassDef then classSymbol(symbol.owner) else symbol
-  
+  def hashCodeSymbol(symbol: Symbol): Symbol =
+    if symbol.exists && symbol.name != "hashCode" then hashCodeSymbol(symbol.owner) else symbol
+
+  val hashCode = hashCodeSymbol(Symbol.spliceOwner)
+  val classSymbol = hashCode.owner
+  val args :: _ = classSymbol.primaryConstructor.paramSymss map { _ map { arg => classSymbol.fieldMember(arg.name) } }: @unchecked
+
+  val properties = TypeRepr.of[Properties]
+  val isEmpty = TypeRepr.of[Set[?]].typeSymbol.methodMember("isEmpty").head
   val murmurHash3 = TypeRepr.of[scala.util.hashing.MurmurHash3.type].termSymbol
   val productHash = murmurHash3.declaredMethod("productHash").head
 
-  Ref(productHash).appliedTo(This(classSymbol(Symbol.spliceOwner))).asExprOf[Int]
+  val arguments = args map { This(classSymbol).select(_) }
+  
+  arguments find { _.tpe <:< properties } match
+    case Some(property) =>
+      val args = arguments map { arg =>
+        if arg.tpe <:< properties then '{ Set.empty[Property] }.asTerm else arg
+      }
+      If(
+        property.select(isEmpty),
+        Ref(productHash).appliedTo(This(classSymbol)),
+        Ref(productHash).appliedTo(
+          New(TypeIdent(classSymbol))
+            .select(classSymbol.primaryConstructor)
+            .appliedToArgs(args)
+            .appliedTo('{ Nil }.asTerm))).asExprOf[Int]
+    case _ =>
+      Ref(productHash).appliedTo(This(classSymbol)).asExprOf[Int]
 end defaultHashCodeImpl
 
 
@@ -36,6 +58,7 @@ def defaultEqualsImpl(using Quotes) =
   val List(List(other)) = equals.paramSymss
   val args :: _ = classSymbol.primaryConstructor.paramSymss map { _ map { arg => classSymbol.fieldMember(arg.name) } }: @unchecked
 
+  val properties = TypeRepr.of[Properties]
   val canEqual = TypeRepr.of[Equals].typeSymbol.methodMember("canEqual").head
   val isInstanceOf = defn.AnyClass.methodMember("isInstanceOf").head
   val asInstanceOf = defn.AnyClass.methodMember("asInstanceOf").head
@@ -52,7 +75,10 @@ def defaultEqualsImpl(using Quotes) =
       ValDef.let(Symbol.spliceOwner, "other", Ref(other).select(asInstanceOf).appliedToTypeTrees(List(classTree))) { other =>
         val hashvalue = This(classSymbol).select(hashCode).select(==).appliedTo(other.select(hashCode))
         val arguments = args.foldLeft(hashvalue) { (cond, arg) =>
-          cond.select(&&).appliedTo(This(classSymbol).select(arg).select(==).appliedTo(other.select(arg)))
+          if Ref(arg).tpe <:< properties then
+            cond
+          else
+            cond.select(&&).appliedTo(This(classSymbol).select(arg).select(==).appliedTo(other.select(arg)))
         }
         arguments.select(&&).appliedTo(other.select(canEqual).appliedTo(This(classSymbol)))
       })).asExprOf[Boolean]
