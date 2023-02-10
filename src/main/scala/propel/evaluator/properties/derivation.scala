@@ -33,10 +33,6 @@ def normalize(
     contractAbstraction: Abstraction => Boolean,
     expr: Term,
     equalities: Equalities): Term =
-  val maxSize = expr.size * 11 / 10 + 8
-  val maxBit = 8
-  val max = 1 << maxBit
-
   val cache = mutable.Map.empty[(Term, Term => Option[Term]), Option[Term]]
 
   val normalize = normalizing map { normalizing =>
@@ -98,6 +94,10 @@ def normalize(
     }
 
   def process(term: Term): Set[Term] =
+    val maxSize = term.size * 11 / 10 + 8
+    val maxBit = 8
+    val max = 1 << maxBit
+
     val processed = normalizeAbstraction(term) match
       case Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_) =>
         Set(term)
