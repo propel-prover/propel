@@ -357,6 +357,165 @@ def twophaseset[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, 
       abs("b" -> bool, "n" -> nat)(or("x", "b", "n")("y", "b", "n"))))(expr)
 
 
+def bin = rec("X")(dt(("ZeroAnd", "X"), ("OneAnd", "X"), "One"))
+
+def integer = dt(("P", nat), ("N", nat))
+
+def sign = dt("Pos", "Neg")
+
+def tip_list_append[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(assoc)) =
+  letrec("tip_list_append" -> forall("T")(list("T") -> (list("T") -> list("T"))) ->
+    tpabs("T")(abs(properties*)("x" -> list("T"), "y" -> list("T"))(cases("x")(
+      "Nil" -> "y",
+      ("Cons", "z", "xs") -> ("Cons", "z", app(assoc)(tpapp("tip_list_append")(tp("T")), "xs", "y"))))))(expr)
+
+def tip_nat_plus[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_nat_plus" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "y",
+      ("S", "z") -> ("S", app(comm, assoc)("tip_nat_plus", "z", "y")))))(expr)
+
+def tip_nat_plus_acc[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_nat_plus_acc" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "y",
+      ("S", "z") -> app(comm, assoc)("tip_nat_plus_acc", "z", ("S", "y")))))(expr)
+
+def tip_nat_times[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_nat_times" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "Z",
+      ("S", "z") -> app(comm, assoc)("tip_nat_plus", "y", app(comm, assoc)("tip_nat_times", "z", "y")))))(expr)
+
+def tip_nat_times_alt[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_nat_times_alt" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "Z",
+      ("S", "z") -> cases("y")(
+        "Z" -> "Z",
+        ("S", "x2") -> app(comm, assoc)("tip_nat_plus", app(comm, assoc)("tip_nat_plus", app(comm, assoc)("tip_nat_plus", ("S", "Z"), app(comm, assoc)("tip_nat_times_alt", "z", "x2")), "z"), "x2")))))(expr)
+
+def tip_nat_times_acc[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_nat_times_acc" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "Z",
+      ("S", "z") -> cases("y")(
+        "Z" -> "Z",
+        ("S", "x2") -> app(comm, assoc)("tip_nat_plus_acc", "x", app(comm, assoc)("tip_nat_plus_acc", "x2", app(comm, assoc)("tip_nat_times_acc", "z", "x2")))))))(expr)
+
+def tip_nat_leq[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(refl, antisym, trans, conn)) =
+  letrec("tip_nat_leq" -> tp(nat -> (nat -> bool)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> True,
+      ("S", "z") -> cases("y")(
+        "Z" -> False,
+        ("S", "x2") -> app(refl, antisym, trans, conn)("tip_nat_leq", "z", "x2")))))(expr)
+
+def tip_nat_geq[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(refl, antisym, trans, conn)) =
+  let("tip_nat_geq" ->
+    abs(properties*)("x" -> nat, "y" -> nat)(app(refl, antisym, trans, conn)("tip_nat_leq", "y", "x")))(expr)
+
+def tip_nat_max[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc, idem)) =
+  let("tip_nat_max" ->
+    abs(properties*)("x" -> nat, "y" -> nat)(
+      `if`(app(refl, antisym, trans, conn)("tip_nat_leq", "x", "y"))("y")("x")))(expr)
+
+def tip_nat_min[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc, idem)) =
+  let("tip_nat_min" ->
+    abs(properties*)("x" -> nat, "y" -> nat)(
+      `if`(app(refl, antisym, trans, conn)("tip_nat_leq", "x", "y"))("x")("y")))(expr)
+
+def bin_s[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq()) =
+  letrec("bin_s" -> tp(bin -> bin) ->
+    abs(properties*)("x" -> bin)(cases("x")(
+      "One" -> ("ZeroAnd", "One"),
+      ("ZeroAnd", "xs") -> ("OneAnd", "xs"),
+      ("OneAnd", "ys") -> ("ZeroAnd", ("bin_s", "ys")))))(expr)
+
+def tip_bin_plus[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_bin_plus" -> tp(bin -> (bin -> bin)) ->
+    abs(properties*)("x" -> bin, "y" -> bin)(cases("x")(
+      "One" -> ("bin_s", "y"),
+      ("ZeroAnd", "z") -> cases("y")(
+        "One" -> ("bin_s", "x"),
+        ("ZeroAnd", "ys") -> ("ZeroAnd", app(comm, assoc)("tip_bin_plus", "z", "ys")),
+        ("OneAnd", "xs") -> ("OneAnd", app(comm, assoc)("tip_bin_plus", "z", "xs"))),
+      ("OneAnd", "x2") -> cases("y")(
+        "One" -> ("bin_s", "x"),
+        ("ZeroAnd", "zs") -> ("OneAnd", app(comm, assoc)("tip_bin_plus", "x2", "zs")),
+        ("OneAnd", "ys2") -> ("ZeroAnd", ("bin_s", app(comm, assoc)("tip_bin_plus", "x2", "ys2")))))))(expr)
+
+def tip_bin_times[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  letrec("tip_bin_times" -> tp(bin -> (bin -> bin)) ->
+    abs(properties*)("x" -> bin, "y" -> bin)(cases("x")(
+      "One" -> "y",
+      ("ZeroAnd", "xs1") -> ("ZeroAnd", app(comm, assoc)("tip_bin_times", "xs1", "y")),
+      ("OneAnd", "xs12") -> app(comm, assoc)("tip_bin_plus", ("ZeroAnd", app(comm, assoc)("tip_bin_times", "xs12", "y")), "y"))))(expr)
+
+def tip_sub[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq()) =
+  letrec("tip_sub" -> tp(nat -> (nat -> integer)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(
+      let("fail" -> cases("y")(
+        "Z" -> ("P", "x"),
+        ("S", "z") -> cases("x")(
+          "Z" -> ("N", "z"),
+          ("S", "x2") -> ("tip_sub", "x2", "z"))))(
+      cases("x")(
+        "Z" -> cases("y")(
+          "Z" -> ("P", "Z"),
+          ("S", "x3") -> "fail"),
+        ("S", "x4") -> "fail"))))(expr)
+
+def tip_int_plus[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  let("tip_int_plus" ->
+    abs(properties*)("x" -> integer, "y" -> integer)(cases("x")(
+      ("P", "m") -> cases("y")(
+        ("P", "n") -> ("P", app(comm, assoc)("tip_nat_plus", "m", "n")),
+        ("N", "o") -> ("tip_sub", "m", app(comm, assoc)("tip_nat_plus", ("S", "Z"), "o"))),
+      ("N", "m2") -> cases("y")(
+        ("P", "n2") -> ("tip_sub", "n2", app(comm, assoc)("tip_nat_plus", ("S", "Z"), "m2")),
+        ("N", "n3") -> ("N", app(comm, assoc)("tip_nat_plus", app(comm, assoc)("tip_nat_plus", ("S", "Z"), "m2"), "n3"))))))(expr)
+
+def tip_to_integer[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq()) =
+  let("tip_to_integer" ->
+    abs(properties*)("x" -> sign, "y" -> nat)(cases("x")(
+      "Pos" -> ("P", "y"),
+      "Neg" -> cases("y")(
+        "Z" -> ("P", "Z"),
+        ("S", "z") -> ("N", "z")))))(expr)
+
+def tip_sign[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq()) =
+  let("tip_sign" ->
+    abs(properties*)("x" -> integer)(cases("x")(
+      ("P", "y") -> "Pos",
+      ("N", "z") -> "Neg")))(expr)
+
+def tip_opposite_sign[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq()) =
+  let("tip_opposite_sign" ->
+    abs(properties*)("x" -> sign)(cases("x")(
+      "Pos" -> "Neg",
+      "Neg" -> "Pos")))(expr)
+
+def tip_times_sign[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  let("tip_times_sign" ->
+    abs(properties*)("x" -> sign, "y" -> sign)(cases("x")(
+      "Pos" -> "y",
+      "Neg" -> ("tip_opposite_sign", "y"))))(expr)
+
+def tip_abs[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq()) =
+  let("tip_abs" ->
+    abs(properties*)("x" -> integer)(cases("x")(
+      ("P", "n") -> "n",
+      ("N", "m") -> app(comm, assoc)("tip_nat_plus", ("S", "Z"), "m"))))(expr)
+
+def tip_int_times[A: TermExpr](expr: A, properties: Seq[ast.Property] = Seq(comm, assoc)) =
+  let("tip_int_times" ->
+    abs(properties*)("x" -> integer, "y" -> integer)(
+      "tip_to_integer",
+        app(comm, assoc)("tip_times_sign", ("tip_sign", "x"), ("tip_sign", "y")),
+        app(comm, assoc)("tip_nat_times", ("tip_abs", "x"), ("tip_abs", "y"))))(expr)
+
+
 def benchmarks(properties: Seq[ast.Property] = Seq()) = Map(
   "nat_add2p" -> nat_add2p("Unit", properties),
   "nat_add2p_acc" -> nat_add2p_acc("Unit", properties),
@@ -393,7 +552,21 @@ def benchmarks(properties: Seq[ast.Property] = Seq()) = Map(
   "bv_lwwreg" -> bv_eq(bv_max(bv_lwwreg("Unit", properties))),
   "gset" -> gset("Unit", properties),
   "orset" -> nat_max(natlist_gcounter(orset("Unit", properties))),
-  "twophaseset" -> twophaseset("Unit", properties))
+  "twophaseset" -> twophaseset("Unit", properties),
+  "tip_list_append" -> tip_list_append("Unit", properties),
+  "tip_nat_plus" -> tip_nat_plus("Unit", properties),
+  "tip_nat_plus_acc" -> tip_nat_plus_acc("Unit", properties),
+  "tip_nat_times" -> tip_nat_plus(tip_nat_times("Unit", properties)),
+  "tip_nat_times_alt" -> tip_nat_plus(tip_nat_times_alt("Unit", properties)),
+  "tip_nat_times_acc" -> tip_nat_plus_acc(tip_nat_times_acc("Unit", properties)),
+  "tip_nat_leq" -> tip_nat_leq("Unit", properties),
+  "tip_nat_geq" -> tip_nat_leq(tip_nat_geq("Unit", properties)),
+  "tip_nat_max" -> tip_nat_leq(tip_nat_max("Unit", properties)),
+  "tip_nat_min" -> tip_nat_leq(tip_nat_min("Unit", properties)),
+  "tip_bin_plus" -> bin_s(tip_bin_plus("Unit", properties)),
+  "tip_bin_times" -> bin_s(tip_bin_plus(tip_bin_times("Unit", properties))),
+  "tip_int_plus" -> tip_nat_plus(tip_sub(tip_int_plus("Unit", properties))),
+  "tip_int_times" -> tip_nat_plus(tip_nat_times(tip_to_integer(tip_sign(tip_opposite_sign(tip_times_sign(tip_abs(tip_int_times("Unit", properties)))))))))
 
 def prop(property: Seq[String]) = property map {
   case "comm" => comm
@@ -407,7 +580,7 @@ def prop(property: Seq[String]) = property map {
   case "asym" => asym
   case "conn" => conn
   case "trans" => trans
-  case _ => throw new IllegalArgumentException(s"Invalid property: $property")
+  case property => throw new IllegalArgumentException(s"Invalid property: $property")
 }
 
 @main def benchmark(benchmark: String, property: String*) =
