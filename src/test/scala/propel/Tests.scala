@@ -20,13 +20,11 @@ object FailingPropertyChecks:
   val names = Set(
     "nat_add2p_acc",
     "nat_add3p_acc",
-    "nat_mult2p",
     "nat_mult2p_acc",
     "nat_mult3p",
     "nat_max_acc",
     "nat_lwwreg_acc",
     "bv_lwwreg",
-    "tip_nat_times",
     "tip_nat_times_alt",
     "tip_nat_times_acc",
     "tip_bin_times",

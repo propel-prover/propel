@@ -362,6 +362,7 @@ def check(
                   normalizeConjectures.flatten ++
                   collectedNormalize ++
                   normalizing,
+                  abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),
                 evaluator.properties.derive(
@@ -504,6 +505,7 @@ def check(
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(
                   normalize.flatten ++ collectedNormalize ++ normalizing,
+                  abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),
                 evaluator.properties.derive(

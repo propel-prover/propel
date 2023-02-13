@@ -30,9 +30,12 @@ def select(
 
 def normalize(
     normalizing: List[Equalities => PartialFunction[Term, Term]],
+    priorityVariable: Var => Boolean,
     contractAbstraction: Abstraction => Boolean,
     expr: Term,
     equalities: Equalities): Term =
+  given Ordering[Term] = termOrderingWithPriorityVariable(priorityVariable)
+
   val cache = mutable.Map.empty[(Term, Term => Option[Term]), Option[Term]]
 
   val normalize = normalizing map { normalizing =>
