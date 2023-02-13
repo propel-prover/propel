@@ -145,7 +145,8 @@ def normalize(
         val continueIterable = continue.to(Iterable)
         exploded ++= continueIterable
         exploded ++= stop
-        explode(continueIterable)
+        if exploded.size < max then
+          explode(continueIterable)
       else
         exploded ++= continue
         exploded ++= stop
