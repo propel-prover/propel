@@ -242,6 +242,9 @@ object Symbolic:
       evalCache: mutable.Map[(Term, Constraints, Equalities, Mode), Option[Result]] = mutable.Map.empty,
       control: Control = Control.Continue)(using UniqueNaming): Result =
     def evalEqualities(constraints: Constraints, equalities: Equalities, control: Control, processed: mutable.Set[Equalities])(using UniqueNaming): (List[Equalities], Control) =
+      val maxBit = 8
+      val max = 1 << maxBit
+
       def normalizeExpression(term: Term) =
         val normalized = exprCache.getOrElseUpdate((term, equalities), config.normalize(term, equalities))
         if term != normalized then UniqueNames.convert(normalized) else normalized
@@ -258,7 +261,7 @@ object Symbolic:
       def evaluateEqualities(pos: Map[Term, Term]) = pos.foldLeft(List(equalities) -> control) {
         case (evaluatedEqualities @ (List() -> _), _) =>
           evaluatedEqualities
-        case (evaluatedEqualities -> control, exprs @ (expr0, expr1)) =>
+        case (evaluatedEqualities -> control, exprs @ (expr0, expr1)) if (evaluatedEqualities map { _.pos.size }).sum < max =>
           val reducedEqualities = equalities.withoutEqualities(exprs)
 
           val (result0, control0, normalized0) = evalExpression(expr0, constraints, reducedEqualities, control)
@@ -284,6 +287,8 @@ object Symbolic:
                 }
               }
             }) -> control
+        case (evaluatedEqualities, _) =>
+          evaluatedEqualities
       }
 
       val (pos, posExtended) = equalities.posExpanded
