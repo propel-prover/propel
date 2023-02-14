@@ -520,6 +520,8 @@ def check(
         else
           (optimisticProperties filter { properties contains _ }) ++ (properties -- optimisticProperties)
 
+      var checkedProperties = Set.empty[Property]
+
       val error = checkingProperties collectFirstDefined { property =>
         propertiesChecking get property match
           case None =>
@@ -588,15 +590,22 @@ def check(
               else if !proved then
                 Option.when(properties contains property)(propertyDeductionError(property))
               else
+                checkedProperties += property
                 additionalProperties = checkingProperties
                 None
       }
+
       error match
         case Some(error) =>
           term.withExtrinsicInfo(error)
         case _ =>
           val arg = typedArgVar(ident0, term.termType)
-          Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg))
+          val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg))
+          if checkedProperties.nonEmpty || provenProperties.nonEmpty then
+            val derived = Derived(checkedProperties, provenProperties)
+            expr.withExtrinsicInfo(derived)
+          else
+            expr
 
     case Abs(properties, ident, tpe, expr) =>
       if properties.nonEmpty then
