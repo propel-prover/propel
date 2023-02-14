@@ -9,6 +9,7 @@ import util.*
 
 def check(
     expr: Term,
+    discoverAlgebraicProperties: Boolean = true,
     assumedUncheckedConjectures: List[Normalization] = List.empty,
     printDeductionDebugInfo: Boolean = false,
     printReductionDebugInfo: Boolean = false): Term =
@@ -125,6 +126,27 @@ def check(
       Equalities.pos(List(Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty))).toList
     case (expr, App(_, abstraction, _)) if typeContradiction(abstraction, expr) =>
       Equalities.pos(List(Data(Constructor.False, List.empty) -> Data(Constructor.True, List.empty))).toList
+
+  var additionalProperties = Map.empty[Abstraction, Properties]
+
+  def addPropertiesToCalls(term: Term, properties: Map[Abstraction, Properties]): Term = term match
+    case Abs(props, ident, tpe, expr) =>
+      Abs(term)(props, ident, tpe, addPropertiesToCalls(expr, properties))
+    case App(props, expr, arg) =>
+      val additionalProperties = expr.info(Abstraction) flatMap properties.get getOrElse Set.empty
+      App(term)(props ++ additionalProperties, addPropertiesToCalls(expr, properties), addPropertiesToCalls(arg, properties))
+    case TypeAbs(ident, expr) =>
+      TypeAbs(term)(ident, addPropertiesToCalls(expr, properties))
+    case TypeApp(expr, tpe) =>
+      TypeApp(term)(addPropertiesToCalls(expr, properties), tpe)
+    case Data(ctor, args) =>
+      Data(term)(ctor, args map { addPropertiesToCalls(_, properties) })
+    case Var(_) =>
+      term
+    case Cases(scrutinee, cases) =>
+      Cases(term)(
+        addPropertiesToCalls(scrutinee, properties),
+        cases map { (pattern, expr) => pattern -> addPropertiesToCalls(expr, properties) })
 
   var collectedNormalizations = List.empty[(Abstraction => Option[Term]) => Option[Equalities => PartialFunction[Term, Term]]]
 
@@ -481,19 +503,38 @@ def check(
         println()
         provenProperties foreach { property => println(indent(4, property.show)) }
 
-      val error = properties collectFirstDefined { property =>
+      val hasRelationPropertyShape = equivalent(tpe0, tpe1) && (resultType forall { conforms(_, boolType) })
+      val hasFunctionPropertyShape = equivalent(tpe0, tpe1) && (resultType forall { conforms(_, tpe0) })
+
+      val optimisticProperties =
+        if hasRelationPropertyShape then
+          List(Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive)
+        else if hasFunctionPropertyShape then
+          List(Commutative, Associative, Idempotent, Selection)
+        else
+          List.empty
+
+      val checkingProperties =
+        if discoverAlgebraicProperties then
+          optimisticProperties ++ (properties -- optimisticProperties)
+        else
+          (optimisticProperties filter { properties contains _ }) ++ (properties -- optimisticProperties)
+
+      val error = checkingProperties collectFirstDefined { property =>
         propertiesChecking get property match
           case None =>
             Some(unknownPropertyError(property))
           case Some(checking) =>
-            if checking.propertyType == PropertyType.Relation &&
-               (!equivalent(tpe0, tpe1) || (resultType forall { !conforms(_, boolType) })) then
+            if checking.propertyType == PropertyType.Relation && !hasRelationPropertyShape then
               Some(illformedRelationTypeError(property, term.termType))
-            else if checking.propertyType == PropertyType.Function &&
-               (!equivalent(tpe0, tpe1) || (resultType forall { !conforms(_, tpe0) })) then
+            else if checking.propertyType == PropertyType.Function && !hasFunctionPropertyShape then
               Some(illformedFunctionTypeError(property, term.termType))
             else
-              val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
+              val checkingProperties = term.info(Abstraction).fold(additionalProperties) { abstraction =>
+                additionalProperties.updatedWith(abstraction) { properties => Some(properties.toSet.flatten + property) }
+              }
+
+              val (expr, equalities) = checking.prepare(ident0, ident1, addPropertiesToCalls(expr1, checkingProperties))
               val converted = UniqueNames.convert(expr, names)
 
               if printReductionDebugInfo then
@@ -542,9 +583,13 @@ def check(
                 else
                   println(indent(4, s"✘ ${property.show} property could not be proved".toUpperCase.nn))
 
-              if disproved then Some(propertyDisprovenError(property))
-              else if !proved then Some(propertyDeductionError(property))
-              else None
+              if disproved then
+                Option.when(properties contains property)(propertyDisprovenError(property))
+              else if !proved then
+                Option.when(properties contains property)(propertyDeductionError(property))
+              else
+                additionalProperties = checkingProperties
+                None
       }
       error match
         case Some(error) =>
