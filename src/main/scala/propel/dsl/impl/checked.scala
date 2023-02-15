@@ -21,12 +21,17 @@ object Checked:
     val Typed(fTerm, _) = f.asTerm.underlyingArgument: @unchecked
     val (result, recursiveSymbol, expr, typeVars) = processPropDef[T](fTerm, Set.empty, recursive)
 
+    def typeAbs(expr: ast.Term, typeVars: Set[scala.Symbol]) =
+      typeVars.foldRight(expr) { TypeAbs(_, _) }
+
     recursiveSymbol match
       case Some(recursiveSymbol) =>
         val (tpe @ Function(t, u), _) = makeType(TypeRepr.of[T], Position.ofMacroExpansion): @unchecked
-        val recursiveExpr = App(Set.empty,
-          TypeApp(TypeApp(zCombinator, t), u),
-          Abs(Set.empty, scala.Symbol(recursiveSymbol.name), tpe, expr))
+        val recursiveExpr = typeAbs(
+          App(Set.empty,
+            TypeApp(TypeApp(zCombinator, t), u),
+            Abs(Set.empty, scala.Symbol(recursiveSymbol.name), tpe, expr)),
+          typeVars)
 
         reportErrors(evaluator.properties.check(recursiveExpr))
 
@@ -43,7 +48,7 @@ object Checked:
           TypeTree.of[T]).asExprOf[T]
 
       case _ =>
-        reportErrors(evaluator.properties.check(expr))
+        reportErrors(evaluator.properties.check(typeAbs(expr, typeVars)))
         Typed(result, TypeTree.of[T]).asExprOf[T]
   end check
 
@@ -202,7 +207,7 @@ object Checked:
             val (fun, args, props, make) = term match
               case Apply(Select(fun, "apply"), List(Apply(tupleApply, args))) if fun.tpe <:< propertyFunction =>
                 val props = fun.tpe.asType match
-                  case '[ p := (a, b) =>: r ] => properties[p]
+                  case '[ p := (a, b) =>: r ] => properties(TypeRepr.of[p])
                 (fun, args, props, (fun: Term, args: List[Term]) => Select.unique(fun, "apply").appliedTo(tupleApply.appliedToArgs(args)))
               case Apply(Select(fun, "apply"), args) if isFunctionType(fun.tpe.widenTermRefByName) =>
                 (fun, args, Set.empty, (fun: Term, args: List[Term]) => Select.unique(fun, "apply").appliedToArgs(args))
@@ -219,8 +224,16 @@ object Checked:
             (make(funTerm, argTerms), expr, funTypeVars ++ argTypeVars.flatten)
 
       case TypeApply(fun, args) =>
+        val paramBounds = fun.tpe.widenTermRefByName match
+          case PolyType(_, paramBounds, _) if paramBounds.sizeIs == args.size => paramBounds
+          case _ => List.fill(args.size) { TypeBounds.empty }
+
+        val (argTypes, argTypeVars) =
+          (args zip paramBounds collect { case (arg, bound) if !isPropertyTypeBound(bound) =>
+            makeType(arg.tpe, arg.pos)
+          }).unzip
+
         val (funTerm, funExpr, funTypeVars) = processPropExpr(fun, bound)
-        val (argTypes, argTypeVars) = (args map { arg => makeType(arg.tpe, arg.pos) }).unzip
         val expr = argTypes.foldLeft(funExpr) { TypeApp(_, _) }
         (funTerm.appliedToTypeTrees(args), expr, funTypeVars ++ argTypeVars.flatten)
 
@@ -360,7 +373,7 @@ object Checked:
                         new Unchecked.PropertyAnnotation[p, (a, b)] { type Arguments = (a, b) }
                       def apply(v: (a, b)): r = ${lambda.asExprOf[(a, b) => r]}(v._1, v._2)
                   }.asTerm
-                  (result, None, Abs(properties[p], ident, tpe, expr), typeVars)
+                  (result, None, Abs(properties(TypeRepr.of[p]), ident, tpe, expr), typeVars)
 
                 case _ =>
                   maybeFail[T](term.pos, recursive)
@@ -402,13 +415,19 @@ object Checked:
           case ParamRef(binder, paramNum) if algebraicBaseType.isEmpty =>
             val name = binder match
               case MethodType(paramNames, _, _) => paramNames(paramNum)
-              case PolyType(paramNames, _, _) => paramNames(paramNum)
+              case PolyType(paramNames, paramBounds, _) if !isPropertyTypeBound(paramBounds(paramNum)) => paramNames(paramNum)
               case _ => fail(tpe, algebraicBaseType)
             (List.empty, Set(name), _ => TypeVar(scala.Symbol(name)))
 
           case AppliedType(_, List(AppliedType(_, List(props, AppliedType(_, List(a, b)))), r))
               if algebraicBaseType.isEmpty &&
                  basis <:< TypeRepr.of[Any := (Nothing, Nothing) =>: _] =>
+            props match
+              case ParamRef(binder, paramNum) => binder match
+                case PolyType(paramNames, paramBounds, _) => propertiesTypeBound(paramBounds(paramNum))
+                case _ =>
+              case _ => properties(props)
+
             val (aTypes, aNames, aMake) = makeType(a, types, None)
             val (bTypes, bNames, bMake) = makeType(b, types, None)
             val (rTypes, rNames, rMake) = makeType(r, types, None)
@@ -431,11 +450,12 @@ object Checked:
                 (paramsTypes ++ paramTypes, paramsNames ++ paramNames, variables => Function(paramMake(variables), paramsMake(variables)))
             }
 
-          case PolyType(paramNames, _, resType) if algebraicBaseType.isEmpty =>
+          case PolyType(paramNames, paramBounds, resType) if algebraicBaseType.isEmpty =>
             val (resTypes, resNames, resMake) = makeType(resType, types, None)
+            val names = paramNames zip paramBounds collect { case (name, bound) if !isPropertyTypeBound(bound) => name }
             (resTypes,
-             resNames -- paramNames,
-             variables => paramNames.foldRight(resMake(variables)) { (param, res) => Universal(scala.Symbol(param), res) })
+             resNames -- names,
+             variables => names.foldRight(resMake(variables)) { (param, res) => Universal(scala.Symbol(param), res) })
 
           case _ =>
             algebraic(basis) match
@@ -562,12 +582,22 @@ object Checked:
     RecursiveCallReplacer(substs).transformTerm(term.changeOwner(owner))(owner)
   end replaceRecursiveCall
 
-  def properties[T: Type](using Quotes): Properties =
+  def isPropertyTypeBound(using Quotes)(bounds: quotes.reflect.TypeBounds) =
+    isProperty(bounds.hi) && isProperty(bounds.low)
+
+  def propertiesTypeBound(using Quotes)(bounds: quotes.reflect.TypeBounds) =
+    properties(bounds.hi)
+    properties(bounds.low)
+
+  def isProperty(using Quotes)(tpe: quotes.reflect.TypeRepr) =
+    quotes.reflect.TypeRepr.of[Comm & Assoc & Idem & Sel & Refl & Irefl & Sym & Antisym & Asym & Conn & Trans] <:< tpe
+
+  def properties(using Quotes)(tpe: quotes.reflect.TypeRepr): Properties =
     import quotes.reflect.*
 
-    val tpe = TypeRepr.of[T]
-    if !(TypeRepr.of[Comm & Assoc & Idem & Sel & Refl & Irefl & Sym & Antisym & Asym & Conn & Trans] <:< tpe) then
-      report.errorAndAbort(s"Unknown property: ${printType[T]}")
+    if !isProperty(tpe) then
+      tpe.asType match
+        case '[ t ] => report.errorAndAbort(s"Unknown property: ${printType[t]}")
 
     val properties = List(
       TypeRepr.of[Comm] -> Commutative,
