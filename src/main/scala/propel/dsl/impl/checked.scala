@@ -593,6 +593,8 @@ object Checked:
         s"(${(args map { printType(using _, quotes) }).mkString("(", ", ", ")")} => ${printType[t]})"
       case _ =>
         Type.of[T] match
+          case '[ Nothing ] =>
+            TypeRepr.of[T].show(using Printer.TypeReprShortCode)
           case '[ p := (a, b) =>: r ] =>
             s"(${printType[p]} := (${printType[a]}, ${printType[b]}) =>: ${printType[r]})"
           case _ =>
