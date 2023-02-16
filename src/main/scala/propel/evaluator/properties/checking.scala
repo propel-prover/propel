@@ -11,6 +11,7 @@ def check(
     expr: Term,
     discoverAlgebraicProperties: Boolean = true,
     assumedUncheckedConjectures: List[Normalization] = List.empty,
+    assumedUncheckedNestedConjectures: List[Normalization] = List.empty,
     printDeductionDebugInfo: Boolean = false,
     printReductionDebugInfo: Boolean = false): Term =
   var debugInfoPrinted = false
@@ -57,60 +58,63 @@ def check(
     case Match(_, args) => (args flatMap typedBindings).toMap
     case Bind(ident) => Map(ident -> typedVar(ident, pattern.patternType))
 
-  extension [A, B, C, D](list: List[(A, B, C, D)]) private def unzip4 =
-    list.foldRight(List.empty[A], List.empty[B], List.empty[C], List.empty[D]) {
-      case ((elementA, elementB, elementC, elementD), (listA, listB, listC, listD)) =>
-       (elementA :: listA, elementB :: listB, elementC :: listC, elementD :: listD)
+  extension [A, B, C, D, E](list: List[(A, B, C, D, E)]) private def unzip5 =
+    list.foldRight(List.empty[A], List.empty[B], List.empty[C], List.empty[D], List.empty[E]) {
+      case ((elementA, elementB, elementC, elementD, elementE), (listA, listB, listC, listD, listE)) =>
+       (elementA :: listA, elementB :: listB, elementC :: listC, elementD :: listD, elementE :: listE)
     }
 
   val typedExpr = expr.typedTerm
 
-  val (abstractionProperties, abstractionResultTypes, abstractionDependencies, abstractionNames) =
+  val (abstractionProperties, abstractionResultTypes, abstractionDependencies, abstractionNames, namedVariables) =
     def abstractionInfos(term: Term, dependencies: List[Term | Symbol])
-      : (Map[Abstraction, Properties], Map[Abstraction, Type], Map[Abstraction, List[Term | Symbol]], Map[Abstraction, String]) =
+      : (Map[Abstraction, Properties], Map[Abstraction, Type], Map[Abstraction, List[Term | Symbol]], Map[Abstraction, String], Map[String, Var]) =
       term match
         case Abs(properties, ident, _, expr) =>
           term.info(Abstraction) flatMap { abstraction =>
             expr.termType map { tpe =>
-              val (exprProperties, exprResultTypes, exprDependencies, exprNames) =
+              val (exprProperties, exprResultTypes, exprDependencies, exprNames, exprVars) =
                 abstractionInfos(expr, dependencies :+ typedArgVar(ident, term.termType))
               (exprProperties + (abstraction -> properties),
                exprResultTypes + (abstraction -> tpe),
                exprDependencies + (abstraction -> dependencies),
-               exprNames)
+               exprNames,
+               exprVars)
             }
           } getOrElse abstractionInfos(expr, dependencies :+ typedArgVar(ident, term.termType))
         case App(_, expr, arg) =>
-          val (exprProperties, exprResultTypes, exprDependencies, exprNames) = abstractionInfos(expr, dependencies)
-          val (argProperties, argResultTypes, argDependencies, argNames) = abstractionInfos(arg, dependencies)
-          (exprProperties ++ argProperties, exprResultTypes ++ argResultTypes, exprDependencies ++ argDependencies, exprNames ++ argNames)
+          val (exprProperties, exprResultTypes, exprDependencies, exprNames, exprVars) = abstractionInfos(expr, dependencies)
+          val (argProperties, argResultTypes, argDependencies, argNames, argVars) = abstractionInfos(arg, dependencies)
+          (exprProperties ++ argProperties, exprResultTypes ++ argResultTypes, exprDependencies ++ argDependencies, exprNames ++ argNames, exprVars ++ argVars)
         case TypeAbs(ident, expr) =>
           term.info(Abstraction) flatMap { abstraction =>
             expr.termType map { tpe =>
-              val (exprProperties, exprResultTypes, exprDependencies, exprNames) =
+              val (exprProperties, exprResultTypes, exprDependencies, exprNames, exprVars) =
                 abstractionInfos(expr, dependencies :+ typedArgVar(ident, term.termType))
               (exprProperties,
                exprResultTypes + (abstraction -> tpe),
                exprDependencies + (abstraction -> dependencies),
-               exprNames)
+               exprNames,
+               exprVars)
             }
           } getOrElse abstractionInfos(expr, dependencies :+ ident)
         case TypeApp(expr, _) =>
           abstractionInfos(expr, dependencies)
         case Data(_, args) =>
-          val (argsProperties, argsResultTypes, argsDependencies, argsNames) = (args map { abstractionInfos(_, dependencies) }).unzip4
-          (argsProperties.flatten.toMap, argsResultTypes.flatten.toMap, argsDependencies.flatten.toMap, argsNames.flatten.toMap)
-        case Var(ident) =>
-          (Map.empty, Map.empty, Map.empty, (term.info(Abstraction) map { _ -> ident.name }).toMap)
+          val (argsProperties, argsResultTypes, argsDependencies, argsNames, argsVars) = (args map { abstractionInfos(_, dependencies) }).unzip5
+          (argsProperties.flatten.toMap, argsResultTypes.flatten.toMap, argsDependencies.flatten.toMap, argsNames.flatten.toMap, argsVars.flatten.toMap)
+        case variable @ Var(ident) =>
+          (Map.empty, Map.empty, Map.empty, (term.info(Abstraction) map { _ -> ident.name }).toMap, Map(ident.name -> variable))
         case Cases(scrutinee, cases) =>
-          val (scrutineeProperties, scrutineeResultTypes, scrutineeDependencies, scrutineeNames) =
+          val (scrutineeProperties, scrutineeResultTypes, scrutineeDependencies, scrutineeNames, scrutineeVars) =
             abstractionInfos(scrutinee, dependencies)
-          val (casesProperties, casesResultTypes, casesDependencies, casesNames) =
-            (cases map { (_, expr) => abstractionInfos(expr, dependencies) }).unzip4
-          (scrutineeProperties ++ casesProperties.flatten.toMap,
-           scrutineeResultTypes ++ casesResultTypes.flatten.toMap,
-           scrutineeDependencies ++ casesDependencies.flatten.toMap,
-           scrutineeNames ++ casesNames.flatten.toMap)
+          val (casesProperties, casesResultTypes, casesDependencies, casesNames, casesVars) =
+            (cases map { (_, expr) => abstractionInfos(expr, dependencies) }).unzip5
+          (scrutineeProperties ++ casesProperties.flatten,
+           scrutineeResultTypes ++ casesResultTypes.flatten,
+           scrutineeDependencies ++ casesDependencies.flatten,
+           scrutineeNames ++ casesNames.flatten,
+           scrutineeVars ++ casesVars.flatten)
 
     abstractionInfos(typedExpr, List.empty)
 
@@ -169,6 +173,18 @@ def check(
         }
       }
     }
+
+  val assumedUncheckedConjecturesEnvironment =
+    (assumedUncheckedConjectures flatMap { normalization =>
+      namedVariables.get(normalization.abstraction.name) flatMap { variable =>
+        val abstraction = variable.info(Abstraction)
+        if abstraction.isDefined then
+          addCollectedNormalizations(Map.empty, abstraction, List(normalization))
+          Some(variable.ident -> variable)
+        else
+          None
+      }
+    }).toMap
 
   def exprArgumentPrefixes(expr: Term): List[(List[(Symbol, Type)], Term)] = expr match
     case Abs(_, ident, tpe, expr) =>
@@ -453,7 +469,7 @@ def check(
       end proveConjectures
 
       val (uncheckedConjectures, uncheckedNormalizeConjecture) =
-        (assumedUncheckedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
+        (assumedUncheckedNestedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
           val (_, normalization) = conjecture.checking(
             call,
             _ forall { _.info(Abstraction) contains abstraction.get },
@@ -647,7 +663,7 @@ def check(
           println()
           facts map { fact => println(indent(4, fact.show)) }
 
-        val uncheckedConjectures = assumedUncheckedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
+        val uncheckedConjectures = assumedUncheckedNestedConjectures collect { case conjecture if name contains conjecture.abstraction.name =>
           conjecture
         }
 
@@ -687,7 +703,7 @@ def check(
         cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern), dependencies) }).typedTerm
 
   if typedExpr.termType.isDefined then
-    check(typedExpr, Map.empty, List.empty)
+    check(typedExpr, assumedUncheckedConjecturesEnvironment, List.empty)
   else
     typedExpr
 end check
