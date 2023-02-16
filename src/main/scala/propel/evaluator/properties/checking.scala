@@ -600,7 +600,7 @@ def check(
           term.withExtrinsicInfo(error)
         case _ =>
           val arg = typedArgVar(ident0, term.termType)
-          val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg))
+          val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg)).typedTerm
           if checkedProperties.nonEmpty || provenProperties.nonEmpty then
             val derived = Derived(checkedProperties, provenProperties)
             expr.withExtrinsicInfo(derived)
@@ -664,27 +664,27 @@ def check(
         addCollectedNormalizations(env, abstraction, facts ++ uncheckedConjectures)
 
         val arg = typedArgVar(ident, term.termType)
-        Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg))
+        Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg)).typedTerm
 
     case App(properties, expr, arg) =>
-      App(term)(properties, check(expr, env, dependencies), check(arg, env, dependencies))
+      App(term)(properties, check(expr, env, dependencies), check(arg, env, dependencies)).typedTerm
 
     case TypeAbs(ident, expr) =>
-      TypeAbs(term)(ident, check(expr, env, dependencies :+ ident))
+      TypeAbs(term)(ident, check(expr, env, dependencies :+ ident)).typedTerm
 
     case TypeApp(expr, tpe) =>
-      TypeApp(term)(check(expr, env, dependencies), tpe)
+      TypeApp(term)(check(expr, env, dependencies), tpe).typedTerm
 
     case Data(ctor, args) =>
-      Data(term)(ctor, args map { check(_, env, dependencies) })
+      Data(term)(ctor, args map { check(_, env, dependencies) }).typedTerm
 
     case Var(_) =>
-      expr
+      term
 
     case Cases(scrutinee, cases) =>
       Cases(term)(
         check(scrutinee, env, dependencies),
-        cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern), dependencies) })
+        cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern), dependencies) }).typedTerm
 
   if typedExpr.termType.isDefined then
     check(typedExpr, Map.empty, List.empty)
