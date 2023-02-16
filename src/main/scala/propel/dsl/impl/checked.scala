@@ -6,7 +6,7 @@ import typer.*
 
 import dsl.scala.*
 
-import scala.collection.immutable.ListMap
+import scala.collection.immutable.{ListMap, ListSet}
 import scala.collection.mutable
 import scala.deriving.Mirror
 import scala.quoted.*
@@ -14,17 +14,18 @@ import scala.quoted.*
 class Checked(normalization: List[evaluator.properties.Normalization]) extends scala.annotation.Annotation
 
 object Checked:
-  extension [A, B, C, D](list: List[(A, B, C, D)]) private def unzip4 =
-    list.foldRight(List.empty[A], List.empty[B], List.empty[C], List.empty[D]) {
-      case ((elementA, elementB, elementC, elementD), (listA, listB, listC, listD)) =>
-       (elementA :: listA, elementB :: listB, elementC :: listC, elementD :: listD)
+  extension [A, B, C, D, E](list: List[(A, B, C, D, E)]) private def unzip5 =
+    list.foldRight(List.empty[A], List.empty[B], List.empty[C], List.empty[D], List.empty[E]) {
+      case ((elementA, elementB, elementC, elementD, elementE), (listA, listB, listC, listD, listE)) =>
+       (elementA :: listA, elementB :: listB, elementC :: listC, elementD :: listD, elementE :: listE)
     }
 
   def check[T: Type](f: Expr[Any], recursive: Boolean)(using Quotes) =
     import quotes.reflect.*
 
     val Typed(fTerm, _) = f.asTerm.underlyingArgument: @unchecked
-    val (result, recursiveSymbol, expr, typeVars, propVars) = processPropDef[T](fTerm, Set.empty, mutable.Map.empty, recursive)
+    val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](fTerm, Set.empty, mutable.Map.empty, recursive)
+    val externalProperties = external.toList flatMap auxiliaryProperties
 
     def reportErrors(expr: ast.Term) =
       val errors = expr.errors
@@ -46,7 +47,7 @@ object Checked:
         case _ =>
           typeAbs(expr, typeVars)
 
-      val checked = evaluator.properties.check(recursiveExpr)
+      val checked = evaluator.properties.check(recursiveExpr, assumedUncheckedConjectures = externalProperties)
       reportErrors(checked)
       checked
     end checkProperties
@@ -87,6 +88,34 @@ object Checked:
     tpabs("T", "U")(abs("f" -> tp(("T" -> "U") -> ("T" -> "U")))(
       abs("x" -> rec("X")("X" -> ("T" -> "U")))("f", abs("v" -> tp("T"))(("x", "x"), "v")),
       abs("x" -> rec("X")("X" -> ("T" -> "U")))("f", abs("v" -> tp("T"))(("x", "x"), "v"))))
+
+  def checkedAnnotation(using Quotes)(term: quotes.reflect.Term) =
+    import quotes.reflect.*
+    term.tpe.widenTermRefByName match
+      case AppliedType(_, args) => args.last match
+        case AnnotatedType(_, annotation) if annotation.tpe <:< TypeRepr.of[Checked] => Some(annotation)
+        case _ => None
+      case _ => None
+
+  def auxiliaryProperties(using Quotes)(term: quotes.reflect.Term) =
+    checkedAnnotation(term).fold(List.empty) { checkedAnnotation =>
+      val normalizations =
+        checkedAnnotation.asExpr match
+          case '{ Checked(${Expr(normalizations)}) } => normalizations
+          case '{ new Checked(${Expr(normalizations)}) } => normalizations
+          case _ => List.empty
+
+      val ident = Symbol(term.symbol.fullName)
+
+      normalizations map { case evaluator.properties.Normalization(pattern, result, abstraction, variables, reversible) =>
+        evaluator.properties.Normalization(
+          subst(pattern, Map(abstraction -> Var(ident))),
+          subst(result, Map(abstraction -> Var(ident))),
+          ident,
+          variables,
+          reversible)
+      }
+    }
 
   def resultTypeWithProperties(using Quotes)(expr: ast.Term, resultType: quotes.reflect.TypeRepr, typeAbsPrefixLength: Int) =
     import quotes.reflect.*
@@ -178,7 +207,8 @@ object Checked:
     : (quotes.reflect.Term,
        Map[quotes.reflect.Symbol, Properties] => ast.Term,
        Set[scala.Symbol],
-       ListMap[quotes.reflect.Symbol, Properties]) =
+       ListMap[quotes.reflect.Symbol, Properties],
+       ListSet[quotes.reflect.Term]) =
     import quotes.reflect.*
 
     type VarProps = Map[quotes.reflect.Symbol, Properties]
@@ -224,29 +254,29 @@ object Checked:
 
     term match
       case Typed(expr, tpt) =>
-        val (exprTerm, exprExpr, exprTypeVars, exprPropVars) = processPropExpr(expr, bound, externalTerms)
-        (Typed(exprTerm, tpt), exprExpr, exprTypeVars, exprPropVars)
+        val (exprTerm, exprExpr, exprTypeVars, exprPropVars, exprExternal) = processPropExpr(expr, bound, externalTerms)
+        (Typed(exprTerm, tpt), exprExpr, exprTypeVars, exprPropVars, exprExternal)
 
       case Ident(name) if bound contains term.symbol =>
-        (term, _ => Var(scala.Symbol(name)), Set.empty, ListMap.empty)
+        (term, _ => Var(scala.Symbol(name)), Set.empty, ListMap.empty, ListSet.empty)
 
       case term: Ref if hasStableOuterReferencePath(term) =>
         dataConstructor(term) match
           case Some(ctor) =>
-            (term, _ => Data(ctor, List.empty), Set.empty, ListMap.empty)
+            (term, _ => Data(ctor, List.empty), Set.empty, ListMap.empty, ListSet.empty)
           case _ =>
             val (tpe, typeVars) = makeType(term.tpe.widenTermRefByName, term.pos)
             val ident = scala.Symbol(term.symbol.fullName)
             val expr = externalTerms.getOrElseUpdate(ident, Var(ident).withExtrinsicInfo(Typing.Specified(Right(Abstraction.assign(tpe)))))
-            (term, _ => expr, typeVars, ListMap.empty)
+            (term, _ => expr, typeVars, ListMap.empty, ListSet(term))
 
       case Apply(select @ Select(qual, name @ ("==" | "!=")), List(arg))
           if (qual.tpe.widenTermRefByName <:< arg.tpe.widenTermRefByName ||
               arg.tpe.widenTermRefByName <:< qual.tpe.widenTermRefByName) &&
              isAlgebraic(qual.tpe.widenTermRefByName) &&
              isAlgebraic(arg.tpe.widenTermRefByName) =>
-        val (qualTerm, qualExpr, qualTypeVars, qualPropVars) = processPropExpr(qual, bound, externalTerms)
-        val (argTerm, argExpr, argTypeVars, argPropVars) = processPropExpr(arg, bound, externalTerms)
+        val (qualTerm, qualExpr, qualTypeVars, qualPropVars, qualExternal) = processPropExpr(qual, bound, externalTerms)
+        val (argTerm, argExpr, argTypeVars, argPropVars, argExternal) = processPropExpr(arg, bound, externalTerms)
         val (tpe, typeVars) =
           if qual.tpe.widenTermRefByName <:< arg.tpe.widenTermRefByName then
             makeType(arg.tpe.widenTermRefByName, select.pos)
@@ -266,18 +296,18 @@ object Checked:
             case "!=" => Cases(relationExpr, List(
               ast.Match(Constructor.True, List.empty) -> Data(Constructor.False, List.empty),
               ast.Match(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)))
-        (term, expr, qualTypeVars ++ argTypeVars ++ typeVars, qualPropVars ++ argPropVars)
+        (term, expr, qualTypeVars ++ argTypeVars ++ typeVars, qualPropVars ++ argPropVars, qualExternal ++ argExternal)
 
       case Apply(TypeApply(Select(qual, "::"), targs), List(arg)) if qual.tpe <:< list =>
-        val (qualTerm, qualExpr, qualTypeVars, qualPropVars) = processPropExpr(qual, bound, externalTerms)
-        val (argTerm, argExpr, argTypeVars, argPropVars) = processPropExpr(arg, bound, externalTerms)
+        val (qualTerm, qualExpr, qualTypeVars, qualPropVars, qualExternal) = processPropExpr(qual, bound, externalTerms)
+        val (argTerm, argExpr, argTypeVars, argPropVars, argExternal) = processPropExpr(arg, bound, externalTerms)
         val term = Select.unique(qualTerm, "::").appliedToTypeTrees(targs).appliedTo(argTerm)
         val expr = (varProps: VarProps) => Data(cons, List(argExpr(varProps), qualExpr(varProps)))
-        (term, expr, qualTypeVars ++ argTypeVars, qualPropVars ++ argPropVars)
+        (term, expr, qualTypeVars ++ argTypeVars, qualPropVars ++ argPropVars, qualExternal ++ argExternal)
 
       case Apply(Select(qual, name @ ("&&" | "||")), List(arg)) if qual.tpe <:< boolean =>
-        val (qualTerm, qualExpr, qualTypeVars, qualPropVars) = processPropExpr(qual, bound, externalTerms)
-        val (argTerm, argExpr, argTypeVars, argPropVars) = processPropExpr(arg, bound, externalTerms)
+        val (qualTerm, qualExpr, qualTypeVars, qualPropVars, qualExternal) = processPropExpr(qual, bound, externalTerms)
+        val (argTerm, argExpr, argTypeVars, argPropVars, argExternal) = processPropExpr(arg, bound, externalTerms)
         val term = Select.unique(qualTerm, name).appliedTo(argTerm)
         val expr = (varProps: VarProps) =>
           name match
@@ -287,27 +317,31 @@ object Checked:
             case "||" => Cases(qualExpr(varProps), List(
               ast.Match(Constructor.True, List.empty) -> Data(Constructor.True, List.empty),
               ast.Match(Constructor.False, List.empty) -> argExpr(varProps)))
-        (term, expr, qualTypeVars ++ argTypeVars, qualPropVars ++ argPropVars)
+        (term, expr, qualTypeVars ++ argTypeVars, qualPropVars ++ argPropVars, qualExternal ++ argExternal)
 
       case Select(qual, "unary_!") if qual.tpe <:< boolean =>
-        val (qualTerm, qualExpr, qualTypeVars, qualPropVars) = processPropExpr(qual, bound, externalTerms)
+        val (qualTerm, qualExpr, qualTypeVars, qualPropVars, qualExternal) = processPropExpr(qual, bound, externalTerms)
         val term = Select.unique(qualTerm, "unary_!")
         val expr = (varProps: VarProps) =>
           Cases(qualExpr(varProps), List(
             ast.Match(Constructor.True, List.empty) -> Data(Constructor.False, List.empty),
             ast.Match(Constructor.False, List.empty) -> Data(Constructor.True, List.empty)))
-        (term, expr, qualTypeVars, qualPropVars)
+        (term, expr, qualTypeVars, qualPropVars, qualExternal)
 
       case If(cond, thenBranch, elseBranch) =>
-        val (condTerm, condExpr, condTypeVars, condPropVars) = processPropExpr(cond, bound, externalTerms)
-        val (thenTerm, thenExpr, thenTypeVars, thenPropVars) = processPropExpr(thenBranch, bound, externalTerms)
-        val (elseTerm, elseExpr, elseTypeVars, elsePropVars) = processPropExpr(elseBranch, bound, externalTerms)
+        val (condTerm, condExpr, condTypeVars, condPropVars, condExternal) = processPropExpr(cond, bound, externalTerms)
+        val (thenTerm, thenExpr, thenTypeVars, thenPropVars, thenExternal) = processPropExpr(thenBranch, bound, externalTerms)
+        val (elseTerm, elseExpr, elseTypeVars, elsePropVars, elseExternal) = processPropExpr(elseBranch, bound, externalTerms)
         val term = If(condTerm, thenTerm, elseTerm)
         val expr = (varProps: VarProps) =>
           Cases(condExpr(varProps), List(
             ast.Match(Constructor.True, List.empty) -> thenExpr(varProps),
             ast.Match(Constructor.False, List.empty) -> elseExpr(varProps)))
-        (term, expr, condTypeVars ++ thenTypeVars ++ elseTypeVars, condPropVars ++ thenPropVars ++ elsePropVars)
+        (term,
+         expr,
+         condTypeVars ++ thenTypeVars ++ elseTypeVars,
+         condPropVars ++ thenPropVars ++ elsePropVars,
+         condExternal ++ thenExternal ++ elseExternal)
 
       case Apply(_, _) =>
         val ctor = term match
@@ -324,9 +358,9 @@ object Checked:
 
         ctor match
           case Some(ctor, args, make) =>
-            val (argTerms, argExprs, argTypeVars, argPropVars) = (args map { processPropExpr(_, bound, externalTerms) }).unzip4
+            val (argTerms, argExprs, argTypeVars, argPropVars, argExternal) = (args map { processPropExpr(_, bound, externalTerms) }).unzip5
             val expr = (varProps: VarProps) => Data(ctor, argExprs map { _(varProps) })
-            (make(argTerms), expr, argTypeVars.flatten.toSet, argPropVars.flatten.to(ListMap))
+            (make(argTerms), expr, argTypeVars.flatten.toSet, argPropVars.flatten.to(ListMap), argExternal.flatten.to(ListSet))
 
           case _ =>
             val (fun, args, props, propVars, make) = term match
@@ -340,15 +374,23 @@ object Checked:
               case Apply(fun, args) =>
                 (fun, args, Set.empty, ListMap.empty, (fun: Term, args: List[Term]) => fun.appliedToArgs(args))
 
-            val (funTerm, funExpr, funTypeVars, funPropVars) = processPropExpr(fun, bound, externalTerms)
-            val (argTerms, argExprs, argTypeVars, argPropVars) = (args map { processPropExpr(_, bound, externalTerms) }).unzip4
+            val (funTerm, funExpr, funTypeVars, funPropVars, funExternal) = processPropExpr(fun, bound, externalTerms)
+            val (argTerms, argExprs, argTypeVars, argPropVars, argExternal) = (args map { processPropExpr(_, bound, externalTerms) }).unzip5
             val expr = (varProps: VarProps) =>
               val additonalProps = (varProps.view filterKeys { propVars contains _ }).values.flatten
               if props.nonEmpty || additonalProps.nonEmpty then
-                argExprs.tail.foldLeft(App(props ++ additonalProps, funExpr(varProps), argExprs.head(varProps))) { (fun, arg) => App(Set.empty, fun, arg(varProps)) }
+                argExprs.tail.foldLeft(App(props ++ additonalProps, funExpr(varProps), argExprs.head(varProps))) { (fun, arg) =>
+                  App(Set.empty, fun, arg(varProps))
+                }
               else
-                argExprs.foldLeft(funExpr(varProps)) { (fun, arg) => App(Set.empty, fun, arg(varProps)) }
-            (make(funTerm, argTerms), expr, funTypeVars ++ argTypeVars.flatten, funPropVars ++ argPropVars.flatten ++ propVars)
+                argExprs.foldLeft(funExpr(varProps)) { (fun, arg) =>
+                  App(Set.empty, fun, arg(varProps))
+                }
+            (make(funTerm, argTerms),
+             expr,
+             funTypeVars ++ argTypeVars.flatten,
+             funPropVars ++ argPropVars.flatten ++ propVars,
+             funExternal ++ argExternal.flatten)
 
       case TypeApply(fun, args) =>
         val paramBounds = fun.tpe.widenTermRefByName match
@@ -360,24 +402,25 @@ object Checked:
             makeType(arg.tpe, arg.pos)
           }).unzip
 
-        val (funTerm, funExpr, funTypeVars, funPropVars) = processPropExpr(fun, bound, externalTerms)
+        val (funTerm, funExpr, funTypeVars, funPropVars, funExternal) = processPropExpr(fun, bound, externalTerms)
         val expr = (varProps: VarProps) => argTypes.foldLeft(funExpr(varProps)) { TypeApp(_, _) }
-        (funTerm.appliedToTypeTrees(args), expr, funTypeVars ++ argTypeVars.flatten, funPropVars)
+        (funTerm.appliedToTypeTrees(args), expr, funTypeVars ++ argTypeVars.flatten, funPropVars, funExternal)
 
       case Block(stats, expr) =>
-        val (statsResult, statsTypeVars, statsPropVars, statsBound) =
-          stats.foldLeft(List.empty[(Definition, VarProps => ast.Term)], Set.empty[scala.Symbol], ListMap.empty[Symbol, Properties], bound) {
-            case ((results, typeVars, propVars, bound), valDef @ ValDef(name, tpt, Some(rhs))) =>
-              val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars) = processPropExpr(rhs, bound, externalTerms)
+        val (statsResult, statsTypeVars, statsPropVars, statsExternal, statsBound) =
+          stats.foldLeft(List.empty[(Definition, VarProps => ast.Term)], Set.empty[scala.Symbol], ListMap.empty[Symbol, Properties], ListSet.empty[Term], bound) {
+            case ((results, typeVars, propVars, external, bound), valDef @ ValDef(name, tpt, Some(rhs))) =>
+              val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars, rhsExternal) = processPropExpr(rhs, bound, externalTerms)
               ((ValDef.copy(valDef)(name, tpt, Some(rhsTerm)) -> rhsExpr) :: results,
                typeVars ++ rhsTypeVars,
                propVars ++ rhsPropVars,
+               external ++ rhsExternal,
                bound + valDef.symbol)
             case (_, stat) =>
               report.errorAndAbort("Statements not supported", stat.pos)
           }
 
-        val (exprTerm, exprExpr, exprTypeVars, exprPropVars) = processPropExpr(expr, statsBound, externalTerms)
+        val (exprTerm, exprExpr, exprTypeVars, exprPropVars, exprExternal) = processPropExpr(expr, statsBound, externalTerms)
 
         val resultTerms -> resultExpr = statsResult.foldRight(List.empty[Definition] -> exprExpr) {
           case (definition -> expr, resultTerms -> resultExpr) =>
@@ -385,7 +428,11 @@ object Checked:
             ((varProps: VarProps) => Cases(expr(varProps), List(ast.Bind(scala.Symbol(definition.name)) -> resultExpr(varProps))))
         }
 
-        (Block.copy(term)(resultTerms, exprTerm), resultExpr, statsTypeVars ++ exprTypeVars, statsPropVars ++ exprPropVars)
+        (Block.copy(term)(resultTerms, exprTerm),
+         resultExpr,
+         statsTypeVars ++ exprTypeVars,
+         statsPropVars ++ exprPropVars,
+         statsExternal ++ exprExternal)
 
       case Match(selector, cases) =>
         def makePattern(pattern: Tree): (Pattern, Set[Symbol]) = pattern match
@@ -425,26 +472,31 @@ object Checked:
           case _ =>
             report.errorAndAbort("Unsupported pattern", pattern.pos)
 
-        val (selectorTerm, selectorExpr, selectorTypeVars, selectorPropVars) = processPropExpr(selector, bound, externalTerms)
+        val (selectorTerm, selectorExpr, selectorTypeVars, selectorPropVars, selectorExternal) = processPropExpr(selector, bound, externalTerms)
 
-        val (caseTerms, caseExprs, caseTypeVars, casePropVars) = (cases map {
+        val (caseTerms, caseExprs, caseTypeVars, casePropVars, caseExternal) = (cases map {
           case CaseDef(_, Some(guard), _) =>
             report.errorAndAbort("Pattern guards not supported", guard.pos)
           case caseDef @ CaseDef(pattern, guard, rhs) =>
             val (patternPattern, patternBound) = makePattern(pattern)
-            val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars) = processPropExpr(rhs, bound ++ patternBound, externalTerms)
-            (CaseDef.copy(caseDef)(pattern, guard, rhsTerm), (varProps: VarProps) => patternPattern -> rhsExpr(varProps), rhsTypeVars, rhsPropVars)
-        }).unzip4
+            val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars, rhsExternal) = processPropExpr(rhs, bound ++ patternBound, externalTerms)
+            (CaseDef.copy(caseDef)(pattern, guard, rhsTerm),
+             (varProps: VarProps) => patternPattern -> rhsExpr(varProps),
+             rhsTypeVars,
+             rhsPropVars,
+             rhsExternal)
+        }).unzip5
 
         (Match.copy(term)(selectorTerm, caseTerms),
          (varProps: VarProps) => Cases(selectorExpr(varProps), caseExprs map { _(varProps) }),
          selectorTypeVars ++ caseTypeVars.flatten,
-         selectorPropVars ++ casePropVars.flatten)
+         selectorPropVars ++ casePropVars.flatten,
+         selectorExternal ++ caseExternal.flatten)
 
       case _ =>
         dataConstructor(term) match
           case Some(ctor) =>
-            (term, _ => Data(ctor, List.empty), Set.empty, ListMap.empty)
+            (term, _ => Data(ctor, List.empty), Set.empty, ListMap.empty, ListSet.empty)
           case _ =>
             report.errorAndAbort("Unsupported expression", term.pos)
   end processPropExpr
@@ -458,7 +510,8 @@ object Checked:
        Option[quotes.reflect.Symbol],
        Map[quotes.reflect.Symbol, Properties] => ast.Term,
        Set[scala.Symbol],
-       ListMap[quotes.reflect.Symbol, Properties]) =
+       ListMap[quotes.reflect.Symbol, Properties],
+       ListSet[quotes.reflect.Term]) =
     import quotes.reflect.*
 
     type VarProps = Map[quotes.reflect.Symbol, Properties]
@@ -483,7 +536,7 @@ object Checked:
         val paramSymbols = params map { _.symbol }
 
         def makeLambda[R: Type] =
-          val (lambdaBody, _, exprBody, typeVars, propVars) = processPropDef[R](rhs, bound ++ paramSymbols, externalTerms, recursive = false)
+          val (lambdaBody, _, exprBody, typeVars, propVars, external) = processPropDef[R](rhs, bound ++ paramSymbols, externalTerms, recursive = false)
           val lambda = Lambda(
             defDef.symbol.owner,
             MethodType(params map { _.name })(_ => params map { _.tpt.tpe }, _ => TypeRepr.of[R]),
@@ -494,21 +547,21 @@ object Checked:
             val (tpe, vars) = makeType(param.tpt.tpe, param.pos)
             { (varProps: VarProps) => Abs(Set.empty, scala.Symbol(param.name), tpe, expr(varProps)) } -> (typeVars ++ vars)
           }
-          (lambda, expr, vars, propVars)
+          (lambda, expr, vars, propVars, external)
 
         if recursive then
-          val (result, _, expr, typeVars, propVars) = processPropDef[T](rhs, bound ++ paramSymbols, externalTerms, recursive = false)
-          (result, Some(params.head.symbol), expr, typeVars, propVars)
+          val (result, _, expr, typeVars, propVars, external) = processPropDef[T](rhs, bound ++ paramSymbols, externalTerms, recursive = false)
+          (result, Some(params.head.symbol), expr, typeVars, propVars, external)
         else
           functionType[T] match
             case Some(_, '[ t ]) =>
-              val (lambda, expr, typeVars, propVars) = makeLambda[t]
-              (lambda, None, expr, typeVars, propVars)
+              val (lambda, expr, typeVars, propVars, external) = makeLambda[t]
+              (lambda, None, expr, typeVars, propVars, external)
 
             case _ =>
               Type.of[T] match
                 case '[ p := (a, b) =>: r ] =>
-                  val (lambda, lambdaExpr, typeVars, lambdaPropVars) = makeLambda[r]
+                  val (lambda, lambdaExpr, typeVars, lambdaPropVars, external) = makeLambda[r]
                   val result = '{
                     new Unchecked.AnnotatedFunction[Unchecked.PropertyAnnotation[Nothing, (a, b)], r]:
                       val a: Unchecked.PropertyAnnotation[Nothing, (a, b)] { type Arguments = (a, b) } =
@@ -520,17 +573,17 @@ object Checked:
                     val additonalProps = (varProps.view filterKeys { propVars contains _ }).values.flatten
                     val Abs(_, ident, tpe, expr) = lambdaExpr(varProps): @unchecked
                     Abs(props ++ additonalProps, ident, tpe, expr)
-                  (result, None, expr, typeVars, lambdaPropVars ++ propVars)
+                  (result, None, expr, typeVars, lambdaPropVars ++ propVars, external)
 
                 case _ =>
                   maybeFail[T](term.pos, recursive)
-                  val (result, expr, typeVars, propVars) = processPropExpr(term, bound, externalTerms)
-                  (result, None, expr, typeVars, propVars)
+                  val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
+                  (result, None, expr, typeVars, propVars, external)
 
       case _ =>
         maybeFail[T](term.pos, recursive)
-        val (result, expr, typeVars, propVars) = processPropExpr(term, bound, externalTerms)
-        (result, None, expr, typeVars, propVars)
+        val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
+        (result, None, expr, typeVars, propVars, external)
   end processPropDef
 
   def makeType(using Quotes)(tpe: quotes.reflect.TypeRepr, pos: quotes.reflect.Position) =

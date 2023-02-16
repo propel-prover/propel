@@ -6,6 +6,7 @@ import evaluator.properties.Normalization
 
 import scala.quoted.{Type => _, *}
 
+
 given SymbolToExpr: ToExpr[Symbol] with
   def apply(symbol: Symbol)(using Quotes) =
     '{ Symbol(${Expr(symbol.name)}) }
@@ -55,3 +56,63 @@ given NormalizationToExpr: ToExpr[Normalization] with
   def apply(normalization: Normalization)(using Quotes) =
     val Normalization(pattern, result, abstraction, variables, reversible) = normalization
     '{ Normalization(${Expr(pattern)}, ${Expr(result)}, ${Expr(abstraction)}, ${Expr(variables)}, ${Expr(reversible)}) }
+
+
+given SymbolFromExpr: FromExpr[Symbol] with
+  def unapply(symbol: Expr[Symbol])(using Quotes) = symbol match
+    case '{ Symbol(${Expr(name)}) } => Some(Symbol(name))
+    case _ => None
+
+given PropertyFromExpr: FromExpr[Property] with
+  def unapply(property: Expr[Property])(using Quotes) = property match
+    case '{ Commutative } => Some(Commutative)
+    case '{ Associative } => Some(Associative)
+    case '{ Idempotent } => Some(Idempotent)
+    case '{ Selection } => Some(Selection)
+    case '{ Reflexive } => Some(Reflexive)
+    case '{ Irreflexive } => Some(Irreflexive)
+    case '{ Symmetric } => Some(Symmetric)
+    case '{ Antisymmetric } => Some(Antisymmetric)
+    case '{ Asymmetric } => Some(Asymmetric)
+    case '{ Connected } => Some(Connected)
+    case '{ Transitive } => Some(Transitive)
+    case _ => None
+
+given ConstructorFromExpr: FromExpr[Constructor] with
+  def unapply(ctor: Expr[Constructor])(using Quotes) = ctor match
+    case '{ Constructor(${Expr(ident)}) } => Some(Constructor(ident))
+    case '{ new Constructor(${Expr(ident)}) } => Some(Constructor(ident))
+    case _ => None
+
+given PatternFromExpr: FromExpr[Pattern] with
+  def unapply(pattern: Expr[Pattern])(using Quotes) = pattern match
+    case '{ Match(${Expr(ctor)}, ${Expr(args)}) } => Some(Match(ctor, args))
+    case '{ Bind(${Expr(ident)}: Symbol) } => Some(Bind(ident))
+    case _ => None
+
+given TypeFromExpr: FromExpr[Type] with
+  def unapply(tpe: Expr[Type])(using Quotes) = tpe match
+    case '{ Function(${Expr(arg)}, ${Expr(result)}) } => Some(Function(arg, result))
+    case '{ Universal(${Expr(ident)}, ${Expr(result)}) } => Some(Universal(ident, result))
+    case '{ Recursive(${Expr(ident)}, ${Expr(result)}) } => Some(Recursive(ident, result))
+    case '{ TypeVar(${Expr(ident)}: Symbol) } => Some(TypeVar(ident))
+    case '{ Sum(${Expr(sum)}: List[(Constructor, List[Type])]) } => Some(Sum(sum))
+    case _ => None
+
+given TermFromExpr: FromExpr[Term] with
+  def unapply(term: Expr[Term])(using Quotes) = term match
+    case '{ Abs(${Expr(properties)}, ${Expr(ident)}, ${Expr(tpe)}, ${Expr(expr)}) } => Some(Abs(properties, ident, tpe, expr))
+    case '{ App(${Expr(properties)}, ${Expr(expr)}, ${Expr(arg)}) } => Some(App(properties, expr, arg))
+    case '{ TypeAbs(${Expr(ident)}, ${Expr(expr)}) } => Some(TypeAbs(ident, expr))
+    case '{ TypeApp(${Expr(expr)}, ${Expr(tpe)}) } => Some(TypeApp(expr, tpe))
+    case '{ Data(${Expr(ctor)}, ${Expr(args)}) } => Some(Data(ctor, args))
+    case '{ Var(${Expr(ident)}: Symbol) } => Some(Var(ident))
+    case '{ Cases(${Expr(scrutinee)}: Term, ${Expr(cases)}: List[(Pattern, Term)]) } => Some(Cases(scrutinee, cases))
+    case _ => None
+
+given NormalizationFromExpr: FromExpr[Normalization] with
+  def unapply(normalization: Expr[Normalization])(using Quotes) = normalization match
+    case '{ Normalization(${Expr(pattern)}, ${Expr(result)}, ${Expr(abstraction)}, ${Expr(variables)}, ${Expr(reversible)}) } =>
+      Some(Normalization(pattern, result, abstraction, variables, reversible))
+    case _ =>
+      None
