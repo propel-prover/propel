@@ -10,6 +10,8 @@ import scala.collection.immutable.ListMap
 import scala.deriving.Mirror
 import scala.quoted.*
 
+class Checked(normalization: List[evaluator.properties.Normalization]) extends scala.annotation.Annotation
+
 object Checked:
   extension [A, B, C, D](list: List[(A, B, C, D)]) private def unzip4 =
     list.foldRight(List.empty[A], List.empty[B], List.empty[C], List.empty[D]) {
@@ -32,45 +34,51 @@ object Checked:
       typeVars.foldRight(expr) { TypeAbs(_, _) }
 
     def checkProperties(expr: ast.Term) =
-      recursiveSymbol match
+      val recursiveExpr = recursiveSymbol match
         case Some(recursiveSymbol) =>
           val (tpe @ Function(t, u), _) = makeType(TypeRepr.of[T], Position.ofMacroExpansion): @unchecked
-          val recursiveExpr = typeAbs(
+          typeAbs(
             App(Set.empty,
               TypeApp(TypeApp(zCombinator, t), u),
               Abs(Set.empty, scala.Symbol(recursiveSymbol.name), tpe, expr)),
             typeVars)
-
-          reportErrors(evaluator.properties.check(recursiveExpr))
-
         case _ =>
-          reportErrors(evaluator.properties.check(typeAbs(expr, typeVars)))
+          typeAbs(expr, typeVars)
+
+      val checked = evaluator.properties.check(recursiveExpr)
+      reportErrors(checked)
+      checked
     end checkProperties
 
-    val propVariants =
-      Map.empty :: (propVars flatMap { (symbol, properties) =>
-        properties map { property => Map(symbol -> Set(property)) }
-      }).toList
+    val checked = checkProperties(expr(Map.empty))
 
-    propVariants foreach { propVariant => checkProperties(expr(propVariant)) }
+    propVars foreach { (symbol, properties) =>
+      properties foreach { property =>
+        checkProperties(expr(Map(symbol -> Set(property))))
+      }
+    }
 
-    recursiveSymbol match
-      case Some(recursiveSymbol) =>
-        val Block(List(recursiveDefinition), _) = '{ var rec: T = null.asInstanceOf[T] }.asTerm.underlyingArgument: @unchecked
-        val recursiveCall = Ref(recursiveDefinition.symbol)
+    val (resultType, annotatedResultType) = resultTypeWithProperties(checked, TypeRepr.of[T], typeVars.size)
 
-        Typed(
-          Block(
-            List(
-              recursiveDefinition,
-              Assign(
-                recursiveCall,
-                replaceRecursiveCall(Map(recursiveSymbol -> recursiveCall), result, Symbol.spliceOwner))),
-            recursiveCall),
-          TypeTree.of[T]).asExprOf[T]
+    (resultType.asType, annotatedResultType.asType) match
+      case '[ r ] -> '[ a ] =>
+        recursiveSymbol match
+          case Some(recursiveSymbol) =>
+            val Block(List(recursiveDefinition), _) = '{ var rec: r = null.asInstanceOf[r] }.asTerm.underlyingArgument: @unchecked
+            val recursiveCall = Ref(recursiveDefinition.symbol)
 
-      case _ =>
-        Typed(result, TypeTree.of[T]).asExprOf[T]
+            Typed(
+              Block(
+                List(
+                  recursiveDefinition,
+                  Assign(
+                    recursiveCall,
+                    replaceRecursiveCall(Map(recursiveSymbol -> recursiveCall), result, Symbol.spliceOwner))),
+                recursiveCall),
+              TypeTree.of[a]).asExprOf[T]
+
+          case _ =>
+            Typed(result, TypeTree.of[a]).asExprOf[T]
   end check
 
   val zCombinator =
@@ -78,6 +86,89 @@ object Checked:
     tpabs("T", "U")(abs("f" -> tp(("T" -> "U") -> ("T" -> "U")))(
       abs("x" -> rec("X")("X" -> ("T" -> "U")))("f", abs("v" -> tp("T"))(("x", "x"), "v")),
       abs("x" -> rec("X")("X" -> ("T" -> "U")))("f", abs("v" -> tp("T"))(("x", "x"), "v"))))
+
+  def resultTypeWithProperties(using Quotes)(expr: ast.Term, resultType: quotes.reflect.TypeRepr, typeAbsPrefixLength: Int) =
+    import quotes.reflect.*
+
+    def derivedProperties(term: ast.Term): Map[Abstraction, evaluator.properties.Derived] = term match
+      case Abs(_, _, _, expr) =>
+        derivedProperties(expr) ++ (term.info(Abstraction) flatMap { abstraction => 
+          term.info(evaluator.properties.Derived) map { abstraction -> _ }
+        })
+      case App(_, expr, arg) =>
+        derivedProperties(expr) ++ derivedProperties(arg)
+      case TypeAbs(_, expr) =>
+        derivedProperties(expr)
+      case TypeApp(expr, _) =>
+        derivedProperties(expr)
+      case Data(_, args) =>
+        (args flatMap derivedProperties).toMap
+      case Var(_) =>
+        Map.empty
+      case Cases(scrutinee, cases) =>
+        derivedProperties(scrutinee) ++ (cases flatMap { (_, expr) => derivedProperties(expr) })
+
+    val abstractionProperties = derivedProperties(expr)
+
+    def skipTypeAbs(tpe: ast.Type, typeAbsPrefixLength: Int): ast.Type =
+      tpe match
+        case Universal(_, expr) if typeAbsPrefixLength > 0 =>
+          skipTypeAbs(expr, typeAbsPrefixLength - 1)
+        case _ =>
+          tpe
+
+    def extendAlgebraicProperties(tpe: ast.Type, resultType: TypeRepr, argIndex: Int): TypeRepr =
+      tpe -> resultType match
+        case Function(a0, Function(b0, r0)) ->
+             AppliedType(tycon0, List(AppliedType(tycon1, List(props, AppliedType(tycon2, List(a1, b1)))), r1))
+            if argIndex == 0 && resultType <:< TypeRepr.of[Any := (Nothing, Nothing) =>: _] =>
+          val updatedProps =
+            (tpe.info(Abstraction) flatMap { abstractionProperties.get(_) }).fold(props) { derived =>
+              val (specifiedProperties, _) = properties(props)
+              val additonalProperties = derived.properties -- specifiedProperties map property
+              if additonalProperties.nonEmpty && props =:= TypeRepr.of[Any] then
+                additonalProperties.reduceLeft { AndType(_, _) }
+              else
+                additonalProperties.foldLeft(props) { AndType(_, _) }
+            }
+
+          AppliedType(tycon0, List(
+            AppliedType(tycon1, List(
+              updatedProps,
+              AppliedType(tycon2, List(
+                extendAlgebraicProperties(a0, a1, 0),
+                extendAlgebraicProperties(b0, b1, 0))))),
+            extendAlgebraicProperties(r0, r1, 0)))
+
+        case Function(a0, r0) -> AppliedType(tycon, args) if isFunctionType(resultType) =>
+          val rest = args.size - argIndex
+          if rest <= 1 then
+            resultType
+          else if rest == 2 then
+            val (init, List(a1, r1)) = args.splitAt(argIndex)
+            AppliedType(tycon, init ++ List(
+              extendAlgebraicProperties(a0, a1, 0),
+              extendAlgebraicProperties(r0, r1, 0)))
+          else
+            val r1 = AppliedType(tycon, args.updated(argIndex, extendAlgebraicProperties(a0, args(argIndex), 0)))
+            extendAlgebraicProperties(r0, r1, argIndex + 1)
+
+        case _ =>
+          resultType
+    end extendAlgebraicProperties
+
+    (expr.termType map { skipTypeAbs(_, typeAbsPrefixLength) }).fold(resultType -> resultType) { tpe =>
+      val extendedResultType = extendAlgebraicProperties(tpe, resultType, 0)
+      (tpe.info(Abstraction) flatMap { abstractionProperties.get(_) }).fold(extendedResultType -> extendedResultType) { derived =>
+        extendedResultType match
+          case AppliedType(tycon, args) =>
+            val annotation = '{ Checked(${Expr(derived.normalizations)}) }.asTerm.underlyingArgument
+            extendedResultType -> AppliedType(tycon, args.init :+ AnnotatedType(args.last, annotation))
+          case _ =>
+            extendedResultType -> extendedResultType
+      }
+    }
+  end resultTypeWithProperties
 
   def processPropExpr(using Quotes)(
       term: quotes.reflect.Term,
@@ -415,9 +506,9 @@ object Checked:
                 case '[ p := (a, b) =>: r ] =>
                   val (lambda, lambdaExpr, typeVars, lambdaPropVars) = makeLambda[r]
                   val result = '{
-                    new Unchecked.AnnotatedFunction[Unchecked.PropertyAnnotation[p, (a, b)], r]:
-                      val a: Unchecked.PropertyAnnotation[p, (a, b)] { type Arguments = (a, b) } =
-                        new Unchecked.PropertyAnnotation[p, (a, b)] { type Arguments = (a, b) }
+                    new Unchecked.AnnotatedFunction[Unchecked.PropertyAnnotation[Nothing, (a, b)], r]:
+                      val a: Unchecked.PropertyAnnotation[Nothing, (a, b)] { type Arguments = (a, b) } =
+                        new Unchecked.PropertyAnnotation[Nothing, (a, b)] { type Arguments = (a, b) }
                       def apply(v: (a, b)): r = ${lambda.asExprOf[(a, b) => r]}(v._1, v._2)
                   }.asTerm
                   val (props, propVars) = properties(TypeRepr.of[p])
@@ -703,6 +794,21 @@ object Checked:
       case (propertyType, property) if tpe <:< propertyType => property
     }).toSet -> checkAndExtractPropVars(tpe)
   end properties
+
+  def property(using Quotes)(property: ast.Property): quotes.reflect.TypeRepr =
+    import quotes.reflect.*
+    property match
+      case Commutative => TypeRepr.of[Comm]
+      case Associative => TypeRepr.of[Assoc]
+      case Idempotent => TypeRepr.of[Idem]
+      case Selection => TypeRepr.of[Sel]
+      case Reflexive => TypeRepr.of[Refl]
+      case Irreflexive => TypeRepr.of[Irefl]
+      case Symmetric => TypeRepr.of[Sym]
+      case Antisymmetric => TypeRepr.of[Antisym]
+      case Asymmetric => TypeRepr.of[Asym]
+      case Connected => TypeRepr.of[Conn]
+      case Transitive => TypeRepr.of[Trans]
 
   def printType[T: Type](using Quotes): String =
     import quotes.reflect.*
