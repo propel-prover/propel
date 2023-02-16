@@ -25,6 +25,7 @@ trait =>:[+A <: _ := _, R]:
   val a: A
   def apply(v: a.Arguments): R
 
+object =>: extends dsl.impl.Unchecked.FromFunction
 
 object prop:
   transparent inline def apply[T](using inline function: dsl.impl.Function[T])(inline f: function.Type): T =
