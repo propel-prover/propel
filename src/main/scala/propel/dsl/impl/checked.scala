@@ -187,23 +187,25 @@ object Checked:
           resultType
     end extendAlgebraicProperties
 
-    (expr.termType map { skipTypeAbs(_, typeAbsPrefixLength) }).fold(resultType -> resultType) { tpe =>
-      val extendedResultType = extendAlgebraicProperties(tpe, resultType, 0)
-      (tpe.info(Abstraction) flatMap { abstractionProperties.get(_) }).fold(extendedResultType -> extendedResultType) { derived =>
-        extendedResultType match
-          case AppliedType(tycon, args) =>
-            val annotation = '{ Checked(${Expr(derived.normalizations)}) }.asTerm.underlyingArgument
-            extendedResultType -> AppliedType(tycon, args.init :+ AnnotatedType(args.last, annotation))
-          case _ =>
-            extendedResultType -> extendedResultType
+    val (extendedResultType, normalizations) =
+      (expr.termType map { skipTypeAbs(_, typeAbsPrefixLength) }).fold(resultType -> List.empty) { tpe =>
+        extendAlgebraicProperties(tpe, resultType, 0) ->
+        (tpe.info(Abstraction) flatMap { abstractionProperties.get(_) }).fold(List.empty) { _.normalizations }
       }
-    }
+
+    extendedResultType match
+      case AppliedType(tycon, args) =>
+        val annotation = '{ Checked(${Expr(normalizations)}) }.asTerm.underlyingArgument
+        extendedResultType -> AppliedType(tycon, args.init :+ AnnotatedType(args.last, annotation))
+      case _ =>
+        extendedResultType -> extendedResultType
   end resultTypeWithProperties
 
   def processPropExpr(using Quotes)(
       term: quotes.reflect.Term,
       bound: Set[quotes.reflect.Symbol],
-      externalTerms: mutable.Map[scala.Symbol, ast.Term])
+      externalTerms: mutable.Map[scala.Symbol, ast.Term],
+      bindingNamePrefix: String = "")
     : (quotes.reflect.Term,
        Map[quotes.reflect.Symbol, Properties] => ast.Term,
        Set[scala.Symbol],
@@ -252,7 +254,29 @@ object Checked:
         case _ => None
     end dataConstructor
 
+    def simplify(cases: Cases) = cases match
+      case Cases(scrutinee: Var, List(ast.Bind(ident) -> expr)) =>
+        subst(expr, Map(ident -> scrutinee))
+      case Cases(scrutinee, List(ast.Bind(ident) -> expr)) =>
+        expr.syntacticInfo.freeVars.getOrElse(ident, 0) match
+          case 0 => expr
+          case 1 => subst(expr, Map(ident -> scrutinee))
+          case _ => cases
+      case _ =>
+        cases
+
     term match
+      case Typed(expr, tpt) if !checkedAnnotation(expr).isDefined && checkedAnnotation(term).isDefined && expr.tpe =:= tpt.tpe =>
+        def makeIdent(index: Int): scala.Symbol =
+          val ident = scala.Symbol(s"<${bindingNamePrefix}property-checked/$index>")
+          if externalTerms contains ident then makeIdent(index + 1) else ident
+        val ident = makeIdent(0)
+        val stub = Ref(Symbol.newVal(defn.RootClass, ident.name, tpt.tpe, Flags.EmptyFlags, Symbol.noSymbol))
+        val (tpe, typeVars) = makeType(term.tpe.widenTermRefByName, term.pos)
+        val expr = Var(ident).withExtrinsicInfo(Typing.Specified(Right(Abstraction.assign(tpe))))
+        externalTerms += ident -> expr
+        (term, _ => expr, typeVars, ListMap.empty, ListSet(stub))
+
       case Typed(expr, tpt) =>
         val (exprTerm, exprExpr, exprTypeVars, exprPropVars, exprExternal) = processPropExpr(expr, bound, externalTerms)
         (Typed(exprTerm, tpt), exprExpr, exprTypeVars, exprPropVars, exprExternal)
@@ -410,7 +434,8 @@ object Checked:
         val (statsResult, statsTypeVars, statsPropVars, statsExternal, statsBound) =
           stats.foldLeft(List.empty[(Definition, VarProps => ast.Term)], Set.empty[scala.Symbol], ListMap.empty[Symbol, Properties], ListSet.empty[Term], bound) {
             case ((results, typeVars, propVars, external, bound), valDef @ ValDef(name, tpt, Some(rhs))) =>
-              val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars, rhsExternal) = processPropExpr(rhs, bound, externalTerms)
+              val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars, rhsExternal) =
+                processPropExpr(rhs, bound, externalTerms, bindingNamePrefix = s"$name:")
               ((ValDef.copy(valDef)(name, tpt, Some(rhsTerm)) -> rhsExpr) :: results,
                typeVars ++ rhsTypeVars,
                propVars ++ rhsPropVars,
@@ -425,7 +450,7 @@ object Checked:
         val resultTerms -> resultExpr = statsResult.foldRight(List.empty[Definition] -> exprExpr) {
           case (definition -> expr, resultTerms -> resultExpr) =>
             (definition :: resultTerms) ->
-            ((varProps: VarProps) => Cases(expr(varProps), List(ast.Bind(scala.Symbol(definition.name)) -> resultExpr(varProps))))
+            ((varProps: VarProps) => simplify(Cases(expr(varProps), List(ast.Bind(scala.Symbol(definition.name)) -> resultExpr(varProps)))))
         }
 
         (Block.copy(term)(resultTerms, exprTerm),
@@ -488,7 +513,7 @@ object Checked:
         }).unzip5
 
         (Match.copy(term)(selectorTerm, caseTerms),
-         (varProps: VarProps) => Cases(selectorExpr(varProps), caseExprs map { _(varProps) }),
+         (varProps: VarProps) => simplify(Cases(selectorExpr(varProps), caseExprs map { _(varProps) })),
          selectorTypeVars ++ caseTypeVars.flatten,
          selectorPropVars ++ casePropVars.flatten,
          selectorExternal ++ caseExternal.flatten)
