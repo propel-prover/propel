@@ -14,7 +14,7 @@ def select(
   if selections.isEmpty then
     expr match
       case App(_, Abs(_, _, _, _), _) =>
-        selections
+        List.empty
       case App(_, _, _) =>
         expr.termType match
           case Some(Sum(sum)) if sum forall { (_, args) => args.isEmpty } =>
@@ -22,9 +22,9 @@ def select(
               Equalities.pos(List(expr -> Data(ctor, List.empty))) map { Data(ctor, List.empty) -> _ }
             }
           case _ =>
-            selections
+            List.empty
       case _ =>
-        selections
+        List.empty
   else
     selections
 
@@ -102,9 +102,9 @@ def normalize(
     val max = 1 << maxBit
 
     val processed = normalizeAbstraction(term) match
-      case Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_) =>
+      case term @ (Abs(_, _, _, _) | TypeAbs(_, _) | Cases(_, _) | Var(_)) =>
         Set(term)
-      case App(properties, expr, arg) =>
+      case term @ App(properties, expr, arg) =>
         val max = 1 << (maxBit / 2)
         top(max, process(expr)) flatMap { expr =>
           top(max, process(arg)) map { arg =>
@@ -113,9 +113,9 @@ def normalize(
             if overlap then UniqueNames.convert(result) unwrap { _.withSyntacticInfo } else result
           }
         }
-      case TypeApp(expr, tpe) =>
+      case term @ TypeApp(expr, tpe) =>
         process(expr) map { TypeApp(term)(_, tpe).withSyntacticInfo }
-      case Data(ctor, args) =>
+      case term @ Data(ctor, args) =>
         val max = if args.nonEmpty then 1 << (maxBit / args.size) else 1
         val processedArgs = args.foldRight(Set(List.empty[Term])) { (arg, args) =>
           top(max, process(arg)) flatMap { arg => args map { arg :: _ } }

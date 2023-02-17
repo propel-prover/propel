@@ -10,7 +10,7 @@ inline def let[T, R](v: T)(inline f: T => R): R = f(v)
 inline def letgiven[T, R](v: T)(inline f: T ?=> R): R = f(using v)
 
 
-extension [K, V, C, CC[T] <: IterableOnce[T]](iterable: CC[Map[K, V]])
+extension [K, V, CC[T] <: IterableOnce[T]](iterable: CC[Map[K, V]])
   inline def mergeLeft: Map[K, V] =
     val iterator = iterable.iterator
     if iterator.isEmpty then Map.empty else iterator reduceLeft { _ ++ _ }

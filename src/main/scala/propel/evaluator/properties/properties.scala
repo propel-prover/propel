@@ -34,13 +34,13 @@ object reflexivity
     subst(expr, Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
   def normalize(equalities: Equalities) =
-    case App(props, App(properties, expr, arg0), arg1)
+    case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Reflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal =>
       Data(Constructor.True, List())
 
   def deriveSimple(equalities: Equalities) =
-    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
+    case App(_, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
         if properties.contains(Reflexive) =>
       Equalities.neg(List(List(arg0 -> arg1))).toList
 end reflexivity
@@ -53,13 +53,13 @@ object irreflexivity
     subst(not(expr), Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
   def normalize(equalities: Equalities) =
-    case App(props, App(properties, expr, arg0), arg1)
+    case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Irreflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal =>
       Data(Constructor.False, List())
 
   def deriveSimple(equalities: Equalities) =
-    case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
+    case App(_, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
         if properties.contains(Irreflexive) =>
       Equalities.neg(List(List(arg0 -> arg1))).toList
 end irreflexivity
@@ -207,7 +207,7 @@ object idempotence
     Data(equalDataConstructor, List(aa, varA)) -> Equalities.empty
 
   def normalize(equalities: Equalities) =
-    case expr @ App(_, App(properties, _, arg0), arg1)
+    case App(_, App(properties, _, arg0), arg1)
         if properties.contains(Idempotent) &&
            equalities.equal(arg0, arg1) == Equality.Equal =>
       arg0
@@ -221,7 +221,7 @@ object selectivity
     Data(resultDataConstructor, List(expr)) -> Equalities.empty
 
   def select(equalities: Equalities) =
-    case expr @ App(props, App(properties, _, arg0), arg1)
+    case expr @ App(_, App(properties, _, arg0), arg1)
         if properties.contains(Selection) =>
     (Equalities.pos(List(expr -> arg0, arg0 -> arg1)).toList map { arg0 -> _ }) ++
     (Equalities.make(List(expr -> arg0), List(List(arg0 -> arg1))).toList map { arg0 -> _ }) ++

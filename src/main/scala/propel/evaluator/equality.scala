@@ -75,16 +75,16 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         Equality.Unequal
       case (equality, exprs) =>
         val unequal = neg exists {
-          _ forall { (ne0, ne1) =>
+          _ forall { (neg0, neg1) =>
             exprs exists { (expr0, expr1) =>
-              equal(ne0, expr0) match
+              equal(neg0, expr0) match
                 case (Equality.Equal, _) =>
-                  val equality -> _ = equal(ne1, expr1)
+                  val equality -> _ = equal(neg1, expr1)
                   equality == Equality.Equal
                 case _ =>
-                  equal(ne0, expr1) match
+                  equal(neg0, expr1) match
                     case (Equality.Equal, _) =>
-                      val equality -> _ = equal(ne1, expr0)
+                      val equality -> _ = equal(neg1, expr0)
                       equality == Equality.Equal
                     case _ =>
                       false
