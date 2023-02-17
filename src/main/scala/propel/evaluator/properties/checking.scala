@@ -133,24 +133,27 @@ def check(
 
   var additionalProperties = Map.empty[Abstraction, Properties]
 
-  def addPropertiesToCalls(term: Term, properties: Map[Abstraction, Properties]): Term = term match
+  def addPropertiesToCalls(term: Term, abstractionProps: Map[Abstraction, Properties], identProps: Map[Symbol, Properties]): Term = term match
     case Abs(props, ident, tpe, expr) =>
-      Abs(term)(props, ident, tpe, addPropertiesToCalls(expr, properties))
+      Abs(term)(props, ident, tpe, addPropertiesToCalls(expr, abstractionProps, identProps))
     case App(props, expr, arg) =>
-      val additionalProperties = expr.info(Abstraction) flatMap properties.get getOrElse Set.empty
-      App(term)(props ++ additionalProperties, addPropertiesToCalls(expr, properties), addPropertiesToCalls(arg, properties))
+      val propsAbstractions = expr.info(Abstraction) flatMap abstractionProps.get getOrElse Set.empty
+      val propsIdents = expr match
+        case Var(ident) => identProps.get(ident) getOrElse Set.empty
+        case _ => Set.empty
+      App(term)(props ++ propsAbstractions ++ propsIdents, addPropertiesToCalls(expr, abstractionProps, identProps), addPropertiesToCalls(arg, abstractionProps, identProps))
     case TypeAbs(ident, expr) =>
-      TypeAbs(term)(ident, addPropertiesToCalls(expr, properties))
+      TypeAbs(term)(ident, addPropertiesToCalls(expr, abstractionProps, identProps))
     case TypeApp(expr, tpe) =>
-      TypeApp(term)(addPropertiesToCalls(expr, properties), tpe)
+      TypeApp(term)(addPropertiesToCalls(expr, abstractionProps, identProps), tpe)
     case Data(ctor, args) =>
-      Data(term)(ctor, args map { addPropertiesToCalls(_, properties) })
+      Data(term)(ctor, args map { addPropertiesToCalls(_, abstractionProps, identProps) })
     case Var(_) =>
       term
     case Cases(scrutinee, cases) =>
       Cases(term)(
-        addPropertiesToCalls(scrutinee, properties),
-        cases map { (pattern, expr) => pattern -> addPropertiesToCalls(expr, properties) })
+        addPropertiesToCalls(scrutinee, abstractionProps, identProps),
+        cases map { (pattern, expr) => pattern -> addPropertiesToCalls(expr, abstractionProps, identProps) })
 
   var collectedNormalizations = List.empty[(Abstraction => Option[Term]) => Option[Equalities => PartialFunction[Term, Term]]]
 
@@ -511,8 +514,6 @@ def check(
             (pattern, result)
           }).unzip
 
-      addCollectedNormalizations(env, abstraction, provenProperties)
-
       if printDeductionDebugInfo && (conjectures.nonEmpty || uncheckedConjectures.nonEmpty) && provenProperties.nonEmpty then
         println()
         println(indent(2, "Proven properties:"))
@@ -552,7 +553,7 @@ def check(
                 additionalProperties.updatedWith(abstraction) { properties => Some(properties.toSet.flatten + property) }
               }
 
-              val (expr, equalities) = checking.prepare(ident0, ident1, addPropertiesToCalls(expr1, checkingProperties))
+              val (expr, equalities) = checking.prepare(ident0, ident1, addPropertiesToCalls(expr1, checkingProperties, Map.empty))
               val converted = UniqueNames.convert(expr, names)
 
               if printReductionDebugInfo then
@@ -611,14 +612,26 @@ def check(
                 None
       }
 
+      val checkedNormalizations =
+        provenProperties map { case Normalization(pattern, result, abstraction, variables, reversible) =>
+          Normalization(
+            addPropertiesToCalls(pattern, Map.empty, Map(abstraction -> (properties ++ checkedProperties))),
+            addPropertiesToCalls(result, Map.empty, Map(abstraction -> (properties ++ checkedProperties))),
+            abstraction,
+            variables,
+            reversible)
+        }
+
+      addCollectedNormalizations(env, abstraction, checkedNormalizations)
+
       error match
         case Some(error) =>
           term.withExtrinsicInfo(error)
         case _ =>
           val arg = typedArgVar(ident0, term.termType)
           val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg)).typedTerm
-          if checkedProperties.nonEmpty || provenProperties.nonEmpty then
-            val derived = Derived(checkedProperties, provenProperties)
+          if checkedProperties.nonEmpty || checkedNormalizations.nonEmpty then
+            val derived = Derived(checkedProperties, checkedNormalizations)
             expr.withExtrinsicInfo(derived)
           else
             expr
