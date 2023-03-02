@@ -23,7 +23,7 @@ object Checked:
   def check[T: Type](f: Expr[Any], recursive: Boolean)(using Quotes) =
     import quotes.reflect.*
 
-    val Typed(fTerm, _) = f.asTerm.underlyingArgument: @unchecked
+    val Inlined(_, List(), Typed(fTerm, _)) = f.asTerm: @unchecked
     val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](fTerm, Set.empty, mutable.Map.empty, recursive)
     val externalProperties = external.toList flatMap auxiliaryProperties
 
@@ -66,7 +66,7 @@ object Checked:
       case '[ r ] -> '[ a ] =>
         recursiveSymbol match
           case Some(recursiveSymbol) =>
-            val Block(List(recursiveDefinition), _) = '{ var rec: r = null.asInstanceOf[r] }.asTerm.underlyingArgument: @unchecked
+            val Inlined(_, List(), Block(List(recursiveDefinition), _)) = '{ var rec: r = null.asInstanceOf[r] }.asTerm: @unchecked
             val recursiveCall = Ref(recursiveDefinition.symbol)
 
             Typed(
@@ -195,7 +195,7 @@ object Checked:
 
     extendedResultType match
       case AppliedType(tycon, args) =>
-        val annotation = '{ Checked(${Expr(normalizations)}) }.asTerm.underlyingArgument
+        val Inlined(_, List(), annotation) = '{ Checked(${Expr(normalizations)}) }.asTerm: @unchecked
         extendedResultType -> AppliedType(tycon, args.init :+ AnnotatedType(args.last, annotation))
       case _ =>
         extendedResultType -> extendedResultType
@@ -266,6 +266,13 @@ object Checked:
         cases
 
     term match
+      case Inlined(call, List(), body) =>
+        val (bodyTerm, bodyExpr, bodyTypeVars, bodyPropVars, bodyExternal) = processPropExpr(body, bound, externalTerms)
+        (Inlined.copy(term)(call, List(), bodyTerm), bodyExpr, bodyTypeVars, bodyPropVars, bodyExternal)
+
+      case Block(List(), expr) =>
+        processPropExpr(expr, bound, externalTerms)
+
       case Typed(expr, tpt) if !checkedAnnotation(expr).isDefined && checkedAnnotation(term).isDefined && expr.tpe =:= tpt.tpe =>
         def makeIdent(index: Int): scala.Symbol =
           val ident = scala.Symbol(s"<${bindingNamePrefix}property-checked/$index>")
@@ -556,6 +563,13 @@ object Checked:
     end maybeFail
 
     term match
+      case Inlined(call, List(), body) =>
+        val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](body, bound, externalTerms, recursive)
+        (Inlined.copy(term)(call, List(), result), recursiveSymbol, expr, typeVars, propVars, external)
+
+      case Block(List(), expr) =>
+        processPropDef[T](expr, bound, externalTerms, recursive)
+
       case Block(List(defDef @ DefDef(name, List(TermParamClause(params)), tpt, Some(rhs))), Closure(meth, _))
           if defDef.symbol == meth.symbol =>
         val paramSymbols = params map { _.symbol }
