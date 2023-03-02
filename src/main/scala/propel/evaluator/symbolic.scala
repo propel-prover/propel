@@ -138,7 +138,7 @@ object Symbolic:
         })
 
   private def replaceByEqualities(expr: Term, equalities: Equalities)(using UniqueNaming): Term =
-    equalities.pos.get(expr) match
+    equalities.pos.get(UniformNames.convert(expr)) match
       case Some(expr) => replaceByEqualities(UniqueNames.convert(expr), equalities)
       case None => expr
 
