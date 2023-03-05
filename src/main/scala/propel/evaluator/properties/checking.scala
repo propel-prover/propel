@@ -172,7 +172,8 @@ def check(
               val abstraction = expr.info(Abstraction)
               abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
             } },
-            freeExpr).normalize
+            freeExpr,
+            ensureDecreasingArgsForBinaryAbstraction = false).normalize(PropertyChecking.withNonDecreasing)
         }
       }
     }
@@ -327,8 +328,9 @@ def check(
               val abstraction = expr.info(Abstraction)
               abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
             } },
-            (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
-          normalization map { _.normalize }
+            (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap,
+            ensureDecreasingArgsForBinaryAbstraction = false)
+          normalization map { _.normalize(PropertyChecking.withNonDecreasing) }
         }
 
       if printDeductionDebugInfo then
@@ -358,32 +360,34 @@ def check(
 
         val (remaining, additional) = conjectures.foldLeft(init) { case (processed @ (remaining, proven), conjecture) =>
           if !Normalization.specializationForSameAbstraction(conjecture, proven map { case proven -> _ => proven }) then
-            val (checking, normalization) = conjecture.checking(
-              call,
-              _ forall { _.info(Abstraction) contains abstraction.get },
-              _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                val abstraction = expr.info(Abstraction)
-                abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-              } },
-              (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
+            def makeNormalization(conjecture: Normalization, ensureDecreasingArgsForBinaryAbstraction: Boolean) =
+              conjecture.checking(
+                call,
+                _ forall { _.info(Abstraction) contains abstraction.get },
+                _ forall { (ident, exprs) => env.get(ident) exists { expr =>
+                  val abstraction = expr.info(Abstraction)
+                  abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
+                } },
+                (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap,
+                ensureDecreasingArgsForBinaryAbstraction)
 
-            val normalizeConjecture = normalization map { _.normalize }
+            def makeNormalizations(conjecture: Normalization) =
+              val (checking, normalization) = makeNormalization(conjecture, ensureDecreasingArgsForBinaryAbstraction = false)
+              val (_, checkingNormalization) = makeNormalization(conjecture, ensureDecreasingArgsForBinaryAbstraction = true)
+              (checking, normalization, checkingNormalization)
 
-            val (reverseChecking, reverseNormalization) = (conjecture.reverse
+            val (checking, normalization, checkingNormalization) = makeNormalizations(conjecture)
+
+            val normalizeConjecture = checkingNormalization map { _.normalize(PropertyChecking.withNonDecreasing) }
+
+            val (reverseChecking, reverseNormalization, checkingReverseNormalization) = (conjecture.reverse
               map { conjecture =>
-                val (checking, normalization) = conjecture.checking(
-                  call,
-                  _ forall { _.info(Abstraction) contains abstraction.get },
-                  _ forall { (ident, exprs) => env.get(ident) exists { expr =>
-                    val abstraction = expr.info(Abstraction)
-                    abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
-                  } },
-                  (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
-                (Some(checking), normalization)
+                val (checking, normalization, checkingNormalization) = makeNormalizations(conjecture)
+                (Some(checking), normalization, checkingNormalization)
               }
-              getOrElse (None, None))
+              getOrElse (None, None, None))
 
-            val reverseNormalizeConjecture = reverseNormalization map { _.normalize }
+            val reverseNormalizeConjecture = checkingReverseNormalization map { _.normalize(PropertyChecking.withNonDecreasing) }
 
             def checkConjecture(checking: PropertyChecking) =
               val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
@@ -402,7 +406,7 @@ def check(
                   reverseNormalizeConjecture.toList ++
                   normalizeConjectures.flatten ++
                   collectedNormalize ++
-                  normalizing,
+                  (normalizing map { _(PropertyChecking.withNonDecreasing) }),
                   abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),
@@ -452,9 +456,12 @@ def check(
             if proved then
               conjecture.reverse match
                 case Some(reverseConjecture) =>
-                  (remaining, (conjecture -> normalizeConjecture) :: (reverseConjecture -> reverseNormalizeConjecture) :: proven)
+                  (remaining,
+                    (conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })) ::
+                    (reverseConjecture -> (reverseNormalization map { _.normalize(PropertyChecking.withNonDecreasing) })) :: proven)
                 case _ =>
-                  (remaining, (conjecture -> normalizeConjecture) :: proven)
+                  (remaining,
+                    (conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })) :: proven)
             else if disproved then
               (remaining, proven)
             else
@@ -480,8 +487,9 @@ def check(
               val abstraction = expr.info(Abstraction)
               abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
             } },
-            (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap)
-          conjecture -> (normalization map { _.normalize })
+            (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap,
+            ensureDecreasingArgsForBinaryAbstraction = false)
+          conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })
         }).unzip
 
       val (provenConjectures, normalizeConjectures) = proveConjectures(
@@ -562,9 +570,14 @@ def check(
                 println()
                 println(indent(4, converted.wrapped.show))
 
+              def ensureDecreasingArgs(normalizing: ((Property, Term) => Boolean) => Equalities => PartialFunction[Term, Term]): Equalities => PartialFunction[Term, Term] =
+                term.info(Abstraction).fold(normalizing(PropertyChecking.withNonDecreasing)) { abstraction => equalities =>
+                  normalizing((prop, expr) => (expr.info(Abstraction) contains abstraction) && prop == property)(equalities)
+                }
+
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(
-                  normalize.flatten ++ collectedNormalize ++ normalizing,
+                  normalize.flatten ++ collectedNormalize ++ (normalizing map ensureDecreasingArgs),
                   abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),

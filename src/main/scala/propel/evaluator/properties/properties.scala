@@ -33,10 +33,11 @@ object reflexivity
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
     subst(expr, Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
-  def normalize(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
     case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Reflexive) &&
-           equalities.equal(arg0, arg1) == Equality.Equal =>
+           equalities.equal(arg0, arg1) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Reflexive)(expr)(varA, varA)(arg0, arg1) =>
       Data(Constructor.True, List())
 
   def deriveSimple(equalities: Equalities) =
@@ -52,10 +53,11 @@ object irreflexivity
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
     subst(not(expr), Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
-  def normalize(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
     case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Irreflexive) &&
-           equalities.equal(arg0, arg1) == Equality.Equal =>
+           equalities.equal(arg0, arg1) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Irreflexive)(expr)(varA, varA)(arg0, arg1) =>
       Data(Constructor.False, List())
 
   def deriveSimple(equalities: Equalities) =
@@ -170,9 +172,10 @@ object commutativity
     val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
     Data(equalDataConstructor, List(ab, ba)) -> Equalities.empty
 
-  def normalize(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1)
-        if properties.contains(Commutative) =>
+        if properties.contains(Commutative) &&
+           canApply(ensureDecreasing, equalities, Commutative)(expr)(varA, varB)(arg0, arg1) =>
       App(props, App(properties, expr, arg1), arg0)
 end commutativity
 
@@ -185,16 +188,18 @@ object associativity
     val ab_c = subst(expr, Map(ident0 -> subst(expr, Map(ident0 -> varA, ident1 -> varB)), ident1 -> varC))
     Data(equalDataConstructor, List(a_bc, ab_c)) -> Equalities.empty
 
-  def normalize(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
     case App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
-           equalities.equal(expr0, expr1) == Equality.Equal =>
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Associative)(expr0)(varA, varB, varC)(arg0, arg1, arg2) =>
       App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
     case App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
-           equalities.equal(expr0, expr1) == Equality.Equal =>
+           equalities.equal(expr0, expr1) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Associative)(expr0)(varA, varB, varC)(arg0, arg1, arg2) =>
       App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
 end associativity
 
@@ -206,10 +211,11 @@ object idempotence
     val aa = subst(expr, Map(ident0 -> varA, ident1 -> varA))
     Data(equalDataConstructor, List(aa, varA)) -> Equalities.empty
 
-  def normalize(equalities: Equalities) =
-    case App(_, App(properties, _, arg0), arg1)
+  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
+    case term @ App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Idempotent) &&
-           equalities.equal(arg0, arg1) == Equality.Equal =>
+           equalities.equal(arg0, arg1) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Idempotent)(expr)(varA, varA)(arg0, arg1) =>
       arg0
 end idempotence
 

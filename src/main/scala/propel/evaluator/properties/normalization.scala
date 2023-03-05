@@ -137,9 +137,12 @@ object Normalization:
         freeSubsts: Option[Map[Symbol, Term]],
         expr: Term, 
         checkAbstraction: Set[Term] => Boolean, 
-        checkFree: Map[Symbol, List[Term]] => Boolean) extends PropertyChecking.Normal:
+        checkFree: Map[Symbol, List[Term]] => Boolean,
+        ensureDecreasingArgsForBinaryAbstraction: Boolean) extends PropertyChecking.Normal:
 
-      def normalize(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
+      private val patternArguments = arguments(normalization.pattern)
+
+      def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
         freeSubsts flatMap { freeSubsts =>
           Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
             def abstractionCheck = abstraction flatMap { substs.get(_) }
@@ -150,16 +153,70 @@ object Normalization:
               }
             }
 
+            def canApply =
+              !ensureDecreasingArgsForBinaryAbstraction ||
+              (patternArguments zip arguments(pattern) exists { case ((patternArg0, patternArg1), (substitutedArg0, substitutedArg1)) =>
+                let(substEqualities(patternArg0, equalities),
+                    substEqualities(patternArg1, equalities),
+                    subst(substitutedArg0, substs),
+                    subst(substitutedArg1, substs)) { (patternArg0, patternArg1, substitutedArg0, substitutedArg1) =>
+                  Weight(substitutedArg0) < Weight(patternArg0) || Weight(substitutedArg1) < Weight(patternArg1)
+                }
+              })
+
             Option.when(
                 substsReverse.isEmpty &&
                 checkAbstraction(abstractionCheck) &&
                 checkFree(freeCheck) &&
-                valid(substs, equivalents)) {
+                valid(substs, equivalents) &&
+                canApply) {
               subst(result, substs ++ freeSubsts ++ (abstraction map { _ -> expr }))
             }
           }
         }
       }
+
+    private def arguments(term: Term): Set[(Term, Term)] = term match
+      case Abs(properties, ident, tpe, expr) =>
+        arguments(expr)
+      case App(_, App(_, Var(ident), arg0), arg1) if abstraction contains ident =>
+        arguments(arg0) ++ arguments(arg1) + (arg0 -> arg1)
+      case App(properties, expr, arg) =>
+        arguments(expr) ++ arguments(arg)
+      case TypeAbs(ident, expr) =>
+        arguments(expr)
+      case TypeApp(expr, tpe) =>
+        arguments(expr)
+      case Data(ctor, args) =>
+        (args flatMap arguments).toSet
+      case Var(ident) =>
+        Set.empty
+      case Cases(scrutinee, cases) =>
+        arguments(scrutinee) ++ (cases flatMap { (_, expr) => arguments(expr) })
+
+    private def replaceByEqualities(expr: Term, equalities: Equalities): Term =
+      equalities.pos.get(expr) match
+        case Some(expr) => replaceByEqualities(expr, equalities)
+        case None => expr
+
+    private def substEqualities(expr: Term, equalities: Equalities): Term =
+      replaceByEqualities(expr, equalities) match
+        case term @ Abs(properties, ident, tpe, expr) =>
+          Abs(term)(properties, ident, tpe, substEqualities(expr, equalities))
+        case term @ App(properties, expr, arg) =>
+          App(term)(properties, substEqualities(expr, equalities), substEqualities(arg, equalities))
+        case term @ TypeAbs(ident, expr) =>
+          TypeAbs(term)(ident, substEqualities(expr, equalities))
+        case term @ TypeApp(expr, tpe) =>
+          TypeApp(term)(substEqualities(expr, equalities), tpe)
+        case term @ Data(ctor, args) =>
+          Data(term)(ctor, args map { substEqualities(_, equalities) })
+        case term @ Var(_) =>
+          term
+        case term @ Cases(scrutinee, cases) =>
+          Cases(term)(substEqualities(scrutinee, equalities), cases map { (pattern, expr) =>
+            pattern -> substEqualities(expr, equalities)
+          })
 
     private def substs(freeExpr: Map[Symbol, Term]) =
       Option.when(free.values forall { freeExpr contains _}) {
@@ -171,16 +228,26 @@ object Normalization:
       val freeSubsts = substs(freeExpr)
       new FunctionEqualResult(freeSubsts) { }
 
-    def apply(expr: Term, checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term])
+    def apply(
+      expr: Term,
+      checkAbstraction: Set[Term] => Boolean,
+      checkFree: Map[Symbol, List[Term]] => Boolean,
+      freeExpr: Map[Symbol, Term],
+      ensureDecreasingArgsForBinaryAbstraction: Boolean)
     : PropertyChecking.FunctionEqualResult with PropertyChecking.Normal =
       val freeSubsts = substs(freeExpr)
-      new FunctionEqualResult(freeSubsts) with Normal(freeSubsts, expr, checkAbstraction, checkFree) { }
+      new FunctionEqualResult(freeSubsts) with Normal(freeSubsts, expr, checkAbstraction, checkFree, ensureDecreasingArgsForBinaryAbstraction) { }
 
-    def apply(expr: Option[Term], checkAbstraction: Set[Term] => Boolean, checkFree: Map[Symbol, List[Term]] => Boolean, freeExpr: Map[Symbol, Term])
+    def apply(
+      expr: Option[Term],
+      checkAbstraction: Set[Term] => Boolean,
+      checkFree: Map[Symbol, List[Term]] => Boolean,
+      freeExpr: Map[Symbol, Term],
+      ensureDecreasingArgsForBinaryAbstraction: Boolean)
     : (PropertyChecking.FunctionEqualResult, Option[PropertyChecking.Normal])=
       expr match
         case Some(expr) =>
-          val checking = apply(expr, checkAbstraction, checkFree, freeExpr)
+          val checking = apply(expr, checkAbstraction, checkFree, freeExpr, ensureDecreasingArgsForBinaryAbstraction)
           (checking, Some(checking))
         case _ =>
           (apply(freeExpr), None)

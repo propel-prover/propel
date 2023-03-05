@@ -19,7 +19,16 @@ trait PropertyChecking:
   def control(expr: Term, equalities: Equalities, nested: Boolean): (Term, Equalities, Symbolic.Control)
   def check(idents: List[Symbol], result: Symbolic.Result): Either[Symbolic.Result, Symbolic.Result]
 
+  protected inline def canApply
+      (ensureDecreasing: (Property, Term) => Boolean, equalities: Equalities, property: Property)
+      (expr: Term)(variables: Var*)(terms: Term*) =
+    (ensureDecreasing eq PropertyChecking.withNonDecreasing) ||
+    !ensureDecreasing(property, expr) ||
+    Weight(terms) < Weight(variables map { variable => equalities.pos.get(variable) getOrElse variable })
+
 object PropertyChecking:
+  val withNonDecreasing: (Property, Term) => Boolean = (_, _) => false
+
   trait FunctionEqualResult extends PropertyChecking:
     val propertyType = PropertyType.Function
     val equalDataConstructor = Constructor(Symbol("≟"))
@@ -119,7 +128,7 @@ object PropertyChecking:
     def deriveCompound(equalities: Equalities): PartialFunction[((Term, Term), (Term, Term)), List[Equalities]]
 
   trait Normal extends PropertyChecking:
-    def normalize(equalities: Equalities): PartialFunction[Term, Term]
+    def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities): PartialFunction[Term, Term]
 
   trait Selecting extends PropertyChecking:
     def select(equalities: Equalities): PartialFunction[Term, List[(Term, Equalities)]]
