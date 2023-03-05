@@ -19,12 +19,23 @@ trait PropertyChecking:
   def control(expr: Term, equalities: Equalities, nested: Boolean): (Term, Equalities, Symbolic.Control)
   def check(idents: List[Symbol], result: Symbolic.Result): Either[Symbolic.Result, Symbolic.Result]
 
+  private inline def decreasing(inline terms: Iterable[(Term, Term)]) = terms
+    .foldLeft[Option[(Weight, Weight)]](Some(Weight.empty, Weight.empty)) {
+      case (None, _) =>
+        None
+      case (Some(leftWeights, rightWeights), (leftTerm, rightTerm)) =>
+        val leftWeight = Weight(leftTerm)
+        val rightWeight = Weight(rightTerm)
+        Option.when(!(leftWeight < rightWeight))(leftWeights + leftWeight, rightWeights + rightWeight)
+    }
+    .fold(true)(_ < _)
+
   protected inline def canApply
       (ensureDecreasing: (Property, Term) => Boolean, equalities: Equalities, property: Property)
-      (expr: Term)(variables: Var*)(terms: Term*) =
+      (inline expr: Term)(inline terms: (Var, Term)*) =
     (ensureDecreasing eq PropertyChecking.withNonDecreasing) ||
     !ensureDecreasing(property, expr) ||
-    Weight(terms) < Weight(variables map { variable => equalities.pos.get(variable) getOrElse variable })
+    decreasing(terms map { (variable, term) => (term, equalities.pos.get(variable) getOrElse variable) })
 
 object PropertyChecking:
   val withNonDecreasing: (Property, Term) => Boolean = (_, _) => false

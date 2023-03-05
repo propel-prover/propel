@@ -28,6 +28,8 @@ case class Weight(weight: Int, residuals: List[Term]) extends PartiallyOrdered[W
 
   inline def >(that: Weight) = subMultisetOf(that.residuals, this.residuals) && that.weight < this.weight
 
+  inline def +(that: Weight) = Weight(this.weight + that.weight, this.residuals ++ that.residuals)
+
   private def subMultisetOf(self: List[Term], other: List[Term]): Boolean =
     def remove(elem: Term, list: List[Term]): List[Term] =
       if list.isEmpty then list
@@ -47,6 +49,8 @@ case class Weight(weight: Int, residuals: List[Term]) extends PartiallyOrdered[W
 
 
 object Weight:
+  def empty = Weight(0, List.empty)
+
   def apply(terms: Term*): Weight =
     apply(terms)
 

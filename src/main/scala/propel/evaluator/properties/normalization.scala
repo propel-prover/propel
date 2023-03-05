@@ -155,12 +155,14 @@ object Normalization:
 
             def canApply =
               !ensureDecreasingArgsForBinaryAbstraction ||
-              (patternArguments zip arguments(pattern) exists { case ((patternArg0, patternArg1), (substitutedArg0, substitutedArg1)) =>
-                let(substEqualities(patternArg0, equalities),
-                    substEqualities(patternArg1, equalities),
-                    subst(substitutedArg0, substs),
-                    subst(substitutedArg1, substs)) { (patternArg0, patternArg1, substitutedArg0, substitutedArg1) =>
-                  Weight(substitutedArg0) < Weight(patternArg0) || Weight(substitutedArg1) < Weight(patternArg1)
+              (patternArguments zip arguments(pattern) forall { case ((patternArg0, patternArg1), (substitutedArg0, substitutedArg1)) =>
+                let(Weight(substEqualities(patternArg0, equalities)),
+                    Weight(substEqualities(patternArg1, equalities)),
+                    Weight(subst(substitutedArg0, substs)),
+                    Weight(subst(substitutedArg1, substs))) { (patternArg0, patternArg1, substitutedArg0, substitutedArg1) =>
+                  substitutedArg0 < patternArg0 ||
+                  substitutedArg1 < patternArg1 ||
+                  substitutedArg0 + substitutedArg1 < patternArg0 + patternArg1
                 }
               })
 

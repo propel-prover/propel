@@ -37,7 +37,7 @@ object reflexivity
     case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Reflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Reflexive)(expr)(varA, varA)(arg0, arg1) =>
+           canApply(ensureDecreasing, equalities, Reflexive)(expr)((varA, arg0), (varA, arg1)) =>
       Data(Constructor.True, List())
 
   def deriveSimple(equalities: Equalities) =
@@ -57,7 +57,7 @@ object irreflexivity
     case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Irreflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Irreflexive)(expr)(varA, varA)(arg0, arg1) =>
+           canApply(ensureDecreasing, equalities, Irreflexive)(expr)((varA, arg0), (varA, arg1)) =>
       Data(Constructor.False, List())
 
   def deriveSimple(equalities: Equalities) =
@@ -175,7 +175,7 @@ object commutativity
   def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1)
         if properties.contains(Commutative) &&
-           canApply(ensureDecreasing, equalities, Commutative)(expr)(varA, varB)(arg0, arg1) =>
+           canApply(ensureDecreasing, equalities, Commutative)(expr)((varA, arg0), (varB, arg1)) =>
       App(props, App(properties, expr, arg1), arg0)
 end commutativity
 
@@ -193,13 +193,13 @@ object associativity
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Associative)(expr0)(varA, varB, varC)(arg0, arg1, arg2) =>
+           canApply(ensureDecreasing, equalities, Associative)(expr0)((varA, arg0), (varB, arg1), (varC, arg2)) =>
       App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
     case App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Associative)(expr0)(varA, varB, varC)(arg0, arg1, arg2) =>
+           canApply(ensureDecreasing, equalities, Associative)(expr0)((varA, arg0), (varB, arg1), (varC, arg2)) =>
       App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
 end associativity
 
@@ -215,7 +215,7 @@ object idempotence
     case term @ App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Idempotent) &&
            equalities.equal(arg0, arg1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Idempotent)(expr)(varA, varA)(arg0, arg1) =>
+           canApply(ensureDecreasing, equalities, Idempotent)(expr)((varA, arg0), (varA, arg1)) =>
       arg0
 end idempotence
 
