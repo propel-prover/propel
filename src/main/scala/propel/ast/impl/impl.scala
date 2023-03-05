@@ -107,12 +107,14 @@ def defaultApplyImpl[T: Type](using Quotes) =
 
     case List(List(template), args) =>
       val seq = TypeRepr.of[Seq[?]]
+      val properties = TypeRepr.of[Properties]
       val enrichments = TypeRepr.of[Enrichable[?]].typeSymbol.methodMember("enrichments").head
       val eqSeq = Ref(Symbol.requiredMethod("propel.ast.impl.eqSeq"))
       val filter = Ref(Symbol.requiredMethod("propel.ast.Enrichments.filter"))
       val isInstanceOf = defn.AnyClass.methodMember("isInstanceOf").head
       val asInstanceOf = defn.AnyClass.methodMember("asInstanceOf").head
       val eq = defn.AnyRefClass.methodMember("eq").head
+      val == = defn.AnyClass.methodMember("==").head
       val && = defn.BooleanClass.methodMember("&&").head
       val templateTree = Ref(template)
 
@@ -127,6 +129,8 @@ def defaultApplyImpl[T: Type](using Quotes) =
                 val argTree = Ref(arg)
                 if argTree.tpe <:< seq then
                   eqSeq.appliedTo(other.select(other.symbol.fieldMember(arg.name)), argTree)
+                else if argTree.tpe <:< properties then
+                  other.select(other.symbol.fieldMember(arg.name)).select(==).appliedTo(argTree)
                 else
                   other.select(other.symbol.fieldMember(arg.name)).select(eq).appliedTo(argTree)
               } reduceLeft { _.select(&&).appliedTo(_) }
