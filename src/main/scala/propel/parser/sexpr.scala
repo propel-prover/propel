@@ -23,6 +23,17 @@ object SExpr:
     case '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' => true
     case _ => Character.isWhitespace(ch) || Character.isSpaceChar(ch)
 
+  def requiresQuotes(identifier: String) =
+    val length = identifier.length
+    var requiresQuotes = false
+    var i = 0
+    while !requiresQuotes && i < length do
+      (identifier(i): @switch) match
+        case '\b' | '\t' | '\n' | '\f' | '\r' | '\"' | '\'' | '\\' => requiresQuotes = true
+        case _ => if special(identifier(i)) then requiresQuotes = true
+      i += 1
+    requiresQuotes
+
   def deserialize(string: String): Try[List[SExpr]] =
     val length = string.length
     var i = 0

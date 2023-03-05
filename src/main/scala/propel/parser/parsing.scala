@@ -12,7 +12,7 @@ def deserialize(string: String): Try[Term] =
   def makeIdentifier(atom: Atom) =
     if atom.quote == Quote.None then
       atom.identifier match
-        case "true" | "false" |
+        case "True" | "False" |
              "fun" | "forall" | "rec" |
              "lambda" | "let" | "letrec" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
           throw ParserException(s"Invalid identifier: ${atom.identifier}")
@@ -20,9 +20,9 @@ def deserialize(string: String): Try[Term] =
     Symbol(atom.identifier)
 
   def makeConstructor(atom: Atom) =
-    if atom.quote == Quote.None && atom.identifier == "true" then
+    if atom.quote == Quote.None && atom.identifier == "True" then
       Some(Constructor.True)
-    else if atom.quote == Quote.None && atom.identifier == "false" then
+    else if atom.quote == Quote.None && atom.identifier == "False" then
       Some(Constructor.False)
     else if atom.quote == Quote.Single || atom.quote == Quote.None && (atom.identifier.headOption exists { _.isUpper }) then
       Some(Constructor(makeIdentifier(atom)))
@@ -47,6 +47,8 @@ def deserialize(string: String): Try[Term] =
     (expr map deserializeProperty).toSet
 
   def deserializeType(expr: SExpr): Type = expr match
+    case expr @ (Atom(_, Quote.Single | Quote.Single) | Atom("True" | "False", _)) =>
+      makeConstructor(expr).fold(TypeVar(makeIdentifier(expr))) { ctor => Sum(List(ctor -> List.empty)) }
     case expr @ Atom(_, _) =>
       TypeVar(makeIdentifier(expr))
     case Expr(_, Bracket.Square) =>
@@ -69,6 +71,8 @@ def deserialize(string: String): Try[Term] =
         case (expr @ Atom(_, _), tpe) => Recursive(makeIdentifier(expr), tpe)
         case _ => throw ParserException("Invalid recursive type")
       }
+    case Expr(List(atom @ Atom(_, _)), Bracket.Paren) =>
+      Sum(List(Constructor(makeIdentifier(atom)) -> List.empty))
     case Expr(List(expr), Bracket.Paren) =>
       deserializeType(expr)
     case Expr(exprs, Bracket.Paren | Bracket.Brace) =>
@@ -191,17 +195,26 @@ def deserialize(string: String): Try[Term] =
 end deserialize
 
 def serialize(term: Term): String =
-  def makeTypeIdentifier(ident: Symbol) =
-    if ident.name == "fun" || ident.name == "forall" || ident.name == "rec" then
+  def makeIdentifier(ident: Symbol, noUpperCase: Boolean) = ident.name match
+    case "True" | "False" |
+         "fun" | "forall" | "rec" |
+         "lambda" | "let" | "letrec" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
       Atom(ident.name, Quote.Double)
-    else
-      Atom(ident.name, Quote.None)
+    case name =>
+      if noUpperCase && (name.headOption exists { _.isUpper }) || SExpr.requiresQuotes(name) then
+        Atom(ident.name, Quote.Double)
+      else
+        Atom(ident.name, Quote.None)
+
+  def makeTypeIdentifier(ident: Symbol) = makeIdentifier(ident, noUpperCase = false)
+
+  def makeTermIdentifier(ident: Symbol) = makeIdentifier(ident, noUpperCase = true)
 
   def makeConstructorIdentifier(ctor: Constructor) = ctor match
-    case Constructor.True => Atom("true", Quote.None)
-    case Constructor.False => Atom("false", Quote.None)
+    case Constructor.True => Atom("True", Quote.None)
+    case Constructor.False => Atom("False", Quote.None)
     case Constructor(ident) =>
-      if ident.name.headOption exists { _.isUpper } then
+      if (ident.name.headOption exists { _.isUpper }) && !SExpr.requiresQuotes(ident.name) then
         Atom(ident.name, Quote.None)
       else
         Atom(ident.name, Quote.Single)
@@ -229,9 +242,9 @@ def serialize(term: Term): String =
     case Function(arg, result) =>
       Expr(List(Atom("fun", Quote.None), serializeType(arg), serializeType(result)), Bracket.Paren)
     case Universal(ident, result) =>
-      Expr(List(Atom("forall", Quote.None), Atom(ident.name, Quote.None), serializeType(result)), Bracket.Paren)
+      Expr(List(Atom("forall", Quote.None), makeTypeIdentifier(ident), serializeType(result)), Bracket.Paren)
     case Recursive(ident, result) =>
-      Expr(List(Atom("rec", Quote.None), Atom(ident.name, Quote.None), serializeType(result)), Bracket.Paren)
+      Expr(List(Atom("rec", Quote.None), makeTypeIdentifier(ident), serializeType(result)), Bracket.Paren)
     case TypeVar(ident) =>
       makeTypeIdentifier(ident)
     case Sum(sum) =>
@@ -248,7 +261,7 @@ def serialize(term: Term): String =
       else
         Expr(makeConstructorIdentifier(ctor) :: (args map serializePattern), Bracket.Paren)
     case Bind(ident) =>
-      Atom(ident.name, Quote.Double)
+      makeTermIdentifier(ident)
 
   def collapseLambdas(prefix: List[SExpr], expr: SExpr) = expr match
     case expr @ Expr(Atom("lambda", Quote.None) :: Expr(_, Bracket.Square) :: _, Bracket.Paren) =>
@@ -260,7 +273,7 @@ def serialize(term: Term): String =
 
   def serializeTerm(term: Term): SExpr = term match
     case Abs(properties, ident, tpe, expr) =>
-      val arg = Expr(List(Atom(ident.name, Quote.Double), serializeType(tpe)), Bracket.Paren)
+      val arg = Expr(List(makeTermIdentifier(ident), serializeType(tpe)), Bracket.Paren)
       val props = serializeProperties(properties)
       collapseLambdas((List(Atom("lambda", Quote.None)) ++ props) :+ arg, serializeTerm(expr))
     case App(properties, expr, arg) =>
@@ -280,10 +293,24 @@ def serialize(term: Term): String =
           Expr(exprs :+ Expr(tpes :+ serializeType(tpe), Bracket.Square), Bracket.Paren)
         case (_, expr) =>
           Expr(List(expr, Expr(List(serializeType(tpe)), Bracket.Square)), Bracket.Paren)
+    case Data(ctor, List()) =>
+      makeConstructorIdentifier(ctor)
     case Data(ctor, args) =>
       Expr(makeConstructorIdentifier(ctor) :: (args map serializeTerm), Bracket.Paren)
     case Var(ident) =>
-      Atom(ident.name, Quote.Double)
+      makeTermIdentifier(ident)
+    case Cases(bound, List(Bind(ident) -> expr)) =>
+      Expr(List(Atom("let", Quote.None), makeTermIdentifier(ident), serializeTerm(bound), serializeTerm(expr)), Bracket.Paren)
+    case Cases(expr, List(Match(Constructor.True, List()) -> Data(Constructor.False, List()), Match(Constructor.False, List()) -> Data(Constructor.True, List()))) =>
+      Expr(List(Atom("not", Quote.None), serializeTerm(expr)), Bracket.Paren)
+    case Cases(lhsExpr, List(Match(Constructor.True, List()) -> Data(Constructor.True, List()), Match(Constructor.False, List()) -> rhsExpr)) =>
+      Expr(List(Atom("or", Quote.None), serializeTerm(lhsExpr), serializeTerm(rhsExpr)), Bracket.Paren)
+    case Cases(lhsExpr, List(Match(Constructor.True, List()) -> rhsExpr, Match(Constructor.False, List()) -> Data(Constructor.False, List()))) =>
+      Expr(List(Atom("and", Quote.None), serializeTerm(lhsExpr), serializeTerm(rhsExpr)), Bracket.Paren)
+    case Cases(lhsExpr, List(Match(Constructor.True, List()) -> rhsExpr, Match(Constructor.False, List()) -> Data(Constructor.True, List()))) =>
+      Expr(List(Atom("implies", Quote.None), serializeTerm(lhsExpr), serializeTerm(rhsExpr)), Bracket.Paren)
+    case Cases(condExpr, List(Match(Constructor.True, List()) -> thenExpr, Match(Constructor.False, List()) -> elseExpr)) =>
+      Expr(List(Atom("if", Quote.None), serializeTerm(condExpr), serializeTerm(thenExpr), serializeTerm(elseExpr)), Bracket.Paren)
     case Cases(scrutinee, cases) =>
       val exprs = cases map { (pattern, expr) =>
         Expr(List(serializePattern(pattern), serializeTerm(expr)), Bracket.Square)
