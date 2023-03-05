@@ -570,14 +570,33 @@ def check(
                 println()
                 println(indent(4, converted.wrapped.show))
 
-              def ensureDecreasingArgs(normalizing: ((Property, Term) => Boolean) => Equalities => PartialFunction[Term, Term]): Equalities => PartialFunction[Term, Term] =
+              val addingProperties = properties ++ checkedProperties + property
+
+              def addPropertiesAndEnsureDecreasingArgs(
+                normalizing: ((Property, Term) => Boolean) => Equalities => PartialFunction[Term, Term])
+              : Equalities => PartialFunction[Term, Term] =
                 term.info(Abstraction).fold(normalizing(PropertyChecking.withNonDecreasing)) { abstraction => equalities =>
-                  normalizing((prop, expr) => (expr.info(Abstraction) contains abstraction) && prop == property)(equalities)
+                  val normalize = normalizing((prop, expr) => (expr.info(Abstraction) contains abstraction) && prop == property)(equalities)
+
+                  inline def addProperties(app: App) =
+                    if app.expr.info(Abstraction) contains abstraction then
+                      App(app)(app.properties ++ addingProperties, app.expr, app.arg)
+                    else
+                      app
+
+                  normalize compose {
+                    case term @ App(props0, expr0: App, app1 @ App(props1, expr1: App, arg2)) =>
+                      App(term)(props0, addProperties(expr0), App(app1)(props1, addProperties(expr1), arg2))
+                    case term @ App(props0, app0 @ App(properties0, expr0, app1 @ App(props1, expr1: App, arg1)), arg2) =>
+                      App(term)(props0, addProperties(App(app0)(properties0, expr0, App(app1)(props1, addProperties(expr1), arg1))), arg2)
+                    case term @ App(props, expr: App, arg) =>
+                      App(term)(props, addProperties(expr), arg)
+                  } orElse normalize
                 }
 
               val config = Symbolic.Configuration(
                 evaluator.properties.normalize(
-                  normalize.flatten ++ collectedNormalize ++ (normalizing map ensureDecreasingArgs),
+                  normalize.flatten ++ collectedNormalize ++ (normalizing map addPropertiesAndEnsureDecreasingArgs),
                   abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
                 evaluator.properties.select(selecting, _, _),
@@ -642,7 +661,10 @@ def check(
           term.withExtrinsicInfo(error)
         case _ =>
           val arg = typedArgVar(ident0, term.termType)
-          val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg)).typedTerm
+          val expr = Abs(term)(properties, ident0, tpe0, check(
+            addPropertiesToCalls(expr0, additionalProperties, Map.empty),
+            env + (ident0 -> arg),
+            dependencies :+ arg)).typedTerm
           if checkedProperties.nonEmpty || checkedNormalizations.nonEmpty then
             val derived = Derived(checkedProperties, checkedNormalizations)
             expr.withExtrinsicInfo(derived)
@@ -706,10 +728,15 @@ def check(
         addCollectedNormalizations(env, abstraction, facts ++ uncheckedConjectures)
 
         val arg = typedArgVar(ident, term.termType)
-        Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg)).typedTerm
+        Abs(term)(properties, ident, tpe, check(
+          addPropertiesToCalls(expr, additionalProperties, Map.empty),
+          env + (ident -> arg),
+          dependencies :+ arg)).typedTerm
 
     case App(properties, expr, arg) =>
-      App(term)(properties, check(expr, env, dependencies), check(arg, env, dependencies)).typedTerm
+      val checkedArg = check(arg, env, dependencies)
+      val checkedExpr = check(addPropertiesToCalls(expr, additionalProperties, Map.empty), env, dependencies)
+      App(term)(properties, checkedExpr, checkedArg).typedTerm
 
     case TypeAbs(ident, expr) =>
       TypeAbs(term)(ident, check(expr, env, dependencies :+ ident)).typedTerm
@@ -726,7 +753,9 @@ def check(
     case Cases(scrutinee, cases) =>
       Cases(term)(
         check(scrutinee, env, dependencies),
-        cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern), dependencies) }).typedTerm
+        cases map { (pattern, expr) =>
+          pattern -> check(addPropertiesToCalls(expr, additionalProperties, Map.empty), env ++ typedBindings(pattern), dependencies)
+        }).typedTerm
 
   if typedExpr.termType.isDefined then
     check(typedExpr, assumedUncheckedConjecturesEnvironment, List.empty)
