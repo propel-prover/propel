@@ -2,31 +2,6 @@ package propel
 
 import propel.dsl.scala.*
 
-
-enum Nat:
-  case Zero
-  case Succ(pred: Nat)
-
-val addNat = prop.rec[(Comm & Assoc) := (Nat, Nat) =>: Nat] { addNat => (x, y) =>
-  x match
-    case Nat.Zero => y
-    case Nat.Succ(x) => Nat.Succ(addNat(x, y))
-}
-
-val addMult = prop.rec[(Comm & Assoc) := (Nat, Nat) =>: Nat] { addMult => (x, y) =>
-  x match
-    case Nat.Zero => Nat.Zero
-    case Nat.Succ(x) => addNat(y, addMult(x, y))
-}
-
-val leqNat = prop.rec[(Refl & Antisym & Conn & Trans) := (Nat, Nat) =>: Boolean] { leqNat => (x, y) =>
-  (x, y) match
-    case (Nat.Succ(x), Nat.Succ(y)) => leqNat(x, y)
-    case (Nat.Zero, _) => true
-    case _ => false
-}
-
-
 enum Num:
   case Zero
   case Bit0(num: Num)
@@ -73,12 +48,3 @@ def leqNumAlt = prop.rec[(Refl & Antisym & Conn & Trans) := (Num, Num) =>: Boole
 def maxNumAlt = prop[(Comm & Assoc & Sel) := (Num, Num) =>: Num] { (x, y) =>
   if leqNumAlt(x, y) then y else x
 }
-
-
-def zipWith[P >: (Comm & Assoc & Idem), T] =
-  prop.rec[(P := (T, T) =>: T) => (P := (List[T], List[T]) =>: List[T])] { zipWith => f => (x, y) =>
-    (x, y) match
-      case (Nil, y) => y
-      case (x, Nil) => x
-      case (x :: xs, y :: ys) => f(x, y) :: zipWith(f)(xs, ys)
-  }
