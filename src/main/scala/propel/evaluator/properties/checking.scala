@@ -537,7 +537,7 @@ def check(
         if hasRelationPropertyShape then
           List(Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive)
         else if hasFunctionPropertyShape then
-          List(Commutative, Associative, Idempotent, Selection)
+          List(Commutative, Selection, Idempotent, Associative)
         else
           List.empty
 
