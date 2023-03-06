@@ -600,6 +600,26 @@ def tip_int_times[A: TermExpr](expr: A, properties: Properties = None) = propert
     expr)
 }
 
+def tip_add3acc[A: TermExpr](expr: A, properties: Properties = None) = properties() { properties =>
+  letrec("tip_add3acc" -> tp(nat -> (nat -> (nat -> nat))) ->
+    abs(properties*)("x" -> nat, "y" -> nat, "z" -> nat)(cases("x")(
+      "Z" -> cases("y")(
+        "Z" -> "z",
+        ("S", "x2") -> ("tip_add3acc", "Z", "x2", ("S", "z"))),
+      ("S", "x3") -> ("tip_add3acc", "x3", ("S", "y"), "z"))))(
+    expr)
+}
+
+def tip_weird_nat_times[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
+  letrec("tip_weird_nat_times" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "Z",
+      ("S", "z") -> cases("y")(
+        "Z" -> "Z",
+        ("S", "x2") -> app(comm, assoc)("tip_nat_plus", ("S", "Z"), ("tip_add3acc", "z", "x2", app(comm, assoc)("tip_weird_nat_times", "z", "x2")))))))(
+    expr)
+}
+
 def benchmarks(properties: Properties = None) = List(
   "nat_add2p" -> nat_add2p("Unit", properties),
   "nat_add2p_acc" -> nat_add2p_acc("Unit", properties),
@@ -643,6 +663,7 @@ def benchmarks(properties: Properties = None) = List(
   "tip_nat_times" -> tip_nat_plus(tip_nat_times("Unit", properties)),
   "tip_nat_times_alt" -> tip_nat_plus(tip_nat_times_alt("Unit", properties)),
   "tip_nat_times_acc" -> tip_nat_plus_acc(tip_nat_times_acc("Unit", properties)),
+  "tip_weird_nat_times" -> tip_nat_plus(tip_add3acc(tip_weird_nat_times("Unit"))),
   "tip_nat_leq" -> tip_nat_leq("Unit", properties),
   "tip_nat_geq" -> tip_nat_leq(tip_nat_geq("Unit", properties)),
   "tip_nat_max" -> tip_nat_leq(tip_nat_max("Unit", properties)),
