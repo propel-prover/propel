@@ -281,7 +281,9 @@ def check(
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
       val (facts, conjectures) =
-        val (basicFacts, generalizedConjectures) = (exprArgumentPrefixes(term) map { (identTypes, expr) =>
+        val updatedTerm = addPropertiesToCalls(term, additionalProperties, Map.empty)
+
+        val (basicFacts, generalizedConjectures) = (exprArgumentPrefixes(updatedTerm) map { (identTypes, expr) =>
           val (idents, _) = identTypes.unzip
 
           val evaluationResult =
@@ -295,7 +297,7 @@ def check(
               Conjecture.generalizedConjectures(
                 abstractionProperties.get,
                 env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
-                term,
+                updatedTerm,
                 call,
                 identTypes,
                 evaluationResult)
@@ -305,7 +307,7 @@ def check(
           val basicFacts = Conjecture.basicFacts(
             abstractionProperties.get,
             env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
-            term,
+            updatedTerm,
             call filter { _.info(Abstraction) exists { abstraction contains _ } },
             idents,
             evaluationResult)
@@ -317,7 +319,7 @@ def check(
 
         (facts,
          generalizedConjectures.flatten ++
-         Conjecture.distributivityConjectures(properties, term))
+         Conjecture.distributivityConjectures(properties, updatedTerm))
 
       val normalizeFacts =
         facts map { fact =>
@@ -390,7 +392,7 @@ def check(
             val reverseNormalizeConjecture = checkingReverseNormalization map { _.normalize(PropertyChecking.withNonDecreasing) }
 
             def checkConjecture(checking: PropertyChecking) =
-              val (expr, equalities) = checking.prepare(ident0, ident1, expr1)
+              val (expr, equalities) = checking.prepare(ident0, ident1, addPropertiesToCalls(expr1, additionalProperties, Map.empty))
               val converted = UniqueNames.convert(expr, names)
 
               if printReductionDebugInfo then
@@ -661,10 +663,7 @@ def check(
           term.withExtrinsicInfo(error)
         case _ =>
           val arg = typedArgVar(ident0, term.termType)
-          val expr = Abs(term)(properties, ident0, tpe0, check(
-            addPropertiesToCalls(expr0, additionalProperties, Map.empty),
-            env + (ident0 -> arg),
-            dependencies :+ arg)).typedTerm
+          val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg)).typedTerm
           if checkedProperties.nonEmpty || checkedNormalizations.nonEmpty then
             val derived = Derived(checkedProperties, checkedNormalizations)
             expr.withExtrinsicInfo(derived)
@@ -728,14 +727,11 @@ def check(
         addCollectedNormalizations(env, abstraction, facts ++ uncheckedConjectures)
 
         val arg = typedArgVar(ident, term.termType)
-        Abs(term)(properties, ident, tpe, check(
-          addPropertiesToCalls(expr, additionalProperties, Map.empty),
-          env + (ident -> arg),
-          dependencies :+ arg)).typedTerm
+        Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg)).typedTerm
 
     case App(properties, expr, arg) =>
       val checkedArg = check(arg, env, dependencies)
-      val checkedExpr = check(addPropertiesToCalls(expr, additionalProperties, Map.empty), env, dependencies)
+      val checkedExpr = check(expr, env, dependencies)
       App(term)(properties, checkedExpr, checkedArg).typedTerm
 
     case TypeAbs(ident, expr) =>
@@ -753,9 +749,7 @@ def check(
     case Cases(scrutinee, cases) =>
       Cases(term)(
         check(scrutinee, env, dependencies),
-        cases map { (pattern, expr) =>
-          pattern -> check(addPropertiesToCalls(expr, additionalProperties, Map.empty), env ++ typedBindings(pattern), dependencies)
-        }).typedTerm
+        cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern), dependencies) }).typedTerm
 
   if typedExpr.termType.isDefined then
     check(typedExpr, assumedUncheckedConjecturesEnvironment, List.empty)
