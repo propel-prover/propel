@@ -18,9 +18,8 @@ lazy val propelCrossProject = crossProject(JVMPlatform, NativePlatform)
   .jvmConfigure(_.withId("propelJVM"))
   .nativeConfigure(_.withId("propelNative"))
   .nativeSettings(
-    Test / mainClass := Some("propel.benchmark"),
-    Test / loadedTestFrameworks := Map.empty,
-    Test / nativeLink / artifactPath ~= { file => file.getParentFile / file.getName.replace("propelcrossproject-test-out", "propel") })
+    Compile / mainClass := Some("propel.check"),
+    Compile / nativeLink / artifactPath ~= { file => file.getParentFile / file.getName.replace("propelcrossproject-out", "propel") })
 
 lazy val propelJVM = propelCrossProject.jvm
 lazy val propelNative = propelCrossProject.native
@@ -29,16 +28,20 @@ lazy val propel = project
   .in(file("."))
   .aggregate(propelJVM, propelNative)
   .settings(
-    run / aggregate := false,
-    runMain / aggregate := false,
-    test / aggregate := false,
-    testOnly / aggregate := false,
+    compile / skip := true,
     compile / aggregate := false,
-    nativeLink / aggregate := false)
+    testOnly / aggregate := false,
+    test / aggregate := false,
+    Test / compile / skip := true,
+    Test / compile / aggregate := false,
+    Test / testOnly / aggregate := false,
+    Test / test / aggregate := false)
 
-run := (propelJVM / Test / run).evaluated
-runMain := (propelJVM / Test / runMain).evaluated
-test := (propelJVM / Test / test).value
+run := (propelJVM / Compile / run).evaluated
+runMain := (propelJVM / Compile / runMain).evaluated
+compile := (propelJVM / Compile / compile).value
 testOnly := (propelJVM / Test / testOnly).evaluated
-compile := (propelJVM / Test / compile).value
-nativeLink := (propelNative / Test / nativeLink).value
+test := (propelJVM / Test / test).value
+Test / compile := (propelJVM / Test / compile).value
+Test / testOnly := (propelJVM / Test / testOnly).evaluated
+Test / test := (propelJVM / Test / test).value
