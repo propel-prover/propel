@@ -649,13 +649,13 @@ def tip_add3acc[A: TermExpr](expr: A, properties: Properties = None) = propertie
     expr)
 }
 
-def tip_weird_nat_times[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
-  letrec("tip_weird_nat_times" -> tp(nat -> (nat -> nat)) ->
+def tip_nat_times_weird[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
+  letrec("tip_nat_times_weird" -> tp(nat -> (nat -> nat)) ->
     abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
       "Z" -> "Z",
       ("S", "z") -> cases("y")(
         "Z" -> "Z",
-        ("S", "x2") -> app(comm, assoc)("tip_nat_plus", ("S", "Z"), ("tip_add3acc", "z", "x2", app(comm, assoc)("tip_weird_nat_times", "z", "x2")))))))(
+        ("S", "x2") -> app(comm, assoc)("tip_nat_plus", ("S", "Z"), ("tip_add3acc", "z", "x2", app(comm, assoc)("tip_nat_times_weird", "z", "x2")))))))(
     expr)
 }
 
@@ -703,7 +703,7 @@ def benchmarks(properties: Properties = None) = List(
   "tip_nat_times" -> tip_nat_plus(tip_nat_times("Unit", properties)),
   "tip_nat_times_alt" -> tip_nat_plus(tip_nat_times_alt("Unit", properties)),
   "tip_nat_times_acc" -> tip_nat_plus_acc(tip_nat_times_acc("Unit", properties)),
-  "tip_weird_nat_times" -> tip_nat_plus(tip_add3acc(tip_weird_nat_times("Unit"))),
+  "tip_nat_times_weird" -> tip_nat_plus(tip_add3acc(tip_nat_times_weird("Unit"))),
   "tip_nat_leq" -> tip_nat_leq("Unit", properties),
   "tip_nat_geq" -> tip_nat_leq(tip_nat_geq("Unit", properties)),
   "tip_nat_lt" -> tip_nat_lt("Unit", properties),

@@ -28,7 +28,7 @@ object FailingPropertyChecks:
     "tip_fish",
     "tip_nat_times_alt",
     "tip_nat_times_acc",
-    "tip_weird_nat_times",
+    "tip_nat_times_weird",
     "tip_bin_times",
     "tip_int_plus",
     "tip_int_times",
