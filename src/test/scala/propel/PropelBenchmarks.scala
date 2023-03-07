@@ -414,6 +414,29 @@ def tip_list_append[A: TermExpr](expr: A, properties: Properties = None) = prope
     expr)
 }
 
+def tip_list_flatten[A: TermExpr](expr: A, properties: Properties = None) = properties() { properties =>
+  letrec("tip_list_flatten" -> forall("T")(list(list("T")) -> list("T")) ->
+    tpabs("T")(abs(properties*)("x" -> list(list("T")))(cases("x")(
+      "Nil" -> "Nil",
+      ("Cons", "x", "xs") -> (tpapp("tip_list_append")(tp("T")), "x", (tpapp("tip_list_flatten")(tp("T")), "xs"))))))(
+    expr)
+}
+
+def tip_list_map[A: TermExpr](expr: A, properties: Properties = None) = properties() { properties =>
+  letrec("tip_list_map" -> forall("T", "U")((tp("T") -> tp("U")) -> (list("T") -> list("U"))) ->
+    tpabs("T", "U")(abs(properties*)("f" -> tp("T" -> "U"), "x" -> list("T"))(cases("x")(
+      "Nil" -> "Nil",
+      ("Cons", "x", "xs") -> ("Cons", ("f", "x"), (tpapp("tip_list_map")(tp("T"), tp("U")), "f", "xs"))))))(
+    expr)
+}
+
+def tip_fish[A: TermExpr](expr: A, properties: Properties = None) = properties(assoc) { properties =>
+  let("tip_fish" ->
+    tpabs("T")(abs(properties*)("f" -> tp("T" -> list("T")), "g" -> tp("T" -> list("T")), "x" -> tp("T"))(
+      (tpapp("tip_list_flatten")(tp("T")), (tpapp("tip_list_map")(tp("T"), list("T")), "g", ("f", "x"))))))(
+    expr)
+}
+
 def tip_nat_plus[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
   letrec("tip_nat_plus" -> tp(nat -> (nat -> nat)) ->
     abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
@@ -471,6 +494,22 @@ def tip_nat_leq[A: TermExpr](expr: A, properties: Properties = None) = propertie
 def tip_nat_geq[A: TermExpr](expr: A, properties: Properties = None) = properties(refl, antisym, trans, conn) { properties =>
   let("tip_nat_geq" ->
     abs(properties*)("x" -> nat, "y" -> nat)(app(refl, antisym, trans, conn)("tip_nat_leq", "y", "x")))(
+    expr)
+}
+
+def tip_nat_lt[A: TermExpr](expr: A, properties: Properties = None) = properties(asym, trans, conn) { properties =>
+  letrec("tip_nat_lt" -> tp(nat -> (nat -> bool)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("y")(
+      "Z" -> False,
+      ("S", "z") -> cases("x")(
+        "Z" -> True,
+        ("S", "n") -> app(asym, trans, conn)("tip_nat_lt", "n", "z")))))(
+    expr)
+}
+
+def tip_nat_gt[A: TermExpr](expr: A, properties: Properties = None) = properties(asym, trans, conn) { properties =>
+  let("tip_nat_gt" ->
+    abs(properties*)("x" -> nat, "y" -> nat)(app(asym, trans, conn)("tip_nat_lt", "y", "x")))(
     expr)
 }
 
@@ -658,6 +697,7 @@ def benchmarks(properties: Properties = None) = List(
   "orset" -> nat_max(natlist_gcounter(orset("Unit", properties))),
   "twophaseset" -> twophaseset("Unit", properties),
   "tip_list_append" -> tip_list_append("Unit", properties),
+  "tip_fish" -> tip_list_append(tip_list_flatten(tip_list_map(tip_fish("Unit")))),
   "tip_nat_plus" -> tip_nat_plus("Unit", properties),
   "tip_nat_plus_acc" -> tip_nat_plus_acc("Unit", properties),
   "tip_nat_times" -> tip_nat_plus(tip_nat_times("Unit", properties)),
@@ -666,6 +706,8 @@ def benchmarks(properties: Properties = None) = List(
   "tip_weird_nat_times" -> tip_nat_plus(tip_add3acc(tip_weird_nat_times("Unit"))),
   "tip_nat_leq" -> tip_nat_leq("Unit", properties),
   "tip_nat_geq" -> tip_nat_leq(tip_nat_geq("Unit", properties)),
+  "tip_nat_lt" -> tip_nat_lt("Unit", properties),
+  "tip_nat_gt" -> tip_nat_lt(tip_nat_gt("Unit", properties)),
   "tip_nat_max" -> tip_nat_leq(tip_nat_max("Unit", properties)),
   "tip_nat_min" -> tip_nat_leq(tip_nat_min("Unit", properties)),
   "tip_bin_plus" -> bin_s(tip_bin_plus("Unit", properties)),

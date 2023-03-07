@@ -25,6 +25,7 @@ object FailingPropertyChecks:
     "nat_max_acc",
     "nat_lwwreg_acc",
     "bv_lwwreg",
+    "tip_fish",
     "tip_nat_times_alt",
     "tip_nat_times_acc",
     "tip_weird_nat_times",
