@@ -18,6 +18,12 @@ val propertiesChecking = ListMap(
   Idempotent -> idempotence,
   Selection -> selectivity)
 
+def desugar(properties: Properties) =
+  if properties contains Asymmetric then
+    properties - Asymmetric + Antisymmetric + Irreflexive
+  else
+    properties
+
 val derivingSimple = (propertiesChecking.values collect { case property: PropertyChecking.Simple => property.deriveSimple }).toList
 
 val derivingCompound = (propertiesChecking.values collect { case property: PropertyChecking.Compound => property.deriveCompound }).toList

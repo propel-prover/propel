@@ -135,13 +135,13 @@ def check(
 
   def addPropertiesToCalls(term: Term, abstractionProps: Map[Abstraction, Properties], identProps: Map[Symbol, Properties]): Term = term match
     case Abs(props, ident, tpe, expr) =>
-      Abs(term)(props, ident, tpe, addPropertiesToCalls(expr, abstractionProps, identProps))
+      Abs(term)(desugar(props), ident, tpe, addPropertiesToCalls(expr, abstractionProps, identProps))
     case App(props, expr, arg) =>
       val propsAbstractions = expr.info(Abstraction) flatMap abstractionProps.get getOrElse Set.empty
       val propsIdents = expr match
         case Var(ident) => identProps.get(ident) getOrElse Set.empty
         case _ => Set.empty
-      App(term)(props ++ propsAbstractions ++ propsIdents, addPropertiesToCalls(expr, abstractionProps, identProps), addPropertiesToCalls(arg, abstractionProps, identProps))
+      App(term)(desugar(props ++ propsAbstractions ++ propsIdents), addPropertiesToCalls(expr, abstractionProps, identProps), addPropertiesToCalls(arg, abstractionProps, identProps))
     case TypeAbs(ident, expr) =>
       TypeAbs(term)(ident, addPropertiesToCalls(expr, abstractionProps, identProps))
     case TypeApp(expr, tpe) =>
@@ -541,11 +541,13 @@ def check(
         else
           List.empty
 
+      val desugaredProperties = desugar(properties)
+
       val checkingProperties =
         if discoverAlgebraicProperties then
-          optimisticProperties ++ (properties -- optimisticProperties)
+          optimisticProperties ++ (desugaredProperties -- optimisticProperties)
         else
-          (optimisticProperties filter { properties contains _ }) ++ (properties -- optimisticProperties)
+          (optimisticProperties filter { desugaredProperties contains _ }) ++ (desugaredProperties -- optimisticProperties)
 
       var checkedProperties = Set.empty[Property]
 
@@ -572,7 +574,7 @@ def check(
                 println()
                 println(indent(4, converted.wrapped.show))
 
-              val addingProperties = properties ++ checkedProperties + property
+              val addingProperties = desugaredProperties ++ checkedProperties + property
 
               def addPropertiesAndEnsureDecreasingArgs(
                 normalizing: ((Property, Term) => Boolean) => Equalities => PartialFunction[Term, Term])
@@ -637,9 +639,9 @@ def check(
                   println(indent(4, s"✘ ${property.show} property could not be proved".toUpperCase.nn))
 
               if disproved then
-                Option.when(properties contains property)(propertyDisprovenError(property))
+                Option.when(desugaredProperties contains property)(propertyDisprovenError(property))
               else if !proved then
-                Option.when(properties contains property)(propertyDeductionError(property))
+                Option.when(desugaredProperties contains property)(propertyDeductionError(property))
               else
                 checkedProperties += property
                 additionalProperties = checkingProperties
@@ -649,8 +651,8 @@ def check(
       val checkedNormalizations =
         provenProperties map { case Normalization(pattern, result, abstraction, variables, reversible) =>
           Normalization(
-            addPropertiesToCalls(pattern, Map.empty, Map(abstraction -> (properties ++ checkedProperties))),
-            addPropertiesToCalls(result, Map.empty, Map(abstraction -> (properties ++ checkedProperties))),
+            addPropertiesToCalls(pattern, Map.empty, Map(abstraction -> (desugaredProperties ++ checkedProperties))),
+            addPropertiesToCalls(result, Map.empty, Map(abstraction -> (desugaredProperties ++ checkedProperties))),
             abstraction,
             variables,
             reversible)
