@@ -1,6 +1,6 @@
 import scala.scalanative.build._
 
-ThisBuild / scalaVersion := "3.2.0"
+ThisBuild / scalaVersion := "3.2.2"
 
 ThisBuild / scalacOptions ++= Seq("-feature", "-deprecation", "-unchecked", "-Yexplicit-nulls")
 
@@ -42,6 +42,8 @@ runMain := (propelJVM / Compile / runMain).evaluated
 compile := (propelJVM / Compile / compile).value
 testOnly := (propelJVM / Test / testOnly).evaluated
 test := (propelJVM / Test / test).value
+Test / run := (propelJVM / Test / run).evaluated
+Test / runMain := (propelJVM / Test / runMain).evaluated
 Test / compile := (propelJVM / Test / compile).value
 Test / testOnly := (propelJVM / Test / testOnly).evaluated
 Test / test := (propelJVM / Test / test).value
