@@ -238,13 +238,19 @@ def serialize(term: Term): String =
     }
     Option.when(result.nonEmpty) { Expr(result, Bracket.Square) }
 
+  def collapseTypeDefinitions(definition: String, tpe: Type) = serializeType(tpe) match
+    case Expr(Atom(`definition`, Quote.None) :: exprs, Bracket.Paren) =>
+      exprs
+    case expr =>
+      List(expr)
+
   def serializeType(tpe: Type): SExpr = tpe match
     case Function(arg, result) =>
-      Expr(List(Atom("fun", Quote.None), serializeType(arg), serializeType(result)), Bracket.Paren)
+      Expr(Atom("fun", Quote.None) :: serializeType(arg) :: collapseTypeDefinitions("fun", result), Bracket.Paren)
     case Universal(ident, result) =>
-      Expr(List(Atom("forall", Quote.None), makeTypeIdentifier(ident), serializeType(result)), Bracket.Paren)
+      Expr(Atom("forall", Quote.None) :: makeTypeIdentifier(ident) :: collapseTypeDefinitions("forall", result), Bracket.Paren)
     case Recursive(ident, result) =>
-      Expr(List(Atom("rec", Quote.None), makeTypeIdentifier(ident), serializeType(result)), Bracket.Paren)
+      Expr(Atom("rec", Quote.None) :: makeTypeIdentifier(ident) :: collapseTypeDefinitions("rec", result), Bracket.Paren)
     case TypeVar(ident) =>
       makeTypeIdentifier(ident)
     case Sum(sum) =>
@@ -299,8 +305,8 @@ def serialize(term: Term): String =
       Expr(makeConstructorIdentifier(ctor) :: (args map serializeTerm), Bracket.Paren)
     case Var(ident) =>
       makeTermIdentifier(ident)
-    case Cases(bound, List(Bind(ident) -> expr)) =>
-      Expr(List(Atom("let", Quote.None), makeTermIdentifier(ident), serializeTerm(bound), serializeTerm(expr)), Bracket.Paren)
+    case Cases(bound, List(pattern -> expr)) =>
+      Expr(List(Atom("let", Quote.None), serializePattern(pattern), serializeTerm(bound), serializeTerm(expr)), Bracket.Paren)
     case Cases(expr, List(Match(Constructor.True, List()) -> Data(Constructor.False, List()), Match(Constructor.False, List()) -> Data(Constructor.True, List()))) =>
       Expr(List(Atom("not", Quote.None), serializeTerm(expr)), Bracket.Paren)
     case Cases(lhsExpr, List(Match(Constructor.True, List()) -> Data(Constructor.True, List()), Match(Constructor.False, List()) -> rhsExpr)) =>
