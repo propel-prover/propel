@@ -26,6 +26,11 @@ ROOT.ML
 *.toc
 *.v#
 
+*.zip
+*.tar
+*.gz
+*.xz
+
 report/*.*
 !report/*.tex
 !*/*.tex
