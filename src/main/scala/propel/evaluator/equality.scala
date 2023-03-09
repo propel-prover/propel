@@ -101,7 +101,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def occursInExpanded(ident0: Symbol, expr: Term): Boolean =
     expr match
       case Var(ident1) => ident0 == ident1
-      case Data(_, args) => args exists { occursInFullyExpanded(ident0, _) }
+      case Data(_, args) => args exists { occursInExpanded(ident0, _) }
       case _ => false
 
   def contradictionIndeducible: Boolean =
