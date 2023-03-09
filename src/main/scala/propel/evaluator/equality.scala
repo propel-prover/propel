@@ -67,6 +67,10 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
             Equality.Unequal -> List.empty
         case terms @ Var(ident0) -> Var(ident1) if ident0 == ident1 =>
           Equality.Equal -> List(terms)
+        case terms @ Var(ident0) -> (rhs @ Data(ctor1, args1)) if occursInExpanded(ident0, rhs) =>
+          Equality.Unequal -> List.empty
+        case terms @ (lhs @ Data(ctor0, args0)) -> Var(ident1) if occursInExpanded(ident1, lhs) =>
+          Equality.Unequal -> List.empty
         case terms =>
           Equality.Indeterminate -> List(terms)
 
@@ -93,6 +97,12 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         }
         if unequal then Equality.Unequal else equality
   end equal
+
+  def occursInExpanded(ident0: Symbol, expr: Term): Boolean =
+    expr match
+      case Var(ident1) => ident0 == ident1
+      case Data(_, args) => args exists { occursInFullyExpanded(ident0, _) }
+      case _ => false
 
   def contradictionIndeducible: Boolean =
     def isInductive(expr: Term): Boolean = expr match
