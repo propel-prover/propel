@@ -125,7 +125,7 @@ def defaultApplyImpl[T: Type](using Quotes) =
           If(
             templateTree.select(isInstanceOf).appliedToType(classTree.tpe),
             ValDef.let(Symbol.spliceOwner, "other", templateTree.select(asInstanceOf).appliedToType(classTree.tpe)) { other =>
-              val cond = args map { arg =>
+              val condIdentical = args map { arg =>
                 val argTree = Ref(arg)
                 if argTree.tpe <:< seq then
                   eqSeq.appliedTo(other.select(other.symbol.fieldMember(arg.name)), argTree)
@@ -135,10 +135,19 @@ def defaultApplyImpl[T: Type](using Quotes) =
                   other.select(other.symbol.fieldMember(arg.name)).select(eq).appliedTo(argTree)
               } reduceLeft { _.select(&&).appliedTo(_) }
 
-              If(
-                cond,
-                Return(other, apply),
-                constructWithArgs.appliedTo(filter.appliedTo(other, other.select(enrichments))))
+              val condEqual = args map { arg =>
+                other.select(other.symbol.fieldMember(arg.name)).select(==).appliedTo(Ref(arg))
+              } reduceLeft { _.select(&&).appliedTo(_) }
+
+              Return(
+                If(
+                  condIdentical,
+                  other,
+                  If(
+                    condEqual,
+                    constructWithArgs.appliedTo(other.select(enrichments)),
+                    constructWithArgs.appliedTo(filter.appliedTo(other, other.select(enrichments))))),
+                apply)
             },
             Literal(UnitConstant()))),
         ValDef.let(Symbol.spliceOwner, "dummy", constructWithArgs.appliedTo('{ Nil }.asTerm)) { dummy =>
