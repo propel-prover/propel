@@ -67,9 +67,9 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
             Equality.Unequal -> List.empty
         case terms @ Var(ident0) -> Var(ident1) if ident0 == ident1 =>
           Equality.Equal -> List(terms)
-        case terms @ Var(ident0) -> (rhs @ Data(ctor1, args1)) if occursInExpanded(ident0, rhs) =>
+        case Var(ident0) -> (expr1 @ Data(ctor1, args1)) if contains(expr1, ident0) =>
           Equality.Unequal -> List.empty
-        case terms @ (lhs @ Data(ctor0, args0)) -> Var(ident1) if occursInExpanded(ident1, lhs) =>
+        case (expr0 @ Data(ctor0, args0)) -> Var(ident1) if contains(expr0, ident1) =>
           Equality.Unequal -> List.empty
         case terms =>
           Equality.Indeterminate -> List(terms)
@@ -98,11 +98,14 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         if unequal then Equality.Unequal else equality
   end equal
 
-  def occursInExpanded(ident0: Symbol, expr: Term): Boolean =
-    expr match
-      case Var(ident1) => ident0 == ident1
-      case Data(_, args) => args exists { occursInExpanded(ident0, _) }
-      case _ => false
+  def contains(expr: Term, ident: Symbol): Boolean = expr match
+    case Abs(_, _, _, expr) => contains(expr, ident)
+    case App(_, expr, arg) => contains(expr, ident) || contains(arg, ident)
+    case TypeAbs(_, expr) => contains(expr, ident)
+    case TypeApp(expr, _) => contains(expr, ident)
+    case Data(_, args) => args exists { contains(_, ident) }
+    case expr @ Var(_) => expr.ident == ident
+    case Cases(scrutinee, cases) => contains(scrutinee, ident) || (cases exists { (_, expr) => contains(expr, ident) })
 
   def contradictionIndeducible: Boolean =
     def isInductive(expr: Term): Boolean = expr match
