@@ -90,4 +90,4 @@ extension (normalization: evaluator.properties.Normalization) def show: String =
     else
       ""
 
-  s"${normalization.pattern.show} ⥱ ${normalization.result.show}$function$functionNames$variableNames" 
+  s"${normalization.pattern.show} ⥱ ${normalization.result.show}$function$functionNames$variableNames"

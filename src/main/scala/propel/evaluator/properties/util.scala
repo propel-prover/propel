@@ -8,19 +8,19 @@ import util.*
 
 def recursiveCalls(expr: Term): List[Term] =
   def recursiveCalls(term: Term, abstraction: Abstraction): List[Term] = term match
-    case Abs(properties, ident, tpe, expr) =>
+    case Abs(_, _, _, expr) =>
       recursiveCalls(expr, abstraction)
-    case App(properties, expr, arg) if expr.info(Abstraction) contains abstraction =>
+    case App(_, expr, arg) if expr.info(Abstraction) contains abstraction =>
       expr :: recursiveCalls(expr, abstraction) ++ recursiveCalls(arg, abstraction)
-    case App(properties, expr, arg) =>
+    case App(_, expr, arg) =>
       recursiveCalls(expr, abstraction) ++ recursiveCalls(arg, abstraction)
-    case TypeAbs(ident, expr) =>
+    case TypeAbs(_, expr) =>
       recursiveCalls(expr, abstraction)
-    case TypeApp(expr, tpe) =>
+    case TypeApp(expr, _) =>
       recursiveCalls(expr, abstraction)
-    case Data(ctor, args) =>
+    case Data(_, args) =>
       args flatMap { recursiveCalls(_, abstraction) }
-    case Var(ident) =>
+    case Var(_) =>
       List.empty
     case Cases(scrutinee, cases) =>
       recursiveCalls(scrutinee, abstraction) ++ (cases flatMap { (_, expr) => recursiveCalls(expr, abstraction) })

@@ -78,9 +78,9 @@ object Unification:
           Some(constraints0 ++ constraints1 ++ constraints2)
       }
 
-    def contains(pattern: Pattern, identx: Symbol): Boolean = pattern match
-      case Match(ctor, args) => args exists { contains(_, identx) }
-      case Bind(ident) => ident == identx
+    def contains(pattern: Pattern, ident: Symbol): Boolean = pattern match
+      case Match(ctor, args) => args exists { contains(_, ident) }
+      case pattern @ Bind(_) => pattern.ident == ident
 
     def propagate(constraints: Constraints): Constraints =
       val substs = constraints collect { case Var(ident) -> pattern if !contains(pattern, ident) => ident -> pattern }

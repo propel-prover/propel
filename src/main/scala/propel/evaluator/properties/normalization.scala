@@ -135,8 +135,8 @@ object Normalization:
 
     private trait Normal(
         freeSubsts: Option[Map[Symbol, Term]],
-        expr: Term, 
-        checkAbstraction: Set[Term] => Boolean, 
+        expr: Term,
+        checkAbstraction: Set[Term] => Boolean,
         checkFree: Map[Symbol, List[Term]] => Boolean,
         ensureDecreasingArgsForBinaryAbstraction: Boolean) extends PropertyChecking.Normal:
 

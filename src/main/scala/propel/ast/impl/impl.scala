@@ -24,7 +24,7 @@ def defaultHashCodeImpl(using Quotes) =
   val productHash = murmurHash3.declaredMethod("productHash").head
 
   val arguments = args map { This(classSymbol).select(_) }
-  
+
   arguments find { _.tpe <:< properties } match
     case Some(property) =>
       val args = arguments map { arg =>
@@ -89,7 +89,7 @@ inline def defaultApply[T]: T = ${ defaultApplyImpl[T] }
 
 def defaultApplyImpl[T: Type](using Quotes) =
   import quotes.reflect.*
-  
+
   def applySymbol(symbol: Symbol): Symbol =
     if symbol.exists && symbol.name != "apply" then applySymbol(symbol.owner) else symbol
 

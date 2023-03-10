@@ -59,7 +59,7 @@ object SExpr:
       var escaped = false
 
       builder.clear()
-      
+
       if starting != '\"' && starting != '\'' then
         builder += starting
 

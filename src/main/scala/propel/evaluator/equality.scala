@@ -233,7 +233,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
             element0 ++ element1 ++ processTail(tail1)
         process(tail0) ++ processTail(tail0)
 
-    propagatedList flatMap { propagatedList => 
+    propagatedList flatMap { propagatedList =>
       val equivalentList = process(propagatedList)
 
       def iterator = propagatedList.iterator ++ equivalentList.iterator

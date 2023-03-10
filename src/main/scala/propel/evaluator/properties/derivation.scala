@@ -189,7 +189,7 @@ def derive(
           case _ =>
             List(equalities)
 
-        deriveByProperties(equalities, derivingSimple, exprs0) flatMap { processTail(_, tail0) flatMap { process(_, tail0) } } 
+        deriveByProperties(equalities, derivingSimple, exprs0) flatMap { processTail(_, tail0) flatMap { process(_, tail0) } }
       case _ =>
         List(equalities)
 

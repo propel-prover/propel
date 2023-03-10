@@ -311,7 +311,7 @@ object Symbolic:
           processed ++= unprocessed
 
           if unprocessed.sizeIs > 1 || unprocessed.sizeIs == 1 && unprocessed.head != equalities then
-            val evaluatedEqualities -> evaluatedControl = 
+            val evaluatedEqualities -> evaluatedControl =
               unprocessed.tail.foldLeft(evalEqualities(constraints, unprocessed.head, control, processed)) {
                 case (combinedEqualities @ (List() -> _), _) =>
                   combinedEqualities
@@ -339,7 +339,7 @@ object Symbolic:
           case (result @ (_, Control.Terminate), _) =>
             result
           case ((reductions, control), Reductions(exprs, constraints, equalities)) =>
-            val result -> resultControl = eval(expr, constraints, equalities, control, nested = true, mode) 
+            val result -> resultControl = eval(expr, constraints, equalities, control, nested = true, mode)
             val resultReductions = result.reductions map { case Reduction(expr, constraints, equalities) =>
               Reductions(exprs :+ expr, constraints, equalities)
             }
@@ -468,7 +468,7 @@ object Symbolic:
                           result.reductions -> resultControl
 
                         case Unification.Irrefutable(substs, posConstraints) =>
-                          val posReductions -> posResult = 
+                          val posReductions -> posResult =
                             constraints.withPosConstraints(posConstraints) match
                               case Some(consts) =>
                                 val equals = equalities.withEqualities(posConstraints)

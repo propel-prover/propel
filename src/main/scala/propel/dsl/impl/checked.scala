@@ -122,7 +122,7 @@ object Checked:
 
     def derivedProperties(term: ast.Term): Map[Abstraction, evaluator.properties.Derived] = term match
       case Abs(_, _, _, expr) =>
-        derivedProperties(expr) ++ (term.info(Abstraction) flatMap { abstraction => 
+        derivedProperties(expr) ++ (term.info(Abstraction) flatMap { abstraction =>
           term.info(evaluator.properties.Derived) map { abstraction -> _ }
         })
       case App(_, expr, arg) =>
