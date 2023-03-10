@@ -39,11 +39,11 @@ object reflexivity
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
     subst(expr, Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
-  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Reflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Reflexive)(expr)((varA, arg0), (varA, arg1)) =>
+           canApply(ensureDecreasing, equalities, Reflexive)(expr)(varA, arg0, varA, arg1) =>
       Data(Constructor.True, List())
 
   def deriveSimple(equalities: Equalities) =
@@ -59,11 +59,11 @@ object irreflexivity
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
     subst(not(expr), Map(ident0 -> varA, ident1 -> varA)) -> Equalities.empty
 
-  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Irreflexive) &&
            equalities.equal(arg0, arg1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Irreflexive)(expr)((varA, arg0), (varA, arg1)) =>
+           canApply(ensureDecreasing, equalities, Irreflexive)(expr)(varA, arg0, varA, arg1) =>
       Data(Constructor.False, List())
 
   def deriveSimple(equalities: Equalities) =
@@ -178,10 +178,10 @@ object commutativity
     val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
     Data(equalDataConstructor, List(ab, ba)) -> Equalities.empty
 
-  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1)
         if properties.contains(Commutative) &&
-           canApply(ensureDecreasing, equalities, Commutative)(expr)((varA, arg0), (varB, arg1)) =>
+           canApply(ensureDecreasing, equalities, Commutative)(expr)(varA, arg0, varB, arg1) =>
       App(props, App(properties, expr, arg1), arg0)
 end commutativity
 
@@ -194,18 +194,64 @@ object associativity
     val ab_c = subst(expr, Map(ident0 -> subst(expr, Map(ident0 -> varA, ident1 -> varB)), ident1 -> varC))
     Data(equalDataConstructor, List(a_bc, ab_c)) -> Equalities.empty
 
-  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Associative)(expr0)((varA, arg0), (varB, arg1), (varC, arg2)) =>
+           canApply(ensureDecreasing, Associative, expr0) { decreasingArguments =>
+             val varWeightA = argWeight(varA, equalities)
+             val varWeightB = argWeight(varB, equalities)
+             val varWeightC = argWeight(varC, equalities)
+             val argWeight0 = Weight(arg0)
+             val argWeight1 = Weight(arg1)
+             val argWeight2 = Weight(arg2)
+             def associativeDecreasing =
+               decreasing(decreasingArguments)(varWeightA, argWeight0, secondDecreasing = false) ||
+               decreasing(decreasingArguments)(varWeightA, argWeight0, secondDecreasing = true) &&
+               decreasing(decreasingArguments)(varWeightB, argWeight1, varWeightC, argWeight2)
+             def associativeCommutativeDecreasing =
+               properties0.contains(Commutative) &&
+               properties1.contains(Commutative) &&
+               canApply(ensureDecreasing, Commutative, expr0) { decreasingArguments =>
+                 decreasing(decreasingArguments)(varWeightA, argWeight0, secondDecreasing = true) &&
+                 decreasing(decreasingArguments)(varWeightC, argWeight1, varWeightB, argWeight2) ||
+                 decreasing(decreasingArguments)(firstDecreasing = false, varWeightC, argWeight0) ||
+                 decreasing(decreasingArguments)(firstDecreasing = true, varWeightC, argWeight0) &&
+                 (decreasing(decreasingArguments)(varWeightA, argWeight1, varWeightB, argWeight2) ||
+                  decreasing(decreasingArguments)(varWeightB, argWeight1, varWeightA, argWeight2))
+               }
+             associativeDecreasing || associativeCommutativeDecreasing
+           } =>
       App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
     case App(props0, App(properties0, expr0, App(props1, App(properties1, expr1, arg0), arg1)), arg2)
         if properties0.contains(Associative) &&
            properties1.contains(Associative) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Associative)(expr0)((varA, arg0), (varB, arg1), (varC, arg2)) =>
+           canApply(ensureDecreasing, Associative, expr0) { decreasingArguments =>
+             val varWeightA = argWeight(varA, equalities)
+             val varWeightB = argWeight(varB, equalities)
+             val varWeightC = argWeight(varC, equalities)
+             val argWeight0 = Weight(arg0)
+             val argWeight1 = Weight(arg1)
+             val argWeight2 = Weight(arg2)
+             def associativeDecreasing =
+               decreasing(decreasingArguments)(firstDecreasing = false, varWeightC, argWeight2) ||
+               decreasing(decreasingArguments)(firstDecreasing = true, varWeightC, argWeight2) &&
+               decreasing(decreasingArguments)(varWeightA, argWeight0, varWeightB, argWeight1)
+             def associativeCommutativeDecreasing =
+               properties0.contains(Commutative) &&
+               properties1.contains(Commutative) &&
+               canApply(ensureDecreasing, Commutative, expr0) { decreasingArguments =>
+                 decreasing(decreasingArguments)(firstDecreasing = true, varWeightC, argWeight2) &&
+                 decreasing(decreasingArguments)(varWeightB, argWeight0, varWeightA, argWeight1) ||
+                 decreasing(decreasingArguments)(varWeightA, argWeight2, secondDecreasing = false) ||
+                 decreasing(decreasingArguments)(varWeightA, argWeight2, secondDecreasing = true) &&
+                 (decreasing(decreasingArguments)(varWeightB, argWeight0, varWeightC, argWeight1) ||
+                  decreasing(decreasingArguments)(varWeightC, argWeight0, varWeightB, argWeight1))
+               }
+             associativeDecreasing || associativeCommutativeDecreasing
+           } =>
       App(props0, App(properties0, expr0, arg0), App(props1, App(properties1, expr1, arg1), arg2))
 end associativity
 
@@ -217,11 +263,11 @@ object idempotence
     val aa = subst(expr, Map(ident0 -> varA, ident1 -> varA))
     Data(equalDataConstructor, List(aa, varA)) -> Equalities.empty
 
-  def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) =
+  def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case term @ App(_, App(properties, expr, arg0), arg1)
         if properties.contains(Idempotent) &&
            equalities.equal(arg0, arg1) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Idempotent)(expr)((varA, arg0), (varA, arg1)) =>
+           canApply(ensureDecreasing, equalities, Idempotent)(expr)(varA, arg0, varA, arg1) =>
       arg0
 end idempotence
 

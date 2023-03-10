@@ -138,11 +138,11 @@ object Normalization:
         expr: Term,
         checkAbstraction: Set[Term] => Boolean,
         checkFree: Map[Symbol, List[Term]] => Boolean,
-        ensureDecreasingArgsForBinaryAbstraction: Boolean) extends PropertyChecking.Normal:
+        decreasingArguments: Option[DecreasingArguments]) extends PropertyChecking.Normal:
 
       private val patternArguments = arguments(normalization.pattern)
 
-      def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
+      def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) = scala.Function.unlift { (term: Term) =>
         freeSubsts flatMap { freeSubsts =>
           Unification.unify(pattern, term) flatMap { (substs, substsReverse) =>
             def abstractionCheck = abstraction flatMap { substs.get(_) }
@@ -153,18 +153,17 @@ object Normalization:
               }
             }
 
-            def canApply =
-              !ensureDecreasingArgsForBinaryAbstraction ||
-              (patternArguments zip arguments(pattern) forall { case ((patternArg0, patternArg1), (substitutedArg0, substitutedArg1)) =>
-                let(Weight(substEqualities(patternArg0, equalities)),
-                    Weight(substEqualities(patternArg1, equalities)),
-                    Weight(subst(substitutedArg0, substs)),
-                    Weight(subst(substitutedArg1, substs))) { (patternArg0, patternArg1, substitutedArg0, substitutedArg1) =>
-                  substitutedArg0 < patternArg0 ||
-                  substitutedArg1 < patternArg1 ||
-                  substitutedArg0 + substitutedArg1 < patternArg0 + patternArg1
-                }
+            def canApply = decreasingArguments forall { decreasingArguments =>
+              (patternArguments zip arguments(pattern) forall { case ((arg0, arg1), (term0, term1)) =>
+                val arg0Weight = Weight(substEqualities(arg0, equalities))
+                val arg1Weight = Weight(substEqualities(arg1, equalities))
+                val term0Weight = Weight(subst(term0, substs))
+                val term1Weight = Weight(subst(term1, substs))
+                decreasingArguments.first && term0Weight < arg0Weight ||
+                decreasingArguments.second && term1Weight < arg1Weight ||
+                decreasingArguments.combined && term0Weight + term1Weight < arg0Weight + arg1Weight
               })
+            }
 
             Option.when(
                 substsReverse.isEmpty &&
@@ -235,21 +234,21 @@ object Normalization:
       checkAbstraction: Set[Term] => Boolean,
       checkFree: Map[Symbol, List[Term]] => Boolean,
       freeExpr: Map[Symbol, Term],
-      ensureDecreasingArgsForBinaryAbstraction: Boolean)
+      decreasingArguments: Option[DecreasingArguments])
     : PropertyChecking.FunctionEqualResult with PropertyChecking.Normal =
       val freeSubsts = substs(freeExpr)
-      new FunctionEqualResult(freeSubsts) with Normal(freeSubsts, expr, checkAbstraction, checkFree, ensureDecreasingArgsForBinaryAbstraction) { }
+      new FunctionEqualResult(freeSubsts) with Normal(freeSubsts, expr, checkAbstraction, checkFree, decreasingArguments) { }
 
     def apply(
       expr: Option[Term],
       checkAbstraction: Set[Term] => Boolean,
       checkFree: Map[Symbol, List[Term]] => Boolean,
       freeExpr: Map[Symbol, Term],
-      ensureDecreasingArgsForBinaryAbstraction: Boolean)
+      decreasingArguments: Option[DecreasingArguments])
     : (PropertyChecking.FunctionEqualResult, Option[PropertyChecking.Normal])=
       expr match
         case Some(expr) =>
-          val checking = apply(expr, checkAbstraction, checkFree, freeExpr, ensureDecreasingArgsForBinaryAbstraction)
+          val checking = apply(expr, checkAbstraction, checkFree, freeExpr, decreasingArguments)
           (checking, Some(checking))
         case _ =>
           (apply(freeExpr), None)

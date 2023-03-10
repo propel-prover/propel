@@ -175,7 +175,7 @@ def check(
               abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
             } },
             freeExpr,
-            ensureDecreasingArgsForBinaryAbstraction = false).normalize(PropertyChecking.withNonDecreasing)
+            None).normalize(PropertyChecking.withNonDecreasing)
         }
       }
     }
@@ -255,6 +255,9 @@ def check(
 
   def check(term: Term, env: Map[Symbol, Term], dependencies: List[Term | Symbol]): Term = term match
     case Abs(properties, ident0, tpe0, expr0 @ Abs(_, ident1, tpe1, expr1)) =>
+      val (recursiveDefinition, decreasingArguments) =
+        DecreasingArguments.check(term).fold(false -> DecreasingArguments(false, false, false)) { true -> _ }
+
       val abstractions = abstractionAccess(env, dependencies)
 
       val (abstraction, call) = (term.info(Abstraction)
@@ -333,14 +336,27 @@ def check(
               abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
             } },
             (fact.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap,
-            ensureDecreasingArgsForBinaryAbstraction = false)
+            None)
           normalization map { _.normalize(PropertyChecking.withNonDecreasing) }
         }
 
       if printDeductionDebugInfo then
-        if call.isEmpty then
-          println()
-          println(indent(2, "No known recursion scheme detected."))
+        println()
+        if !recursiveDefinition then
+          println(indent(2, "No recursive calls detected."))
+        else
+          val decreasing = List(
+            Option.when(decreasingArguments.first)("on the first argument"),
+            Option.when(decreasingArguments.second)("on the second argument"),
+            Option.when(decreasingArguments.combined)("on the first and second argument combined")).flatten
+          if decreasing.isEmpty then
+            println(indent(2, "No decreasing recursive arguments detected for recursive definition."))
+          else
+            val size = decreasing.size
+            val info = (decreasing.zipWithIndex map { (info, index) =>
+              if index == size - 2 then s"$info and " else if index < size - 2 then s"$info, " else info
+            }).mkString
+            println(indent(2, s"Recursive arguments decrease $info."))
 
         if facts.nonEmpty then
           println()
@@ -364,7 +380,7 @@ def check(
 
         val (remaining, additional) = conjectures.foldLeft(init) { case (processed @ (remaining, proven), conjecture) =>
           if !Normalization.specializationForSameAbstraction(conjecture, proven map { case proven -> _ => proven }) then
-            def makeNormalization(conjecture: Normalization, ensureDecreasingArgsForBinaryAbstraction: Boolean) =
+            def makeNormalization(conjecture: Normalization, decreasingArguments: Option[DecreasingArguments]) =
               conjecture.checking(
                 call,
                 _ forall { _.info(Abstraction) contains abstraction.get },
@@ -373,11 +389,11 @@ def check(
                   abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
                 } },
                 (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap,
-                ensureDecreasingArgsForBinaryAbstraction)
+                decreasingArguments)
 
             def makeNormalizations(conjecture: Normalization) =
-              val (checking, normalization) = makeNormalization(conjecture, ensureDecreasingArgsForBinaryAbstraction = false)
-              val (_, checkingNormalization) = makeNormalization(conjecture, ensureDecreasingArgsForBinaryAbstraction = true)
+              val (checking, normalization) = makeNormalization(conjecture, None)
+              val (_, checkingNormalization) = makeNormalization(conjecture, Some(decreasingArguments))
               (checking, normalization, checkingNormalization)
 
             val (checking, normalization, checkingNormalization) = makeNormalizations(conjecture)
@@ -492,7 +508,7 @@ def check(
               abstraction exists { abstraction => exprs forall { _.info(Abstraction) contains abstraction } }
             } },
             (conjecture.free flatMap { ident => env.get(ident) map { ident -> _ } }).toMap,
-            ensureDecreasingArgsForBinaryAbstraction = false)
+            None)
           conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })
         }).unzip
 
@@ -579,10 +595,14 @@ def check(
               val addingProperties = checkedProperties + property
 
               def addPropertiesAndEnsureDecreasingArgs(
-                normalizing: ((Property, Term) => Boolean) => Equalities => PartialFunction[Term, Term])
+                normalizing: ((Property, Term) => Option[DecreasingArguments]) => Equalities => PartialFunction[Term, Term])
               : Equalities => PartialFunction[Term, Term] =
                 term.info(Abstraction).fold(normalizing(PropertyChecking.withNonDecreasing)) { abstraction => equalities =>
-                  val normalize = normalizing((prop, expr) => (expr.info(Abstraction) contains abstraction) && prop == property)(equalities)
+                  val normalizingEnsureDecreasing = normalizing { (prop, expr) =>
+                    Option.when((expr.info(Abstraction) contains abstraction) && prop == property)(decreasingArguments)
+                  }
+
+                  val normalize = normalizingEnsureDecreasing(equalities)
 
                   inline def addProperties(app: App) =
                     if app.expr.info(Abstraction) contains abstraction then

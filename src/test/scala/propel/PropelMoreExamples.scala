@@ -35,6 +35,68 @@ def nat_min[A: TermExpr](expr: A) =
       "_" -> "Z")))(
     expr)
 
+def nat_max_rev[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc, idem, sel) { properties =>
+  letrec("nat_max_rev" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("Tuple", "x", "y")(
+      ("Tuple", "Z", "y") -> "y",
+      ("Tuple", "x", "Z") -> "x",
+      ("Tuple", ("S", "x"), ("S", "y")) -> ("S", app(comm, assoc, idem, sel)("nat_max_rev", "x", "y")))))(
+    expr)
+}
+
+def bv_max_rev[A: TermExpr](expr: A, properties: Properties = None) = properties(assoc, comm, idem, sel) { properties =>
+  letrec("bv_max_rev" -> tp(bv -> (bv -> bv)) ->
+    abs(properties*)("x" -> bv, "y" -> bv)(cases("Tuple", "x", "y")(
+      ("Tuple", "BZ", "y") -> "y",
+      ("Tuple", "x", "BZ") -> "x",
+      ("Tuple", ("B0", "x"), ("B0", "y")) -> ("B0", app(assoc, comm, idem, sel)("bv_max_rev", "x", "y")),
+      ("Tuple", ("B1", "x"), ("B1", "y")) -> ("B1", app(assoc, comm, idem, sel)("bv_max_rev", "y", "x")),
+      ("Tuple", ("B0", "x"), ("B1", "y")) ->
+        `if`(app(refl, sym, antisym, trans)("bv_eq", app(assoc, comm, idem, sel)("bv_max_rev", "y", "x"), "y"))
+          ("B1", "y")
+          ("B0", "x"),
+      ("Tuple", ("B1", "x"), ("B0", "y")) ->
+        `if`(app(refl, sym, antisym, trans)("bv_eq", app(assoc, comm, idem, sel)("bv_max_rev", "x", "y"), "x"))
+          ("B1", "x")
+          ("B0", "y"))))(
+    expr)
+}
+
+def nat_add2p_rev[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
+  letrec("nat_add2p_rev" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "y",
+      ("S", "x") -> ("S", app(comm, assoc)("nat_add2p_rev", "y", "x")))))(
+    expr)
+}
+
+def nat_add3p_rev[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
+  letrec("nat_add3p_rev" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("Tuple", "x", "y")(
+      ("Tuple", "Z", "y") -> "y",
+      ("Tuple", "x", "Z") -> "x",
+      ("Tuple", ("S", "x"), ("S", "y")) -> ("S", ("S", app(comm, assoc)("nat_add3p_rev", "y", "x"))))))(
+    expr)
+}
+
+def nat_mult2p_rev[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
+  letrec("nat_mult2p_rev" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("x")(
+      "Z" -> "Z",
+      ("S", "x") -> app(comm, assoc)("nat_add2p_rev", "y", app(comm, assoc)("nat_mult2p_rev", "y", "x")))))(
+    expr)
+}
+
+def nat_mult3p_rev[A: TermExpr](expr: A, properties: Properties = None) = properties(comm, assoc) { properties =>
+  letrec("nat_mult3p_rev" -> tp(nat -> (nat -> nat)) ->
+    abs(properties*)("x" -> nat, "y" -> nat)(cases("Tuple", "x", "y")(
+      ("Tuple", "Z", "y") -> "Z",
+      ("Tuple", "x", "Z") -> "Z",
+      ("Tuple", ("S", "x"), ("S", "y")) ->
+        app(comm, assoc)("nat_add3p_rev", app(comm, assoc)("nat_mult3p_rev", "y", "x"), app(comm, assoc)("nat_add3p_rev", "x", "y")))))(
+    expr)
+}
+
 def list_map[A: TermExpr](expr: A) =
   letrec("list_map" -> forall("T")(("T" -> ("T" -> "T")) -> (list("T") -> (list("T") -> list("T")))) ->
     tpabs("T")(abs("f" -> tp("T" -> ("T" -> "T")))(abs(assoc, comm, idem)("a" -> list("T"), "b" -> list("T"))(cases("Tuple", "a", "b")(
@@ -126,6 +188,12 @@ def examples = List(
   "nat_leq" -> nat_leq("Unit"),
   "lnat_leq" -> lnat_leq("Unit"),
   "nat_min" -> nat_min("Unit"),
+  "nat_max_rev" -> nat_max_rev("Unit"),
+  "bv_max_rev" -> bv_eq(bv_max_rev("Unit")),
+  "nat_add2p_rev" -> nat_add2p_rev("Unit"),
+  "nat_add3p_rev" -> nat_add3p_rev("Unit"),
+  "nat_mult2p_rev" -> nat_add2p_rev(nat_mult2p_rev("Unit")),
+  "nat_mult3p_rev" -> nat_add3p_rev(nat_mult3p_rev("Unit")),
   "list_map" -> list_map("Unit"),
   "bv_leq" -> bv_eq(bv_leq("Unit")),
   "bvu_eq" -> bv_eq(bvu_eq("Unit")),
@@ -136,7 +204,7 @@ def examples = List(
 
 @main def example(example: String) =
   val ex = examples.toMap
-  val errors = properties.check(ex(example), printDeductionDebugInfo = false, printReductionDebugInfo = false).showErrors
+  val errors = properties.check(ex(example), printDeductionDebugInfo = true, printReductionDebugInfo = false).showErrors
   if errors.nonEmpty then
     println(errors)
   else

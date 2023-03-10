@@ -32,6 +32,9 @@ object FailingPropertyChecks:
     "tip_bin_times",
     "tip_int_plus",
     "tip_int_times",
+    "nat_add3p_rev",
+    "nat_mult2p_rev",
+    "nat_mult3p_rev",
     "nat_lwwreg_alt3")
 
 @Ignore

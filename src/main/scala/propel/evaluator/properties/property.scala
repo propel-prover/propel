@@ -19,26 +19,52 @@ trait PropertyChecking:
   def control(expr: Term, equalities: Equalities, nested: Boolean): (Term, Equalities, Symbolic.Control)
   def check(idents: List[Symbol], result: Symbolic.Result): Either[Symbolic.Result, Symbolic.Result]
 
-  private inline def decreasing(inline terms: Iterable[(Term, Term)]) = terms
-    .foldLeft[Option[(Weight, Weight)]](Some(Weight.empty, Weight.empty)) {
-      case (None, _) =>
-        None
-      case (Some(leftWeights, rightWeights), (leftTerm, rightTerm)) =>
-        val leftWeight = Weight(leftTerm)
-        val rightWeight = Weight(rightTerm)
-        Option.when(!(leftWeight < rightWeight))(leftWeights + leftWeight, rightWeights + rightWeight)
+  protected inline def decreasing(decreasingArguments: DecreasingArguments)(
+      firstDecreasing: Boolean,
+      arg1Weight: Weight, term1Weight: Weight): Boolean =
+    decreasingArguments.first && firstDecreasing || {
+      val secondDecreasing = term1Weight < arg1Weight
+      decreasingArguments.second && secondDecreasing ||
+      decreasingArguments.combined && firstDecreasing && secondDecreasing
     }
-    .fold(true)(_ < _)
+
+  protected inline def decreasing(decreasingArguments: DecreasingArguments)(
+      arg0Weight: Weight, term0Weight: Weight,
+      secondDecreasing: Boolean): Boolean =
+    decreasingArguments.second && secondDecreasing || {
+      val firstDecreasing = term0Weight < arg0Weight
+      decreasingArguments.first && firstDecreasing ||
+      decreasingArguments.combined && firstDecreasing && secondDecreasing
+    }
+
+  protected inline def decreasing(decreasingArguments: DecreasingArguments)(
+      arg0Weight: Weight, term0Weight: Weight,
+      arg1Weight: Weight, term1Weight: Weight): Boolean =
+    decreasingArguments.first && term0Weight < arg0Weight ||
+    decreasingArguments.second && term1Weight < arg1Weight ||
+    decreasingArguments.combined && term0Weight + term1Weight < arg0Weight + arg1Weight
+
+  protected inline def argWeight(arg: Var, equalities: Equalities): Weight =
+    Weight(equalities.pos.get(arg) getOrElse arg)
+
+  protected inline def canApply(
+      ensureDecreasing: (Property, Term) => Option[DecreasingArguments],
+      inline property: Property,
+      inline expr: Term)(
+      inline canApply: DecreasingArguments => Boolean): Boolean =
+    (ensureDecreasing eq PropertyChecking.withNonDecreasing) ||
+    (ensureDecreasing(property, expr) forall canApply)
 
   protected inline def canApply
-      (ensureDecreasing: (Property, Term) => Boolean, equalities: Equalities, property: Property)
-      (inline expr: Term)(inline terms: (Var, Term)*) =
-    (ensureDecreasing eq PropertyChecking.withNonDecreasing) ||
-    !ensureDecreasing(property, expr) ||
-    decreasing(terms map { (variable, term) => (term, equalities.pos.get(variable) getOrElse variable) })
+      (ensureDecreasing: (Property, Term) => Option[DecreasingArguments], equalities: Equalities, property: Property)
+      (inline expr: Term)(arg0: Var, term0: Term, arg1: Var, term1: Term): Boolean =
+    canApply(ensureDecreasing, property, expr) {
+      decreasing(_)(argWeight(arg0, equalities), Weight(term0), argWeight(arg1, equalities), Weight(term1))
+    }
+end PropertyChecking
 
 object PropertyChecking:
-  val withNonDecreasing: (Property, Term) => Boolean = (_, _) => false
+  val withNonDecreasing: (Property, Term) => Option[DecreasingArguments] = (_, _) => None
 
   trait FunctionEqualResult extends PropertyChecking:
     val propertyType = PropertyType.Function
@@ -139,7 +165,7 @@ object PropertyChecking:
     def deriveCompound(equalities: Equalities): PartialFunction[((Term, Term), (Term, Term)), List[Equalities]]
 
   trait Normal extends PropertyChecking:
-    def normalize(ensureDecreasing: (Property, Term) => Boolean)(equalities: Equalities): PartialFunction[Term, Term]
+    def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities): PartialFunction[Term, Term]
 
   trait Selecting extends PropertyChecking:
     def select(equalities: Equalities): PartialFunction[Term, List[(Term, Equalities)]]

@@ -108,8 +108,7 @@ object Conjecture:
               case expr @ Var(_) => expr.ident == ident
               case _ => false
             } },
-            (normalization.free map { ident => ident -> Var(ident) }).toMap,
-            ensureDecreasingArgsForBinaryAbstraction = false)
+            (normalization.free map { ident => ident -> Var(ident) }).toMap, None)
           val normalize = checking.normalize(PropertyChecking.withNonDecreasing)(Equalities.empty)
           lhs -> Option.when(!normalizable(normalize, normalization.checking.result))(normalization)
         else
