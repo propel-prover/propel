@@ -64,7 +64,7 @@ def check(
        (elementA :: listA, elementB :: listB, elementC :: listC, elementD :: listD, elementE :: listE)
     }
 
-  val typedExpr = expr.typedTerm
+  val typedExpr = expr.typedTerm.withSyntacticInfo
 
   val (abstractionProperties, abstractionResultTypes, abstractionDependencies, abstractionNames, namedVariables) =
     def abstractionInfos(term: Term, dependencies: List[Term | Symbol])
@@ -133,27 +133,29 @@ def check(
 
   var additionalProperties = Map.empty[Abstraction, Properties]
 
-  def addPropertiesToCalls(term: Term, abstractionProps: Map[Abstraction, Properties], identProps: Map[Symbol, Properties]): Term = term match
+  def assignPropertiesToCalls(term: Term, abstractionProps: Map[Abstraction, Properties], identProps: Map[Symbol, Properties]): Term = term match
     case Abs(props, ident, tpe, expr) =>
-      Abs(term)(desugar(props), ident, tpe, addPropertiesToCalls(expr, abstractionProps, identProps))
+      Abs(term)(desugar(props), ident, tpe, assignPropertiesToCalls(expr, abstractionProps, identProps))
     case App(props, expr, arg) =>
-      val propsAbstractions = expr.info(Abstraction) flatMap abstractionProps.get getOrElse Set.empty
+      val abstraction = expr.info(Abstraction)
+      val propsAssumed = if abstraction exists { abstractionProperties contains _ } then Set.empty else props
+      val propsAbstractions = abstraction flatMap abstractionProps.get getOrElse Set.empty
       val propsIdents = expr match
         case Var(ident) => identProps.get(ident) getOrElse Set.empty
         case _ => Set.empty
-      App(term)(desugar(props ++ propsAbstractions ++ propsIdents), addPropertiesToCalls(expr, abstractionProps, identProps), addPropertiesToCalls(arg, abstractionProps, identProps))
+      App(term)(desugar(propsAssumed ++ propsAbstractions ++ propsIdents), assignPropertiesToCalls(expr, abstractionProps, identProps), assignPropertiesToCalls(arg, abstractionProps, identProps))
     case TypeAbs(ident, expr) =>
-      TypeAbs(term)(ident, addPropertiesToCalls(expr, abstractionProps, identProps))
+      TypeAbs(term)(ident, assignPropertiesToCalls(expr, abstractionProps, identProps))
     case TypeApp(expr, tpe) =>
-      TypeApp(term)(addPropertiesToCalls(expr, abstractionProps, identProps), tpe)
+      TypeApp(term)(assignPropertiesToCalls(expr, abstractionProps, identProps), tpe)
     case Data(ctor, args) =>
-      Data(term)(ctor, args map { addPropertiesToCalls(_, abstractionProps, identProps) })
+      Data(term)(ctor, args map { assignPropertiesToCalls(_, abstractionProps, identProps) })
     case Var(_) =>
       term
     case Cases(scrutinee, cases) =>
       Cases(term)(
-        addPropertiesToCalls(scrutinee, abstractionProps, identProps),
-        cases map { (pattern, expr) => pattern -> addPropertiesToCalls(expr, abstractionProps, identProps) })
+        assignPropertiesToCalls(scrutinee, abstractionProps, identProps),
+        cases map { (pattern, expr) => pattern -> assignPropertiesToCalls(expr, abstractionProps, identProps) })
 
   var collectedNormalizations = List.empty[(Abstraction => Option[Term]) => Option[Equalities => PartialFunction[Term, Term]]]
 
@@ -281,7 +283,7 @@ def check(
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
       val (facts, conjectures) =
-        val updatedTerm = addPropertiesToCalls(term, additionalProperties, Map.empty)
+        val updatedTerm = assignPropertiesToCalls(term, additionalProperties, Map.empty)
 
         val (basicFacts, generalizedConjectures) = (exprArgumentPrefixes(updatedTerm) map { (identTypes, expr) =>
           val (idents, _) = identTypes.unzip
@@ -392,7 +394,7 @@ def check(
             val reverseNormalizeConjecture = checkingReverseNormalization map { _.normalize(PropertyChecking.withNonDecreasing) }
 
             def checkConjecture(checking: PropertyChecking) =
-              val (expr, equalities) = checking.prepare(ident0, ident1, addPropertiesToCalls(expr1, additionalProperties, Map.empty))
+              val (expr, equalities) = checking.prepare(ident0, ident1, assignPropertiesToCalls(expr1, additionalProperties, Map.empty))
               val converted = UniqueNames.convert(expr, names)
 
               if printReductionDebugInfo then
@@ -565,7 +567,7 @@ def check(
                 additionalProperties.updatedWith(abstraction) { properties => Some(properties.toSet.flatten + property) }
               }
 
-              val (expr, equalities) = checking.prepare(ident0, ident1, addPropertiesToCalls(expr1, checkingProperties, Map.empty))
+              val (expr, equalities) = checking.prepare(ident0, ident1, assignPropertiesToCalls(expr1, checkingProperties, Map.empty))
               val converted = UniqueNames.convert(expr, names)
 
               if printReductionDebugInfo then
@@ -574,7 +576,7 @@ def check(
                 println()
                 println(indent(4, converted.wrapped.show))
 
-              val addingProperties = desugaredProperties ++ checkedProperties + property
+              val addingProperties = checkedProperties + property
 
               def addPropertiesAndEnsureDecreasingArgs(
                 normalizing: ((Property, Term) => Boolean) => Equalities => PartialFunction[Term, Term])
@@ -651,8 +653,8 @@ def check(
       val checkedNormalizations =
         provenProperties map { case Normalization(pattern, result, abstraction, variables, reversible) =>
           Normalization(
-            addPropertiesToCalls(pattern, Map.empty, Map(abstraction -> (desugaredProperties ++ checkedProperties))),
-            addPropertiesToCalls(result, Map.empty, Map(abstraction -> (desugaredProperties ++ checkedProperties))),
+            assignPropertiesToCalls(pattern, Map.empty, Map(abstraction -> checkedProperties)),
+            assignPropertiesToCalls(result, Map.empty, Map(abstraction -> checkedProperties)),
             abstraction,
             variables,
             reversible)
