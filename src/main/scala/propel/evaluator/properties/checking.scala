@@ -687,12 +687,12 @@ def check(
           term.withExtrinsicInfo(error)
         case _ =>
           val arg = typedArgVar(ident0, term.termType)
-          val expr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg)).typedTerm
+          val resultExpr = Abs(term)(properties, ident0, tpe0, check(expr0, env + (ident0 -> arg), dependencies :+ arg)).typedTerm
           if checkedProperties.nonEmpty || checkedNormalizations.nonEmpty then
             val derived = Derived(checkedProperties, checkedNormalizations)
-            expr.withExtrinsicInfo(derived)
+            resultExpr.withExtrinsicInfo(derived)
           else
-            expr
+            resultExpr
 
     case Abs(properties, ident, tpe, expr) =>
       if properties.nonEmpty then
@@ -751,7 +751,12 @@ def check(
         addCollectedNormalizations(env, abstraction, facts ++ uncheckedConjectures)
 
         val arg = typedArgVar(ident, term.termType)
-        Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg)).typedTerm
+        val resultExpr = Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg)).typedTerm
+        if facts.nonEmpty || uncheckedConjectures.nonEmpty then
+          val derived = Derived(Set.empty, facts ++ uncheckedConjectures)
+          resultExpr.withExtrinsicInfo(derived)
+        else
+          resultExpr
 
     case App(properties, expr, arg) =>
       val checkedArg = check(arg, env, dependencies)
