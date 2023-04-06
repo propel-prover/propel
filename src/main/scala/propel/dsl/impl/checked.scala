@@ -270,6 +270,10 @@ object Checked:
         val (bodyTerm, bodyExpr, bodyTypeVars, bodyPropVars, bodyExternal) = processPropExpr(body, bound, externalTerms)
         (Inlined.copy(term)(call, List(), bodyTerm), bodyExpr, bodyTypeVars, bodyPropVars, bodyExternal)
 
+      case Inlined(Some(call), bindings, expr) if call.symbol.owner == TypeRepr.of[prop.type].typeSymbol =>
+        val (exprTerm, exprExpr, exprTypeVars, exprPropVars, exprExternal) = processPropExpr(expr, bound, externalTerms)
+        (Inlined(Some(call), bindings, expr), exprExpr, exprTypeVars, exprPropVars, exprExternal)
+
       case Block(List(), expr) =>
         processPropExpr(expr, bound, externalTerms)
 

@@ -9,11 +9,11 @@ type UniqueNaming = UniqueNames.UniqueNaming
 
 val UniqueNaming: UniqueNames.UniqueNaming.type = UniqueNames.UniqueNaming
 
-case class UniqueNames[+T] private (wrapped: T)(using UniqueNaming):
+case class UniqueNames[+T] private (wrapped: T)(using naming: UniqueNaming):
   def linked[U](f: UniqueNaming ?=> T => U): UniqueNames[U] =
     UniqueNames(f(wrapped))
   def unlinked[U](f: UniqueNaming ?=> T => U): UniqueNames[U] =
-    letgiven(UniqueNames.UniqueNaming(ConcurrentHashMap(summon.used))) { UniqueNames(f(wrapped)) }
+    letgiven(UniqueNames.UniqueNaming(ConcurrentHashMap(naming.used))) { UniqueNames(f(wrapped)) }
   def unwrap[U](f: UniqueNaming.Immutable ?=> T => U): U =
     f(wrapped)
 
@@ -28,8 +28,8 @@ object UniqueNames:
     UniqueNames(v)
 
 
-  def usedNames(using UniqueNaming.Immutable): collection.Set[String] =
-    summon.used.asScala.keySet
+  def usedNames(using naming: UniqueNaming.Immutable): collection.Set[String] =
+    naming.used.asScala.keySet
 
 
   private def freshIdent(base: String, used: ConcurrentHashMap[String, Unit]): String =
@@ -42,11 +42,11 @@ object UniqueNames:
   private def freshIdent(base: Symbol, used: ConcurrentHashMap[String, Unit]): Symbol =
     Symbol(freshIdent(base.name, used))
 
-  def freshIdent(base: String)(using UniqueNaming): String =
-    freshIdent(base, summon.used)
+  def freshIdent(base: String)(using naming: UniqueNaming): String =
+    freshIdent(base, naming.used)
 
-  def freshIdent(base: Symbol)(using UniqueNaming): Symbol =
-    Symbol(freshIdent(base.name, summon.used))
+  def freshIdent(base: Symbol)(using naming: UniqueNaming): Symbol =
+    Symbol(freshIdent(base.name, naming.used))
 
 
   sealed trait PotentialNames[R <: UniqueNames[Term] | Term](using val names: UniqueNaming):

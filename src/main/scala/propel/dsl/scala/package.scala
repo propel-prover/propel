@@ -26,7 +26,7 @@ trait =>:[+A <: _ := _, R] extends ((dsl.impl.Argument[A, 1] @uncheckedVariance,
   this: dsl.impl.Unchecked.AnnotatedFunction[A, R] =>
 
 object prop:
-  transparent inline def apply[T](using inline function: dsl.impl.Function[T])(inline f: function.Type): T =
+  transparent inline def apply[T](using function: dsl.impl.Function[T])(inline f: function.Type): T =
     ${ dsl.impl.Checked.check[T]('{f: Any}, recursive = false) }
-  transparent inline def rec[T](using inline function: dsl.impl.Function[T])(inline f: T => function.Type): T =
+  transparent inline def rec[T](using function: dsl.impl.Function[T])(inline f: T => function.Type): T =
     ${ dsl.impl.Checked.check[T]('{f: Any}, recursive = true) }

@@ -13,20 +13,20 @@ enum Equality:
 object Equality:
   inline def min(inline equality0: Equality, inline equality1: Equality) =
     def equality = equality1
-    (equality0: equality0.type @unchecked) match
+    equality0 match
       case Unequal => Unequal
       case Equal => equality
       case Indeterminate => if equality == Unequal then Unequal else Indeterminate
 
   inline def max(inline equality0: Equality, inline equality1: Equality) =
     def equality = equality1
-    (equality0: equality0.type @unchecked) match
+    equality0 match
       case Equal => Equal
       case Unequal => equality
       case Indeterminate => if equality == Equal then Equal else Indeterminate
 
   inline def neg(inline equality: Equality) =
-    (equality: equality.type @unchecked) match
+    equality match
       case Equal => Unequal
       case Unequal => Equal
       case Indeterminate => Indeterminate
