@@ -17,7 +17,10 @@ lazy val propelCrossProject = crossProject(JVMPlatform, NativePlatform)
   .in(file("."))
   .jvmConfigure(_.withId("propelJVM"))
   .nativeConfigure(_.withId("propelNative"))
+  .jvmSettings(
+    scalaVersion := "3.3.0-RC3")
   .nativeSettings(
+    scalaVersion := "3.2.2",
     Compile / mainClass := Some("propel.check"),
     Compile / nativeLink / artifactPath ~= { file => file.getParentFile / file.getName.replace("propelcrossproject-out", "propel") })
 
