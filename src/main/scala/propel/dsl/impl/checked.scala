@@ -24,7 +24,7 @@ object Checked:
     import quotes.reflect.*
 
     val Inlined(_, List(), Typed(fTerm, _)) = f.asTerm: @unchecked
-    val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](fTerm, Set.empty, mutable.Map.empty, recursive)
+    val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](fTerm, Symbol.spliceOwner, Set.empty, mutable.Map.empty, recursive)
     val externalProperties = external.toList flatMap auxiliaryProperties
 
     def reportErrors(expr: ast.Term) =
@@ -395,11 +395,11 @@ object Checked:
 
           case _ =>
             val (fun, args, props, propVars, make) = term match
-              case Apply(Select(fun, "apply"), List(Apply(tupleApply, args))) if fun.tpe <:< propertyFunction =>
+              case Apply(Select(fun, "apply"), args) if fun.tpe <:< propertyFunction =>
                 val (props, propVars) = fun.tpe.asType match
                   case '[ p := (a, b) =>: r ] =>
                     properties(TypeRepr.of[p])
-                (fun, args, props, propVars, (fun: Term, args: List[Term]) => Select.unique(fun, "apply").appliedTo(tupleApply.appliedToArgs(args)))
+                (fun, args, props, propVars, (fun: Term, args: List[Term]) => Select.unique(fun, "apply").appliedToArgs(args))
               case Apply(Select(fun, "apply"), args) if isFunctionType(fun.tpe.widenTermRefByName) =>
                 (fun, args, Set.empty, ListMap.empty, (fun: Term, args: List[Term]) => Select.unique(fun, "apply").appliedToArgs(args))
               case Apply(fun, args) =>
@@ -535,6 +535,7 @@ object Checked:
 
   def processPropDef[T: Type](using Quotes)(
       term: quotes.reflect.Term,
+      owner: quotes.reflect.Symbol,
       bound: Set[quotes.reflect.Symbol],
       externalTerms: mutable.Map[scala.Symbol, ast.Term],
       recursive: Boolean)
@@ -564,20 +565,20 @@ object Checked:
 
     term match
       case Inlined(call, List(), body) =>
-        val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](body, bound, externalTerms, recursive)
+        val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](body, owner, bound, externalTerms, recursive)
         (Inlined.copy(term)(call, List(), result), recursiveSymbol, expr, typeVars, propVars, external)
 
       case Block(List(), expr) =>
-        processPropDef[T](expr, bound, externalTerms, recursive)
+        processPropDef[T](expr, owner, bound, externalTerms, recursive)
 
       case Block(List(defDef @ DefDef(name, List(TermParamClause(params)), tpt, Some(rhs))), Closure(meth, _))
           if defDef.symbol == meth.symbol =>
         val paramSymbols = params map { _.symbol }
 
         def makeLambda[R: Type] =
-          val (lambdaBody, _, exprBody, typeVars, propVars, external) = processPropDef[R](rhs, bound ++ paramSymbols, externalTerms, recursive = false)
+          val (lambdaBody, _, exprBody, typeVars, propVars, external) = processPropDef[R](rhs, defDef.symbol, bound ++ paramSymbols, externalTerms, recursive = false)
           val lambda = Lambda(
-            defDef.symbol.owner,
+            owner,
             MethodType(params map { _.name })(_ => params map { _.tpt.tpe }, _ => TypeRepr.of[R]),
             (symbol, args) =>
               val paramTerms = args map { case arg: Term => arg }
@@ -589,7 +590,7 @@ object Checked:
           (lambda, expr, vars, propVars, external)
 
         if recursive then
-          val (result, _, expr, typeVars, propVars, external) = processPropDef[T](rhs, bound ++ paramSymbols, externalTerms, recursive = false)
+          val (result, _, expr, typeVars, propVars, external) = processPropDef[T](rhs, defDef.symbol, bound ++ paramSymbols, externalTerms, recursive = false)
           (result, Some(params.head.symbol), expr, typeVars, propVars, external)
         else
           functionType[T] match
@@ -601,12 +602,10 @@ object Checked:
               Type.of[T] match
                 case '[ p := (a, b) =>: r ] =>
                   val (lambda, lambdaExpr, typeVars, lambdaPropVars, external) = makeLambda[r]
-                  val result = '{
+                  val Inlined(_, List(), result) = '{
                     new Unchecked.AnnotatedFunction[Unchecked.PropertyAnnotation[Nothing, (a, b)], r]:
-                      val a: Unchecked.PropertyAnnotation[Nothing, (a, b)] { type Arguments = (a, b) } =
-                        new Unchecked.PropertyAnnotation[Nothing, (a, b)] { type Arguments = (a, b) }
-                      def apply(v: (a, b)): r = ${lambda.asExprOf[(a, b) => r]}(v._1, v._2)
-                  }.asTerm
+                      def apply(v1: a, v2: b): r = ${ Expr.betaReduce('{ ${lambda.asExprOf[(a, b) => r]}(v1, v2) }) }
+                  }.asTerm: @unchecked
                   val (props, propVars) = properties(TypeRepr.of[p])
                   val expr = (varProps: VarProps) =>
                     val additonalProps = (varProps.view filterKeys { propVars contains _ }).values.flatten
@@ -620,9 +619,37 @@ object Checked:
                   (result, None, expr, typeVars, propVars, external)
 
       case _ =>
-        maybeFail[T](term.pos, recursive)
-        val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
-        (result, None, expr, typeVars, propVars, external)
+        Type.of[T] match
+          case '[ Nothing ] =>
+            maybeFail[T](term.pos, recursive)
+            val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
+            (result, None, expr, typeVars, propVars, external)
+
+          case '[ p := (a, b) =>: r ] =>
+            val names = bound map { _.name }
+            val param0 = Naming.freshIdent("v", names)
+            val param1 = Naming.freshIdent("v", names + param0)
+            val etaExpandedTerm = Lambda(
+              owner,
+              MethodType(List(param0, param1))(_ => List(TypeRepr.of[a], TypeRepr.of[b]), _ => TypeRepr.of[r]),
+              (_, args) =>
+                val paramTerms = args map { case arg: Term => arg }
+                Select.unique(term, "apply").appliedToArgs(paramTerms))
+
+            val (result, _, expr, typeVars, propVars, external) = processPropDef[T](etaExpandedTerm, owner, bound, externalTerms, recursive = false)
+            result match
+              case Block(List(ClassDef(_, _, _, _, List(DefDef(_, _, _, Some(rhs))))), _) => rhs.changeOwner(owner).asExpr match
+                case '{ ($result: (p := (a, b) =>: r)).apply($a, $b) } =>
+                  (result.asTerm, None, expr, typeVars, propVars, external)
+                case _ =>
+                  (result, None, expr, typeVars, propVars, external)
+              case _ =>
+                (result, None, expr, typeVars, propVars, external)
+
+          case _ =>
+            maybeFail[T](term.pos, recursive)
+            val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
+            (result, None, expr, typeVars, propVars, external)
   end processPropDef
 
   def makeType(using Quotes)(tpe: quotes.reflect.TypeRepr, pos: quotes.reflect.Position) =

@@ -1,6 +1,8 @@
 package propel
 package dsl.scala
 
+import annotation.unchecked.uncheckedVariance
+
 
 sealed trait Property
 sealed trait Comm extends Property
@@ -20,12 +22,8 @@ trait :=[+P, -A <: (_, _)]:
   this: dsl.impl.Unchecked.PropertyAnnotation[P, A] =>
   type Arguments >: A
 
-trait =>:[+A <: _ := _, R]:
+trait =>:[+A <: _ := _, R] extends ((dsl.impl.Argument[A, 1] @uncheckedVariance, dsl.impl.Argument[A, 2] @uncheckedVariance) => R):
   this: dsl.impl.Unchecked.AnnotatedFunction[A, R] =>
-  val a: A
-  def apply(v: a.Arguments): R
-
-object =>: extends dsl.impl.Unchecked.FromFunction
 
 object prop:
   transparent inline def apply[T](using inline function: dsl.impl.Function[T])(inline f: function.Type): T =
