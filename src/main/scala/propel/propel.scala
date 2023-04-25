@@ -3,6 +3,8 @@ package propel
 import scala.io.Source
 import scala.util.Using
 import java.io.IOException
+import scala.scalajs.js.annotation._
+
 
 @main def check(arguments: String*) =
   def parsedArguments =
@@ -54,21 +56,24 @@ import java.io.IOException
       println("  -d, --print-deduction            print deduced properties")
       println("  -r, --print-reduction            print reduced expressions")
 
-    case (_, Some(content), deduction, reduction) =>
-      parser.deserialize(content).fold(
-        exception =>
-          println(s"Error: ${exception.getMessage}"),
+    case (_, Some(content), deduction, reduction) => parseAndCheckSourceCode(content, deduction, reduction)
 
-        expr =>
-          val term = evaluator.properties.check(expr, printDeductionDebugInfo = deduction, printReductionDebugInfo = reduction)
+@JSExportTopLevel("parseAndCheckSourceCode")
+def parseAndCheckSourceCode(code: String, deduction: Boolean, reduction: Boolean) =
+  parser.deserialize(code).fold(
+    exception =>
+      println(s"Error: ${exception.getMessage}"),
 
-          if deduction || reduction then
-            println()
+    expr =>
+      val term = evaluator.properties.check(expr, printDeductionDebugInfo = deduction, printReductionDebugInfo = reduction)
 
-          val errors = printing.showErrors(term)
-          if errors.isEmpty then
-            println("✔ Check successful.")
-          else
-            println(errors)
-            println("✘ Check failed.")
-      )
+      if deduction || reduction then
+        println()
+
+      val errors = printing.showErrors(term)
+      if errors.isEmpty then
+        println("✔ Check successful.")
+      else
+        println(errors)
+        println("✘ Check failed.")
+  )

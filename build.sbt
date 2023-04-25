@@ -12,24 +12,28 @@ ThisBuild / Test / logBuffered := false
 
 ThisBuild / Test / parallelExecution := false
 
-lazy val propelCrossProject = crossProject(JVMPlatform, NativePlatform)
+lazy val propelCrossProject = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("."))
+  .jsConfigure(_.withId("propelJS"))
   .jvmConfigure(_.withId("propelJVM"))
   .nativeConfigure(_.withId("propelNative"))
   .jvmSettings(
+    libraryDependencies += "org.scala-js" %% "scalajs-stubs" % "1.1.0" % "provided",
     scalaVersion := "3.3.0-RC3")
   .nativeSettings(
+    libraryDependencies += "org.scala-js" %% "scalajs-stubs" % "1.1.0" % "provided",
     scalaVersion := "3.2.2",
     Compile / mainClass := Some("propel.check"),
     Compile / nativeLink / artifactPath ~= { file => file.getParentFile / file.getName.replace("propelcrossproject-out", "propel") })
 
+lazy val propelJS = propelCrossProject.js
 lazy val propelJVM = propelCrossProject.jvm
 lazy val propelNative = propelCrossProject.native
 
 lazy val propel = project
   .in(file("."))
-  .aggregate(propelJVM, propelNative)
+  .aggregate(propelJS, propelJVM, propelNative)
   .settings(
     compile / skip := true,
     compile / aggregate := false,
