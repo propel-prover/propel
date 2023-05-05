@@ -14,7 +14,8 @@ def deserialize(string: String): Try[Term] =
       atom.identifier match
         case "True" | "False" |
              "fun" | "forall" | "rec" |
-             "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
+             "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" |
+             "def" | "type" =>
           throw ParserException(s"Invalid identifier: ${atom.identifier}")
         case _ =>
     Symbol(atom.identifier)
@@ -193,12 +194,36 @@ def deserialize(string: String): Try[Term] =
               App(props, term, deserializeTerm(arg))
           }
 
-  SExpr.deserialize(string) flatMap {
-    case List(expr) =>
-      try Success(deserializeTerm(expr))
-      catch case e: ParserException => Failure(e)
-    case List() => Failure(ParserException("Input empty"))
-    case _ => Failure(ParserException("Input not a single expression"))
+  SExpr.deserialize(string) map { exprs =>
+    if exprs.isEmpty then
+      throw ParserException("Input empty")
+
+    val (term, _) = exprs.foldRight[(Term, Boolean)](Data(Constructor(Symbol("Unit")), List.empty) -> true) {
+      case (Expr(Atom("type", Quote.None) :: exprs, Bracket.Paren), term -> _) =>
+        exprs match
+          case List(Atom(arg, _), tpe) =>
+            lettype(arg -> deserializeType(tpe))(term) -> false
+          case _ =>
+            throw ParserException("Invalid type definition")
+      case (Expr(Atom("def", Quote.None) :: exprs, Bracket.Paren), term -> _) =>
+        exprs match
+          case List(Atom(arg, _), expr) =>
+            let(arg -> deserializeTerm(expr))(term) -> false
+          case List(Atom(arg, _), tpe, expr) =>
+            letrec(arg -> deserializeType(tpe) -> deserializeTerm(expr))(term) -> false
+          case _ =>
+            throw ParserException("Invalid term definition")
+      case (expr, term -> last) =>
+        if last then
+          deserializeTerm(expr) -> false
+        else
+          val intermediateTerm = deserializeTerm(expr)
+          val free = (intermediateTerm.syntacticInfo.freeVars map { (ident, _) => ident.name }).toSet
+          val wildcardName = Naming.freshIdent("_", free)
+          let(wildcardName -> intermediateTerm)(term) -> false
+    }
+
+    term
   }
 end deserialize
 
@@ -206,7 +231,8 @@ def serialize(term: Term): String =
   def makeIdentifier(ident: Symbol, noUpperCase: Boolean) = ident.name match
     case "True" | "False" |
          "fun" | "forall" | "rec" |
-         "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
+         "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" |
+         "def" | "type" =>
       Atom(ident.name, Quote.Double)
     case name =>
       if noUpperCase && (name.headOption exists { _.isUpper }) || SExpr.requiresQuotes(name) then
