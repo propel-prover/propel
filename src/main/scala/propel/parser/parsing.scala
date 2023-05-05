@@ -14,7 +14,7 @@ def deserialize(string: String): Try[Term] =
       atom.identifier match
         case "True" | "False" |
              "fun" | "forall" | "rec" |
-             "lambda" | "let" | "letrec" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
+             "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
           throw ParserException(s"Invalid identifier: ${atom.identifier}")
         case _ =>
     Symbol(atom.identifier)
@@ -122,6 +122,14 @@ def deserialize(string: String): Try[Term] =
       exprs match
         case List(expr @ Atom(_, _), tpe, bound, body) => letrec(List(Expr(List(expr, tpe, bound), Bracket.Paren)))(deserializeTerm(body))
         case _ => letrec(exprs.init)(deserializeTerm(exprs.last))
+    case Expr(Atom("lettype", Quote.None) :: exprs, Bracket.Paren) =>
+      if exprs.sizeIs < 2 then
+        throw ParserException("Invalid lettype definition")
+      val types = exprs.init map {
+        case Expr(List(Atom(arg, _), tpe), Bracket.Paren) => arg -> deserializeType(tpe)
+        case _ => throw ParserException("Invalid lettype definition")
+      }
+      lettype(types.head, types.tail*)(deserializeTerm(exprs.last))
     case Expr(Atom("if", Quote.None) :: exprs, Bracket.Paren) =>
       exprs match
         case List(condExpr, thenExpr, elseExpr) => `if`(deserializeTerm(condExpr))(deserializeTerm(thenExpr))(deserializeTerm(elseExpr))
@@ -198,7 +206,7 @@ def serialize(term: Term): String =
   def makeIdentifier(ident: Symbol, noUpperCase: Boolean) = ident.name match
     case "True" | "False" |
          "fun" | "forall" | "rec" |
-         "lambda" | "let" | "letrec" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
+         "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" =>
       Atom(ident.name, Quote.Double)
     case name =>
       if noUpperCase && (name.headOption exists { _.isUpper }) || SExpr.requiresQuotes(name) then

@@ -92,6 +92,17 @@ def letrec[A: BindingExpr, B: TermExpr](binding: A)(expr: B): Term =
   val fun = abs(recName -> tp(dt("Unit") -> tpe), wildcardName -> dt("Unit"))(subst(Data(tuple, exprs), substs))
   let(pattern -> app()(tpapp(fix)(dt("Unit"), tpe), fun, "Unit"))(expr.make)
 
+def lettype[A: TermExpr](ident: (String, Type), idents: (String, Type)*)(expr: A): Term =
+  val substs = (ident +: idents map { (name, tpe) =>
+    val ident = Symbol(name)
+    val (_, info) = tpe.withIntrinsicInfo(Syntactic.Type)
+    if info.freeTypeVars contains ident then
+      ident -> Recursive(ident, tpe)
+    else
+      ident -> tpe
+  }).toMap
+  subst(expr.make, substs)
+
 def cases[A: TermExpr, B: CaseExpr](scrutinee: A)(cases: B): Term =
   Cases(scrutinee.make, cases.make)
 
