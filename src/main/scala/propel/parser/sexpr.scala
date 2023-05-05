@@ -108,6 +108,9 @@ object SExpr:
       builder.result()
     end deserializeIdentifier
 
+    def skipLineComment(): Unit =
+      while hasNext && peak() != '\n' && peak() != '\r' do next()
+
     def deserializeExpressions(closing: Char): List[SExpr] =
       var closed = false
       var expressions = List.empty[SExpr]
@@ -127,6 +130,8 @@ object SExpr:
           case '}' =>
             if closing != '}' then throw ParserException(s"Unmatched {...}: $excerpt")
             closed = true
+
+          case ';' => skipLineComment()
 
           case '\"' => expressions ::= Atom(deserializeIdentifier('\"'), Quote.Double)
           case '\'' => expressions ::= Atom(deserializeIdentifier('\''), Quote.Single)
