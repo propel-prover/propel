@@ -46,9 +46,10 @@ object reflexivity
            canApply(ensureDecreasing, equalities, Reflexive)(expr)(varA, arg0, varA, arg1) =>
       Data(Constructor.True, List())
 
-  def deriveSimple(equalities: Equalities) =
+  def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(_, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
-        if properties.contains(Reflexive) =>
+        if properties.contains(Reflexive) &&
+           canApply(ensureDecreasing, equalities, Reflexive)(expr)(varA, arg0, varA, arg1) =>
       Equalities.neg(List(List(arg0 -> arg1))).toList
 end reflexivity
 
@@ -66,9 +67,10 @@ object irreflexivity
            canApply(ensureDecreasing, equalities, Irreflexive)(expr)(varA, arg0, varA, arg1) =>
       Data(Constructor.False, List())
 
-  def deriveSimple(equalities: Equalities) =
+  def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(_, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
-        if properties.contains(Irreflexive) =>
+        if properties.contains(Irreflexive) &&
+           canApply(ensureDecreasing, equalities, Irreflexive)(expr)(varA, arg0, varA, arg1) =>
       Equalities.neg(List(List(arg0 -> arg1))).toList
 end irreflexivity
 
@@ -81,19 +83,22 @@ object antisymmetry
     val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
     implies(ab, not(ba)) -> Equalities.neg(List(List(varA -> varB))).get
 
-  def deriveCompound(equalities: Equalities) =
+  def deriveCompound(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case (App(_, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
           App(_, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
         if properties0.contains(Antisymmetric) &&
            properties1.contains(Antisymmetric) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
            equalities.equal(arg0a, arg1b) == Equality.Equal &&
-           equalities.equal(arg0b, arg1a) == Equality.Equal =>
+           equalities.equal(arg0b, arg1a) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Antisymmetric)(expr0)(varA, arg0a, varB, arg0b) &&
+           canApply(ensureDecreasing, equalities, Antisymmetric)(expr1)(varB, arg1a, varA, arg1b) =>
       Equalities.pos(List(arg0a -> arg0b)).toList
 
-  def deriveSimple(equalities: Equalities) =
+  def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
-        if properties.contains(Antisymmetric) =>
+        if properties.contains(Antisymmetric) &&
+           canApply(ensureDecreasing, equalities, Antisymmetric)(expr)(varA, arg0, varB, arg1) =>
       Equalities.pos(List(arg0 -> arg1)).toList ++
       Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())), List(List(arg0 -> arg1))).toList
 end antisymmetry
@@ -107,12 +112,14 @@ object symmetry
     val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
     implies(ab, ba) -> Equalities.empty
 
-  def deriveSimple(equalities: Equalities) =
+  def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
-        if properties.contains(Symmetric) =>
+        if properties.contains(Symmetric) &&
+           canApply(ensureDecreasing, equalities, Symmetric)(expr)(varA, arg0, varB, arg1) =>
       Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.True, List()))).toList
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
-        if properties.contains(Symmetric) =>
+        if properties.contains(Symmetric) &&
+           canApply(ensureDecreasing, equalities, Symmetric)(expr)(varA, arg0, varB, arg1) =>
       Equalities.pos(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List()))).toList
 end symmetry
 
@@ -125,19 +132,22 @@ object connectivity
     val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
     or(ab, ba) -> Equalities.neg(List(List(varA -> varB))).get
 
-  def deriveCompound(equalities: Equalities) =
+  def deriveCompound(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case (App(_, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.False, List()),
           App(_, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.False, List()))
         if properties0.contains(Connected) &&
            properties1.contains(Connected) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
            equalities.equal(arg0a, arg1b) == Equality.Equal &&
-           equalities.equal(arg0b, arg1a) == Equality.Equal =>
+           equalities.equal(arg0b, arg1a) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Connected)(expr0)(varB, arg0a, varA, arg0b) &&
+           canApply(ensureDecreasing, equalities, Connected)(expr1)(varA, arg1a, varB, arg1b) =>
       Equalities.pos(List(arg0a -> arg0b)).toList
 
-  def deriveSimple(equalities: Equalities) =
+  def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.False, List())
-        if properties.contains(Connected) =>
+        if properties.contains(Connected) &&
+           canApply(ensureDecreasing, equalities, Connected)(expr)(varA, arg0, varB, arg1) =>
       Equalities.pos(List(arg0 -> arg1)).toList ++
       Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.True, List())), List(List(arg0 -> arg1))).toList
 end connectivity
@@ -152,20 +162,24 @@ object transitivity
     val ac = subst(expr, Map(ident0 -> varA, ident1 -> varC))
     implies(and(ab, bc), ac) -> Equalities.empty
 
-  def deriveCompound(equalities: Equalities) =
+  def deriveCompound(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case (App(props0, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
           App(props1, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
         if properties0.contains(Transitive) &&
            properties1.contains(Transitive) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
-           equalities.equal(arg0b, arg1a) == Equality.Equal =>
+           equalities.equal(arg0b, arg1a) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Transitive)(expr0)(varA, arg0a, varB, arg0b) &&
+           canApply(ensureDecreasing, equalities, Transitive)(expr1)(varB, arg1a, varC, arg1b) =>
       Equalities.pos(List(App(props0, App(properties0, expr0, arg0a), arg1b) -> Data(Constructor.True, List()))).toList
     case (App(props0, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
           App(props1, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
         if properties0.contains(Transitive) &&
            properties1.contains(Transitive) &&
            equalities.equal(expr0, expr1) == Equality.Equal &&
-           equalities.equal(arg1b, arg0a) == Equality.Equal =>
+           equalities.equal(arg1b, arg0a) == Equality.Equal &&
+           canApply(ensureDecreasing, equalities, Transitive)(expr0)(varB, arg0a, varC, arg0b) &&
+           canApply(ensureDecreasing, equalities, Transitive)(expr1)(varA, arg1a, varB, arg1b) =>
       Equalities.pos(List(App(props0, App(properties0, expr0, arg1a), arg0b) -> Data(Constructor.True, List()))).toList
 end transitivity
 
@@ -276,12 +290,14 @@ object selectivity
     extends PropertyChecking with PropertyChecking.FunctionSelectionResult
     with PropertyChecking.Selecting:
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
-    Data(resultDataConstructor, List(expr)) -> Equalities.empty
+    Data(resultDataConstructor, List(subst(expr, Map(ident0 -> varA, ident1 -> varB)))) ->
+      Equalities.pos(List(Var(ident0) -> varA, Var(ident1) -> varB)).get
 
-  def select(equalities: Equalities) =
-    case expr @ App(_, App(properties, _, arg0), arg1)
-        if properties.contains(Selection) =>
-    (Equalities.pos(List(expr -> arg0, arg0 -> arg1)).toList map { arg0 -> _ }) ++
-    (Equalities.make(List(expr -> arg0), List(List(arg0 -> arg1))).toList map { arg0 -> _ }) ++
-    (Equalities.make(List(expr -> arg1), List(List(arg0 -> arg1))).toList map { arg1 -> _ })
+  def select(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
+    case term @ App(_, App(properties, expr, arg0), arg1)
+        if properties.contains(Selection) &&
+           canApply(ensureDecreasing, equalities, Selection)(expr)(varA, arg0, varB, arg1) =>
+    (Equalities.pos(List(term -> arg0, arg0 -> arg1)).toList map { arg0 -> _ }) ++
+    (Equalities.make(List(term -> arg0), List(List(arg0 -> arg1))).toList map { arg0 -> _ }) ++
+    (Equalities.make(List(term -> arg1), List(List(arg0 -> arg1))).toList map { arg1 -> _ })
 end selectivity

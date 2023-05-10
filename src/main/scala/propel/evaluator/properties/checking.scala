@@ -260,7 +260,9 @@ def check(
 
       val abstractions = abstractionAccess(env, dependencies)
 
-      val (abstraction, call) = (term.info(Abstraction)
+      val termAbstraction = term.info(Abstraction)
+
+      val (abstraction, call) = (termAbstraction
         flatMap { abstractions.get(_) map { (expr, base, _) => Some(base) -> Some(expr) } }
         getOrElse (None, None))
 
@@ -268,7 +270,7 @@ def check(
 
       val names = env.keys map { _.name }
 
-      val name = term.info(Abstraction) flatMap abstractionNames.get
+      val name = termAbstraction flatMap abstractionNames.get
 
       val fundamentalAbstractions = (abstractions collect { case abstraction -> (_, _, true) => abstraction }).toSet
 
@@ -429,10 +431,10 @@ def check(
                   (normalizing map { _(PropertyChecking.withNonDecreasing) }),
                   abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
-                evaluator.properties.select(selecting, _, _),
+                evaluator.properties.select(selecting map { _(PropertyChecking.withNonDecreasing) }, _, _),
                 evaluator.properties.derive(
-                  derivingCompound,
-                  deriveTypeContradiction :: derivingSimple, _),
+                  derivingCompound map { _(PropertyChecking.withNonDecreasing) },
+                  deriveTypeContradiction :: (derivingSimple map { _(PropertyChecking.withNonDecreasing) }), _),
                 checking.control)
 
               val result = Symbolic.eval(converted, equalities, config)
@@ -579,7 +581,7 @@ def check(
             else if checking.propertyType == PropertyType.Function && !hasFunctionPropertyShape then
               Some(illformedFunctionTypeError(property, term.termType))
             else
-              val checkingProperties = term.info(Abstraction).fold(additionalProperties) { abstraction =>
+              val checkingProperties = termAbstraction.fold(additionalProperties) { abstraction =>
                 additionalProperties.updatedWith(abstraction) { properties => Some(properties.toSet.flatten + property) }
               }
 
@@ -594,15 +596,18 @@ def check(
 
               val addingProperties = checkedProperties + property
 
+              def ensureDecreasing[T](processing: ((Property, Term) => Option[DecreasingArguments]) => T) =
+                termAbstraction.fold(processing(PropertyChecking.withNonDecreasing)) { abstraction =>
+                  processing { (prop, expr) =>
+                    Option.when((expr.info(Abstraction) contains abstraction) && prop == property)(decreasingArguments)
+                  }
+                }
+
               def addPropertiesAndEnsureDecreasingArgs(
                 normalizing: ((Property, Term) => Option[DecreasingArguments]) => Equalities => PartialFunction[Term, Term])
               : Equalities => PartialFunction[Term, Term] =
-                term.info(Abstraction).fold(normalizing(PropertyChecking.withNonDecreasing)) { abstraction => equalities =>
-                  val normalizingEnsureDecreasing = normalizing { (prop, expr) =>
-                    Option.when((expr.info(Abstraction) contains abstraction) && prop == property)(decreasingArguments)
-                  }
-
-                  val normalize = normalizingEnsureDecreasing(equalities)
+                termAbstraction.fold(normalizing(PropertyChecking.withNonDecreasing)) { abstraction => equalities =>
+                  val normalize = ensureDecreasing(normalizing)(equalities)
 
                   inline def addProperties(app: App) =
                     if app.expr.info(Abstraction) contains abstraction then
@@ -625,10 +630,10 @@ def check(
                   normalize.flatten ++ collectedNormalize ++ (normalizing map addPropertiesAndEnsureDecreasingArgs),
                   abstraction.fold((_: Var) => false) { abstraction => _.info(Abstraction) contains abstraction },
                   fundamentalAbstractions.contains, _, _),
-                evaluator.properties.select(selecting, _, _),
+                evaluator.properties.select(selecting map ensureDecreasing, _, _),
                 evaluator.properties.derive(
-                  derivingCompound,
-                  deriveTypeContradiction :: derivingSimple, _),
+                  derivingCompound map ensureDecreasing,
+                  deriveTypeContradiction :: (derivingSimple map ensureDecreasing), _),
                 checking.control)
 
               val result = Symbolic.eval(converted, equalities, config)

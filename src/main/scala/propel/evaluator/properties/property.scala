@@ -159,14 +159,14 @@ object PropertyChecking:
       Either.cond(!disproved, unproven, unproven)
 
   trait Simple extends PropertyChecking:
-    def deriveSimple(equalities: Equalities): PartialFunction[(Term, Term), List[Equalities]]
+    def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities): PartialFunction[(Term, Term), List[Equalities]]
 
   trait Compound extends PropertyChecking:
-    def deriveCompound(equalities: Equalities): PartialFunction[((Term, Term), (Term, Term)), List[Equalities]]
+    def deriveCompound(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities): PartialFunction[((Term, Term), (Term, Term)), List[Equalities]]
 
   trait Normal extends PropertyChecking:
     def normalize(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities): PartialFunction[Term, Term]
 
   trait Selecting extends PropertyChecking:
-    def select(equalities: Equalities): PartialFunction[Term, List[(Term, Equalities)]]
+    def select(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities): PartialFunction[Term, List[(Term, Equalities)]]
 end PropertyChecking
