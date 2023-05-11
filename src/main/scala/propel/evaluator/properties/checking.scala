@@ -311,13 +311,23 @@ def check(
             else
               List.empty
 
+          val evaluationResultOnlyMatchingIdents = Symbolic.eval(
+            UniqueNames.convert(expr, names),
+            Symbolic.Configuration(control = { (expr, equalities, nested) =>
+              expr match
+                case Cases(scrutinee, _) if scrutinee.syntacticInfo.freeVars exists { (variable, _) => !(idents contains variable) } =>
+                  (expr, Equalities.empty, Symbolic.Control.Stop)
+                case _=>
+                  (expr, Equalities.empty, Symbolic.Control.Continue)
+            }))
+
           val basicFacts = Conjecture.basicFacts(
             abstractionProperties.get,
             env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
             updatedTerm,
             call filter { _.info(Abstraction) exists { abstraction contains _ } },
             idents,
-            evaluationResult)
+            evaluationResultOnlyMatchingIdents)
 
           basicFacts -> generalizedConjectures
         }).unzip
