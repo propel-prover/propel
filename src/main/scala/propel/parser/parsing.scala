@@ -126,10 +126,12 @@ def deserialize(string: String): Try[Term] =
     case Expr(Atom("lettype", Quote.None) :: exprs, Bracket.Paren) =>
       if exprs.sizeIs < 2 then
         throw ParserException("Invalid lettype definition")
-      val types = exprs.init map {
-        case Expr(List(Atom(arg, _), tpe), Bracket.Paren) => arg -> deserializeType(tpe)
-        case _ => throw ParserException("Invalid lettype definition")
-      }
+      val types = exprs match
+        case List(Atom(arg, _), tpe, _) => List(arg -> deserializeType(tpe))
+        case _ => exprs.init map {
+          case Expr(List(Atom(arg, _), tpe), Bracket.Paren | Bracket.Square) => arg -> deserializeType(tpe)
+          case _ => throw ParserException("Invalid lettype definition")
+        }
       lettype(types.head, types.tail*)(deserializeTerm(exprs.last))
     case Expr(Atom("if", Quote.None) :: exprs, Bracket.Paren) =>
       exprs match
@@ -160,20 +162,18 @@ def deserialize(string: String): Try[Term] =
         case _ => throw ParserException("Invalid pattern match")
       }
       Cases(scrutinee, cases)
-    case Expr(Atom("lambda", Quote.None) :: expr, Bracket.Paren) =>
-      val (properties, exprs) = expr match
-        case Expr(properties, Bracket.Square) :: exprs => (deserializeProperties(properties), exprs)
-        case exprs => (Set.empty, exprs)
-      if exprs.sizeIs < 2 then
-        throw ParserException("Invalid lambda definition")
-      val abs = exprs.init.foldRight(deserializeTerm(exprs.last)) {
-        case (Expr(List(Atom(arg, _), tpe), Bracket.Paren), expr) => Abs(Set.empty, Symbol(arg), deserializeType(tpe), expr)
-        case (Atom(arg, _), expr) => TypeAbs(Symbol(arg), expr)
-        case _ => throw ParserException("Invalid lambda definition")
+    case Expr(Atom("lambda", Quote.None) :: exprs, Bracket.Paren) =>
+      val body = deserializeTerm(exprs.last)
+      exprs.init.foldRight(body) {
+        case (Expr(properties, Bracket.Square), expr @ Abs(_, _, _, _)) if expr ne body =>
+          Abs(deserializeProperties(properties), expr.ident, expr.tpe, expr.expr)
+        case (Expr(List(Atom(arg, _), tpe), Bracket.Paren), expr) =>
+          Abs(Set.empty, Symbol(arg), deserializeType(tpe), expr)
+        case (Atom(arg, _), expr) =>
+          TypeAbs(Symbol(arg), expr)
+        case _ =>
+          throw ParserException("Invalid lambda definition")
       }
-      abs match
-        case Abs(_, ident, tpe, expr) => Abs(properties, ident, tpe, expr)
-        case _ => abs
     case Expr(expr, Bracket.Paren) =>
       val (properties, exprs) = expr match
         case Expr(properties, Bracket.Square) :: exprs => (deserializeProperties(properties), exprs)
