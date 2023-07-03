@@ -179,7 +179,6 @@ object Conjecture:
                 (lhs :: patterns) -> (normalization match {
                   case Some(normalization)
                       if (patterns forall { Unification.refutable(normalization.checking.pattern, _) }) &&
-                         (variableArgs exists { _ != _ }) &&
                          (normalization.free forall isAbstraction) =>
                     normalization :: normalizations
                   case _ =>
