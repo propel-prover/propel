@@ -6,6 +6,8 @@ import ast.*
 import typer.*
 import scala.collection.mutable
 
+var debugMaxKeepRewriteNumberBits = 8
+
 def select(
     selecting: List[Equalities => PartialFunction[Term, List[(Term, Equalities)]]],
     expr: Term,
@@ -98,7 +100,7 @@ def normalize(
 
   def process(term: Term): Set[Term] =
     val maxSize = term.size * 11 / 10 + 8
-    val maxBit = 8
+    val maxBit = debugMaxKeepRewriteNumberBits
     val max = 1 << maxBit
 
     val processed = normalizeAbstraction(term) match
