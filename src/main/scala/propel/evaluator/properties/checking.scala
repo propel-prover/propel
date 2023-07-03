@@ -43,6 +43,10 @@ def check(
     s"Property Deduction Error\n\nUnable to prove ${property.show} property.")
   def propertyDisprovenError(property: Property) = Error(
     s"Property Deduction Error\n\nDisproved ${property.show} property.")
+  def customPropertyDeductionError(property: Normalization) = Error(
+    s"Property Deduction Error\n\nUnable to prove property: ${property.show}")
+  def customPropertyDisprovenError(property: Normalization) = Error(
+    s"Property Deduction Error\n\nDisproved property: ${property.show}")
 
   def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
     case Some(tpe) =>
@@ -396,14 +400,16 @@ def check(
           conjectures map { conjecture => println(indent(4, conjecture.show)) }
 
       def proveConjectures(
+          customProperty: Boolean,
           conjectures: List[Normalization],
           provenConjectures: List[Normalization] = List.empty,
-          normalizeConjectures: List[Option[Equalities => PartialFunction[Term, Term]]] = List.empty)
-      : (List[Normalization], List[Option[Equalities => PartialFunction[Term, Term]]]) =
+          normalizeConjectures: List[Option[Equalities => PartialFunction[Term, Term]]] = List.empty,
+          customPropertyErrors: List[Error] = List.empty)
+      : (List[Normalization], List[Option[Equalities => PartialFunction[Term, Term]]], List[Error]) =
 
-        val init = (List.empty[Normalization], List.empty[(Normalization, Option[Equalities => PartialFunction[Term, Term]])])
+        val init = (List.empty[Normalization], List.empty[(Normalization, Option[Equalities => PartialFunction[Term, Term]])], customPropertyErrors)
 
-        val (remaining, additional) = conjectures.foldLeft(init) { case (processed @ (remaining, proven), conjecture) =>
+        val (remaining, additional, errors) = conjectures.foldLeft(init) { case (processed @ (remaining, proven, errors), conjecture) =>
           if !Normalization.specializationForSameAbstraction(conjecture, proven map { case proven -> _ => proven }) then
             def makeNormalization(conjecture: Normalization, decreasingArguments: Option[DecreasingArguments]) =
               conjecture.checking(
@@ -438,9 +444,15 @@ def check(
               val (expr, equalities) = checking.prepare(ident0, ident1, assignPropertiesToCalls(expr1, additionalProperties, Map.empty))
               val converted = UniqueNames.convert(expr, names)
 
-              if printReductionDebugInfo then
+              if !customProperty && printReductionDebugInfo then
                 println()
                 println(indent(2, s"Checking conjecture: ${conjecture.show}"))
+                println()
+                println(indent(4, converted.wrapped.show))
+
+              if customProperty && (printReductionDebugInfo || printDeductionDebugInfo) then
+                println()
+                println(indent(2, s"Checking property: ${conjecture.show}"))
                 println()
                 println(indent(4, converted.wrapped.show))
 
@@ -467,18 +479,21 @@ def check(
               val disproved = check.isLeft
 
               if printReductionDebugInfo then
+                val kind = if customProperty then "property" else "conjecture"
                 println()
-                println(indent(2, "Evaluation result for conjecture check:"))
+                println(indent(2, s"Evaluation result for $kind check:"))
                 if !proved then
                   println(indent(2, "(some cases may not be fully reduced)"))
                 println()
                 println(indent(4, result.wrapped.show))
                 if !proved then
                   println()
-                  println(indent(2, "Offending cases for conjecture check:"))
+                  println(indent(2, s"Offending cases for $kind check:"))
                   println(indent(2, "(some cases may not be fully reduced)"))
                   println()
                   println(indent(4, check.merge.show))
+
+              if !customProperty && printReductionDebugInfo then
                 println()
                 if proved then
                   println(indent(4, "✔ Conjecture proven".toUpperCase.nn))
@@ -486,6 +501,15 @@ def check(
                   println(indent(4, "  Conjecture disproved".toUpperCase.nn))
                 else
                   println(indent(4, "✘ Conjecture could not be proved".toUpperCase.nn))
+
+              if customProperty && (printReductionDebugInfo || printDeductionDebugInfo) then
+                println()
+                if proved then
+                  println(indent(4, "✔ Property proven".toUpperCase.nn))
+                else if disproved then
+                  println(indent(4, "✘ Property disproved".toUpperCase.nn))
+                else
+                  println(indent(4, "✘ Property could not be proved".toUpperCase.nn))
 
               (proved, disproved)
             end checkConjecture
@@ -503,14 +527,16 @@ def check(
                 case Some(reverseConjecture) =>
                   (remaining,
                     (conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })) ::
-                    (reverseConjecture -> (reverseNormalization map { _.normalize(PropertyChecking.withNonDecreasing) })) :: proven)
+                    (reverseConjecture -> (reverseNormalization map { _.normalize(PropertyChecking.withNonDecreasing) })) :: proven,
+                    errors)
                 case _ =>
                   (remaining,
-                    (conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })) :: proven)
+                    (conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })) :: proven,
+                    errors)
             else if disproved then
-              (remaining, proven)
+              (remaining, proven, customPropertyDisprovenError(conjecture) :: errors)
             else
-              (conjecture :: remaining, proven)
+              (conjecture :: remaining, proven, customPropertyDeductionError(conjecture) :: errors)
           else
             processed
         }
@@ -518,9 +544,9 @@ def check(
         val (proven, normalize) = additional.unzip
 
         if remaining.isEmpty || additional.isEmpty then
-          (provenConjectures ++ proven, normalizeConjectures ++ normalize)
+          (provenConjectures ++ proven, normalizeConjectures ++ normalize, errors)
         else
-          proveConjectures(remaining, provenConjectures ++ proven, normalizeConjectures ++ normalize)
+          proveConjectures(customProperty, remaining, provenConjectures ++ proven, normalizeConjectures ++ normalize, errors)
       end proveConjectures
 
       val (uncheckedConjectures, uncheckedNormalizeConjecture) =
@@ -537,7 +563,8 @@ def check(
           conjecture -> (normalization map { _.normalize(PropertyChecking.withNonDecreasing) })
         }).unzip
 
-      val (provenConjectures, normalizeConjectures) = proveConjectures(
+      val (provenConjectures, normalizeConjectures, _) = proveConjectures(
+        customProperty = false,
         conjectures sortWith { !Normalization.specializationForSameAbstraction(_, _) },
         uncheckedConjectures,
         uncheckedNormalizeConjecture)
@@ -594,7 +621,7 @@ def check(
 
       var checkedProperties = Set.empty[Property]
 
-      val error = checkingProperties collectFirstDefined { property =>
+      val propertyError = checkingProperties collectFirstDefined { property =>
         propertiesChecking get property match
           case None =>
             Some(unknownPropertyError(property))
@@ -698,6 +725,30 @@ def check(
                 None
       }
 
+      val error = propertyError orElse {
+        term.info(CustomProperties) flatMap { properties =>
+          val normalizations = properties.normalizations map { normalization =>
+            Normalization(
+              assignPropertiesToCalls(normalization.pattern, Map.empty, Map(normalization.abstraction -> checkedProperties)),
+              assignPropertiesToCalls(normalization.result, Map.empty, Map(normalization.abstraction -> checkedProperties)),
+              normalization.abstraction,
+              normalization.variables,
+              normalization.reversible)
+          }
+
+          val (provenProperties, _, errors) = proveConjectures(
+            customProperty = true,
+            normalizations,
+            uncheckedConjectures ++ provenConjectures,
+            uncheckedNormalizeConjecture ++ normalizeConjectures)
+
+          if errors.isEmpty then
+            addCollectedNormalizations(env, abstraction orElse termAbstraction, normalizations)
+
+          errors.headOption
+        }
+      }
+
       val checkedNormalizations =
         provenProperties map { case Normalization(pattern, result, abstraction, variables, reversible) =>
           Normalization(
@@ -708,7 +759,7 @@ def check(
             reversible)
         }
 
-      addCollectedNormalizations(env, abstraction, checkedNormalizations)
+      addCollectedNormalizations(env, abstraction orElse termAbstraction, checkedNormalizations)
 
       error match
         case Some(error) =>
@@ -778,7 +829,7 @@ def check(
           println()
           uncheckedConjectures foreach { property => println(indent(4, property.show)) }
 
-        addCollectedNormalizations(env, abstraction, facts ++ uncheckedConjectures)
+        addCollectedNormalizations(env, abstraction orElse termAbstraction, facts ++ uncheckedConjectures)
 
         val arg = typedArgVar(ident, term.termType)
         val resultExpr = Abs(term)(properties, ident, tpe, check(expr, env + (ident -> arg), dependencies :+ arg)).typedTerm
