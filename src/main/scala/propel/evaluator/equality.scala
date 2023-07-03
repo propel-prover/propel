@@ -252,15 +252,19 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   end propagatePos
 
   private def propagateNeg: Equalities =
-    val propagatedList = neg map {
-      _.toList flatMap { (expr0, expr1) =>
-        propagateAll(pos, expr0) flatMap { expr0 =>
-          propagateAll(pos, expr1) map { expr1 =>
-            if expr1 < expr0 then expr1 -> expr0 else expr0 -> expr1
+    val propagatedList =
+      if Equalities.debugIgnorePosNegContradiction then
+        neg
+      else
+        neg map {
+          _.toList flatMap { (expr0, expr1) =>
+            propagateAll(pos, expr0) flatMap { expr0 =>
+              propagateAll(pos, expr1) map { expr1 =>
+                if expr1 < expr0 then expr1 -> expr0 else expr0 -> expr1
+              }
+            }
           }
         }
-      }
-    }
 
     if (propagatedList map { _.toMap }) != neg then
       val propagatedNeg = propagatedList flatMap { neg => normalize(Map.empty, neg.iterator) }
@@ -314,7 +318,9 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
         None
 
     val (syntacticExpr, syntacticInfo) = expr.syntactic
-    propagate(syntacticExpr, Set.empty, syntacticInfo.boundVars map { _.name }) map UniformNames.convert
+    propagate(syntacticExpr, Set.empty, syntacticInfo.boundVars map { _.name }) map UniformNames.convert orElse {
+      Option.when(Equalities.debugIgnoreCyclicContradiction)(expr)
+    }
   end propagateAll
 
   private def propagateSingleLevelVariations(pos: Map[Term, Term], expr: Term): List[Term] =
@@ -364,8 +370,16 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
   private def consolidateNeg: Option[Equalities] =
     val checkNeg = Equalities(Map.empty, Set.empty)
-    Option.when((pos forall { checkNeg.equal(_, _) != Equality.Unequal }) && (neg forall { _.nonEmpty })) {
-      Equalities(pos, neg filter { _ forall { checkNeg.equal(_, _) != Equality.Unequal } })
+    val posConsistent = Equalities.debugIgnorePosContradiction || (pos forall { checkNeg.equal(_, _) != Equality.Unequal })
+    val negConsistent = Equalities.debugIgnoreNegContradiction || Equalities.debugIgnorePosNegContradiction || (neg forall { _.nonEmpty })
+    Option.when(posConsistent && negConsistent) {
+      val negClean = neg filter { _ forall { checkNeg.equal(_, _) != Equality.Unequal } }
+      val negCleanDebug =
+        if Equalities.debugIgnoreNegContradiction || Equalities.debugIgnorePosNegContradiction then
+          negClean filter { _.nonEmpty }
+        else
+          negClean
+      Equalities(pos, negCleanDebug)
     }
 
   private def homogenize(equalities: Iterator[(Term, Term)]) =
@@ -411,6 +425,15 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 end Equalities
 
 object Equalities:
+  var debugDisableEqualities = false
+  var debugDisableInequalities = false
+  var debugIgnorePosContradiction = false
+  var debugIgnoreNegContradiction = false
+  var debugIgnorePosNegContradiction = false
+  var debugIgnoreCyclicContradiction = false
+
+  private def apply(pos: Map[Term, Term], neg: Set[Map[Term, Term]]): Equalities =
+    new Equalities(if debugDisableEqualities then Map.empty else pos, if debugDisableInequalities then Set.empty else neg)
   def empty =
     Equalities(Map.empty, Set.empty)
   def make(pos: IterableOnce[(Term, Term)], neg: IterableOnce[IterableOnce[(Term, Term)]]) =

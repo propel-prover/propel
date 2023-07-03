@@ -7,6 +7,10 @@ import printing.*
 import typer.*
 import util.*
 
+var debugPropertiesOrder = List(
+  Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
+  Commutative, Selection, Idempotent, Associative)
+
 def check(
     expr: Term,
     discoverAlgebraicProperties: Boolean = true,
@@ -47,6 +51,8 @@ def check(
     s"Property Deduction Error\n\nUnable to prove property: ${property.show}")
   def customPropertyDisprovenError(property: Normalization) = Error(
     s"Property Deduction Error\n\nDisproved property: ${property.show}")
+  def propertyCheckDisabledError(property: Property) = Error(
+    s"Property check disabled for ${property.show} property.")
 
   def typedVar(ident: Symbol, tpe: Option[Type]) = tpe match
     case Some(tpe) =>
@@ -605,9 +611,9 @@ def check(
 
       val optimisticProperties =
         if hasRelationPropertyShape then
-          List(Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive)
+          debugPropertiesOrder collect { case prop @ (Reflexive | Irreflexive | Antisymmetric | Symmetric | Connected | Transitive) => prop }
         else if hasFunctionPropertyShape then
-          List(Commutative, Selection, Idempotent, Associative)
+          debugPropertiesOrder collect { case prop @ (Commutative | Selection | Idempotent | Associative) => prop }
         else
           List.empty
 
@@ -630,6 +636,8 @@ def check(
               Some(illformedRelationTypeError(property, term.termType))
             else if checking.propertyType == PropertyType.Function && !hasFunctionPropertyShape then
               Some(illformedFunctionTypeError(property, term.termType))
+            else if !(debugPropertiesOrder contains property) then
+              Some(propertyCheckDisabledError(property))
             else
               val checkingProperties = termAbstraction.fold(additionalProperties) { abstraction =>
                 additionalProperties.updatedWith(abstraction) { properties => Some(properties.toSet.flatten + property) }
