@@ -67,6 +67,17 @@ def check(
   val typedExpr = expr.typedTerm.withSyntacticInfo
 
   val (abstractionProperties, abstractionResultTypes, abstractionDependencies, abstractionNames, namedVariables) =
+    def abstractionBoundVariableNames(pattern: Pattern)
+      : (Map[Abstraction, String], Map[String, Var]) =
+      pattern match
+        case Match(_, args) =>
+          val (argsNames, argsVars) = (args map abstractionBoundVariableNames).unzip
+          (argsNames.flatten.toMap, argsVars.flatten.toMap)
+        case Bind(ident) =>
+          typedVar(ident, pattern.patternType) match
+            case variable @ Var(_) => ((variable.info(Abstraction) map { _ -> ident.name }).toMap, Map(ident.name -> variable))
+            case _ => (Map.empty, Map.empty)
+
     def abstractionInfos(term: Term, dependencies: List[Term | Symbol])
       : (Map[Abstraction, Properties], Map[Abstraction, Type], Map[Abstraction, List[Term | Symbol]], Map[Abstraction, String], Map[String, Var]) =
       term match
@@ -110,11 +121,13 @@ def check(
             abstractionInfos(scrutinee, dependencies)
           val (casesProperties, casesResultTypes, casesDependencies, casesNames, casesVars) =
             (cases map { (_, expr) => abstractionInfos(expr, dependencies) }).unzip5
+          val (patternNames, patternVars) =
+            (cases map { (pattern, _) => abstractionBoundVariableNames(pattern) }).unzip
           (scrutineeProperties ++ casesProperties.flatten,
            scrutineeResultTypes ++ casesResultTypes.flatten,
            scrutineeDependencies ++ casesDependencies.flatten,
-           scrutineeNames ++ casesNames.flatten,
-           scrutineeVars ++ casesVars.flatten)
+           scrutineeNames ++ casesNames.flatten ++ patternNames.flatten,
+           scrutineeVars ++ casesVars.flatten ++ patternVars.flatten)
 
     abstractionInfos(typedExpr, List.empty)
 
@@ -270,7 +283,7 @@ def check(
 
       val names = env.keys map { _.name }
 
-      val name = termAbstraction flatMap abstractionNames.get
+      val name = termAbstraction orElse termAbstraction flatMap abstractionNames.get
 
       val fundamentalAbstractions = (abstractions collect { case abstraction -> (_, _, true) => abstraction }).toSet
 
@@ -715,13 +728,15 @@ def check(
       else
         val abstractions = abstractionAccess(env, dependencies)
 
-        val (abstraction, call) = (term.info(Abstraction)
+        val termAbstraction = term.info(Abstraction)
+
+        val (abstraction, call) = (termAbstraction
           flatMap { abstractions.get(_) map { (expr, base, _) => Some(base) -> Some(expr) } }
           getOrElse (None, None))
 
         val names = env.keys map { _.name }
 
-        val name = abstraction flatMap abstractionNames.get
+        val name = abstraction orElse termAbstraction flatMap abstractionNames.get
 
         if printReductionDebugInfo || printDeductionDebugInfo then
           if debugInfoPrinted then
