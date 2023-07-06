@@ -37,6 +37,17 @@ import evaluator.*
       (type nat {Z (S nat)})
       (type list {Nil (Cons nat list)})
 
+      (type PNCounter {(PNCounter nat nat)})
+
+      (type Op {Inc Dec})
+
+      (def apply (fun Op PNCounter PNCounter)
+        (lambda (o Op) (x PNCounter)
+          (cases (Pair o x)
+            [(Pair Inc (PNCounter x y)) (PNCounter (S x) y)]
+            [(Pair Dec (PNCounter x y)) (PNCounter x (S y))])))
+
+
       (def return (lambda (x nat) (Cons x Nil)))
 
       (def append (fun list list list)
@@ -65,6 +76,13 @@ import evaluator.*
 //    Symbol(">>="),
 //    example)
 
+  val exampleOpBasedPNCounter = properties.addCustomProperty(
+    parser.deserialize("(apply o1 (apply o2 x))").get,
+    parser.deserialize("(apply o2 (apply o1 x))").get,
+    Set(Symbol("o1"), Symbol("o2"), Symbol("x")),
+    Symbol("apply"),
+    example)
+
   val exampleWithProperties0 = properties.addCustomProperty(
     parser.deserialize("(>>= (return x) g)").get,
     parser.deserialize("(g x)").get,
@@ -79,6 +97,6 @@ import evaluator.*
     Symbol(">>="),
     exampleWithProperties0)
 
-  val errors = properties.check(exampleWithProperties, printDeductionDebugInfo = false, printReductionDebugInfo = false).showErrors
+  val errors = properties.check(exampleOpBasedPNCounter, printDeductionDebugInfo = false, printReductionDebugInfo = false).showErrors
   if errors.nonEmpty then
     println(errors)
