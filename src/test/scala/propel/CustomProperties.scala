@@ -34,18 +34,100 @@ import evaluator.*
 
   val example = parser.deserialize(
     """
+      (type bool {True False})
       (type nat {Z (S nat)})
       (type list {Nil (Cons nat list)})
 
-      (type PNCounter {(PNCounter nat nat)})
+      (type GCounter {(GCounter nat)})
 
-      (type Op {Inc Dec})
+      (type PNCounter {(PNCounter GCounter GCounter)})
+      (type PNCounter2 {(PNCounter2 nat nat)})
 
-      (def apply (fun Op PNCounter PNCounter)
-        (lambda (o Op) (x PNCounter)
+      (type LWWReg {(LWWReg nat nat)}) ; LWWReg value timestamp
+
+      (type LWWRegOp {(Assign nat nat)}) ; Assign value timestamp
+
+      (type GOp {GInc})
+      (type PNOp {PNInc PNDec})
+
+      (type LWWMap (fun nat {(None nat)       ; time of last delete
+                             (Just LWWReg)})) ; maps key to optional LWWReg
+
+      (type LWWMapOp {(Set nat nat nat) ; set timestamp key value
+                      (Delete nat nat)  ; delete timestamp key (key needed because we don't
+                                        ; assume uniqueness of timestamp)
+                     })
+
+      (def eq? (fun nat nat bool)
+        (lambda [refl sym antisym] (x nat) (y nat)
+          (cases (Pair x y)
+            [(Pair Z Z) True]
+            [(Pair (S a) (S b)) (eq? a b)]
+            [_ False])))
+
+      (def leq? (fun nat nat bool)
+        (lambda [conn refl antisym trans] (x nat) (y nat)
+          (cases (Pair x y)
+            [(Pair Z _) True]
+            [(Pair (S _) Z) False]
+            [(Pair (S a) (S b)) (leq? a b)])))
+
+      (def max (fun nat nat nat)
+        (lambda [comm assoc idem] (x nat) (y nat)
+          (if (leq? x y) y x)))
+
+      (def applyG (fun GOp GCounter GCounter)
+        (lambda (o GOp) (x GCounter)
+          (cases x
+            [(GCounter n) (GCounter (S n))])))
+
+      (def applyPN (fun PNOp PNCounter PNCounter)
+        (lambda (o PNOp) (x PNCounter)
           (cases (Pair o x)
-            [(Pair Inc (PNCounter x y)) (PNCounter (S x) y)]
-            [(Pair Dec (PNCounter x y)) (PNCounter x (S y))])))
+            [(Pair PNInc (PNCounter x y)) (PNCounter (applyG GInc x) y)]
+            [(Pair PNDec (PNCounter x y)) (PNCounter x (applyG GInc y))])))
+
+      (def applyPN2 (fun PNOp PNCounter2 PNCounter2)
+        (lambda (o PNOp) (x PNCounter2)
+          (cases (Pair o x)
+            [(Pair PNInc (PNCounter2 x y)) (PNCounter2 (S x) y)]
+            [(Pair PNDec (PNCounter2 x y)) (PNCounter2 x (S y))])))
+
+      (def applyLWWReg (fun LWWRegOp LWWReg LWWReg)
+        (lambda (o LWWRegOp) (r LWWReg)
+          (cases (Pair o r)
+            [(Pair (Assign new newtime) (LWWReg old oldtime))
+             (if (eq? oldtime newtime)
+                 (LWWReg (max new old) newtime)
+                 (if (leq? oldtime newtime)
+                     (LWWReg new newtime)
+                     (LWWReg old oldtime)))])))
+
+      (def applyLWWMap (fun LWWMapOp LWWMap LWWMap)
+        (lambda (o LWWMapOp) (map LWWMap)
+          (cases o
+            [(Set timestamp key value)
+             (lambda (key2 nat) (if (eq? key key2)
+                                    (cases (map key)
+                                      [(None delete) (if (leq? timestamp delete)
+                                                         (None delete)
+                                                         (Just (LWWReg value timestamp)))]
+                                      [(Just (LWWReg oldvalue oldtimestamp))
+                                       (if (eq? timestamp oldtimestamp)
+                                           (Just (LWWReg (max oldvalue value) timestamp))
+                                           (if (leq? oldtimestamp timestamp)
+                                               (Just (LWWReg value timestamp))
+                                               (Just (LWWReg oldvalue oldtimestamp))))])
+                                    (map key2)))]
+            [(Delete timestamp key)
+             (lambda (key2 nat) (if (eq? key key2)
+                                    (cases (map key)
+                                      [(None delete) (None (max timestamp delete))]
+                                      [(Just (LWWReg oldvalue oldtimestamp))
+                                       (if (leq? oldtimestamp timestamp)
+                                           (None timestamp)
+                                           (map key))])
+                                    (map key2)))])))
 
 
       (def return (lambda (x nat) (Cons x Nil)))
@@ -76,12 +158,40 @@ import evaluator.*
 //    Symbol(">>="),
 //    example)
 
-  val exampleOpBasedPNCounter = properties.addCustomProperty(
-    parser.deserialize("(apply o1 (apply o2 x))").get,
-    parser.deserialize("(apply o2 (apply o1 x))").get,
+  val exampleOpBasedGCounter = properties.addCustomProperty(
+    parser.deserialize("(applyG o1 (applyG o2 x))").get,
+    parser.deserialize("(applyG o2 (applyG o1 x))").get,
     Set(Symbol("o1"), Symbol("o2"), Symbol("x")),
-    Symbol("apply"),
+    Symbol("applyG"),
     example)
+
+  val exampleOpBasedPNCounter = properties.addCustomProperty(
+    parser.deserialize("(applyPN o1 (applyPN o2 x))").get,
+    parser.deserialize("(applyPN o2 (applyPN o1 x))").get,
+    Set(Symbol("o1"), Symbol("o2"), Symbol("x")),
+    Symbol("applyPN"),
+    exampleOpBasedGCounter)
+
+  val exampleOpBasedPN2Counter = properties.addCustomProperty(
+    parser.deserialize("(applyPN2 o1 (applyPN2 o2 x))").get,
+    parser.deserialize("(applyPN2 o2 (applyPN2 o1 x))").get,
+    Set(Symbol("o1"), Symbol("o2"), Symbol("x")),
+    Symbol("applyPN2"),
+    exampleOpBasedPNCounter)
+
+  val exampleOpBasedLWWReg = properties.addCustomProperty(
+    parser.deserialize("(applyLWWReg o1 (applyLWWReg o2 x))").get,
+    parser.deserialize("(applyLWWReg o2 (applyLWWReg o1 x))").get,
+    Set(Symbol("o1"), Symbol("o2"), Symbol("x")),
+    Symbol("applyLWWReg"),
+    exampleOpBasedPN2Counter)
+
+  val exampleOpBasedLWWMap = properties.addCustomProperty(
+    parser.deserialize("(applyLWWMap o1 (applyLWWMap o2 x))").get,
+    parser.deserialize("(applyLWWMap o2 (applyLWWMap o1 x))").get,
+    Set(Symbol("o1"), Symbol("o2"), Symbol("x")),
+    Symbol("applyLWWMap"),
+    exampleOpBasedLWWReg)
 
   val exampleWithProperties0 = properties.addCustomProperty(
     parser.deserialize("(>>= (return x) g)").get,
@@ -97,6 +207,6 @@ import evaluator.*
     Symbol(">>="),
     exampleWithProperties0)
 
-  val errors = properties.check(exampleOpBasedPNCounter, printDeductionDebugInfo = false, printReductionDebugInfo = false).showErrors
+  val errors = properties.check(exampleOpBasedLWWMap, printDeductionDebugInfo = false, printReductionDebugInfo = false).showErrors
   if errors.nonEmpty then
     println(errors)
