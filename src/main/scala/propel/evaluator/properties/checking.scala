@@ -741,7 +741,7 @@ def check(
               assignPropertiesToCalls(normalization.result, Map.empty, Map(normalization.abstraction -> checkedProperties)),
               normalization.abstraction,
               normalization.variables,
-              normalization.reversible)
+              reversible = false)
           }
 
           val (provenProperties, _, errors) = proveConjectures(
