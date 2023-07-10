@@ -1,7 +1,7 @@
 package propel
 
 import scala.io.Source
-import scala.util.Using
+import scala.util.{Success, Using}
 import java.io.IOException
 import scala.scalajs.js.annotation._
 
@@ -11,7 +11,7 @@ import scala.scalajs.js.annotation._
     import ast.Property.*
 
     var error = Option.empty[String]
-    var content = Option.empty[String]
+    var content = Option.empty[String | ast.Term]
     var deduction = false
     var reduction = false
     var discoverAlgebraicProperties = true
@@ -43,6 +43,12 @@ import scala.scalajs.js.annotation._
               error = Some("No input specified on the command line")
           case "-i" | "--stdin" =>
             content = Some(Source.stdin.mkString)
+          case "-b" | "--built-in" =>
+            if args.hasNext then
+              try content = Some(builtInBenchmarks(args.next()))
+              catch case exception: IOException => error = Some(exception.getMessage.nn)
+            else
+              error = Some("No built-in benchmark specified on the command line")
           case "-d" | "--print-deduction" =>
             deduction = true
           case "-r" | "--print-reduction" =>
@@ -113,6 +119,7 @@ import scala.scalajs.js.annotation._
       println("  -c CONTENT, --content CONTENT    use the input specified on the command line")
       println("  -f FILE, --file FILE             read the input from the specified file")
       println("  -i, --stdin                      read the input from standard input")
+      println("  -b NAME, --built-in NAME         built-in benchmark")
       println()
       println("Specifying the following arguments is optional.")
       println("  -d, --print-deduction            print deduced properties")
@@ -141,13 +148,16 @@ import scala.scalajs.js.annotation._
 
 @JSExportTopLevel("parseAndCheckSourceCode")
 def parseAndCheckSourceCode(
-    code: String,
+    code: String | ast.Term,
     deduction: Boolean, reduction: Boolean, discoverAlgebraicProperties: Boolean,
     disableEqualities: Boolean, disableInequalities: Boolean,
     ignorePosContradiction: Boolean, ignoreNegContradiction: Boolean,
     ignorePosNegContradiction: Boolean, ignoreCyclicContradiction: Boolean,
     keepRewritesBits: Int, propertiesOrder: List[ast.Property]) =
-  parser.deserialize(code).fold(
+  val expr = code match
+    case v: String => parser.deserialize(v)
+    case v: ast.Term => Success(v)
+  expr.fold(
     exception =>
       println(s"Error: ${exception.getMessage}"),
 
@@ -176,3 +186,971 @@ def parseAndCheckSourceCode(
         println(errors)
         println("✘ Check failed.")
   )
+
+extension (expr: ast.Term)
+  def withCustomProperty(pattern: ast.Term, result: ast.Term, variables: Set[Symbol], abstraction: Symbol) =
+    evaluator.properties.addCustomProperty(pattern, result, variables, abstraction, expr)
+
+val builtInBenchmarks = Map(
+  "nat_add1_comm" ->
+  parser.deserialize("""
+    (letrec nat_add1 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add1 x y))]))
+      Unit)
+  """).get,
+
+  "nat_add1_assoc" ->
+  parser.deserialize("""
+    (letrec nat_add1 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add1 x y))]))
+      Unit)
+  """).get,
+
+  "nat_add1_leftid" ->
+  parser.deserialize("""
+    (letrec nat_add1 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add1 x y))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_add1 Z x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_add1")),
+
+  "nat_add1_rightid" ->
+  parser.deserialize("""
+    (letrec nat_add1 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add1 x y))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_add1 x Z)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_add1")),
+
+  "nat_add2_comm" ->
+  parser.deserialize("""
+    (letrec nat_add2 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add2 y x))]))
+      Unit)
+  """).get,
+
+  "nat_add2_assoc" ->
+  parser.deserialize("""
+    (letrec nat_add2 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add2 y x))]))
+      Unit)
+  """).get,
+
+  "nat_add2_leftid" ->
+  parser.deserialize("""
+    (letrec nat_add2 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add2 y x))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_add2 Z x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_add2")),
+
+  "nat_add2_rightid" ->
+  parser.deserialize("""
+    (letrec nat_add2 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add2 y x))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_add2 x Z)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_add2")),
+
+  "nat_add3_comm" ->
+  parser.deserialize("""
+    (letrec nat_add3 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (S (nat_add3 x y)))]))
+      Unit)
+  """).get,
+
+  "nat_add3_assoc" ->
+  parser.deserialize("""
+    (letrec nat_add3 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (S (nat_add3 x y)))]))
+      Unit)
+  """).get,
+
+  "nat_add3_leftid" ->
+  parser.deserialize("""
+    (letrec nat_add3 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (S (nat_add3 x y)))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_add3 Z x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_add3")),
+
+  "nat_add3_rightid" ->
+  parser.deserialize("""
+    (letrec nat_add3 (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (S (nat_add3 x y)))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_add3 x Z)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_add3")),
+
+  "nat_mult_comm" ->
+  parser.deserialize("""
+    (letrec nat_add (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))]))
+      (letrec nat_mult (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S x) (nat_add y (nat_mult x y))]))
+        Unit))
+  """).get,
+
+  "nat_mult_assoc" ->
+  parser.deserialize("""
+    (letrec nat_add (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))]))
+      (letrec nat_mult (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S x) (nat_add y (nat_mult x y))]))
+        Unit))
+  """).get,
+
+  "nat_mult_leftid" ->
+  parser.deserialize("""
+    (letrec nat_add (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))]))
+      (letrec nat_mult (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S x) (nat_add y (nat_mult x y))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_mult (S Z) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_mult")),
+
+  "nat_mult_rightid" ->
+  parser.deserialize("""
+    (letrec nat_add (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))]))
+      (letrec nat_mult (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S x) (nat_add y (nat_mult x y))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_mult x (S Z))").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_mult")),
+
+  "nat_min_comm" ->
+  parser.deserialize("""
+    (letrec nat_min (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) Z]
+        [(Tuple x Z) Z]
+        [(Tuple (S x) (S y)) (S (nat_min x y))]))
+      Unit)
+  """).get,
+
+  "nat_min_assoc" ->
+  parser.deserialize("""
+    (letrec nat_min (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) Z]
+        [(Tuple x Z) Z]
+        [(Tuple (S x) (S y)) (S (nat_min x y))]))
+      Unit)
+  """).get,
+
+  "nat_min_idem" ->
+  parser.deserialize("""
+    (letrec nat_min (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [idem] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) Z]
+        [(Tuple x Z) Z]
+        [(Tuple (S x) (S y)) (S (nat_min x y))]))
+      Unit)
+  """).get,
+
+  "nat_min_sel" ->
+  parser.deserialize("""
+    (letrec nat_min (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [sel] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) Z]
+        [(Tuple x Z) Z]
+        [(Tuple (S x) (S y)) (S (nat_min x y))]))
+      Unit)
+  """).get,
+
+  "nat_max_comm" ->
+  parser.deserialize("""
+    (letrec nat_max (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (nat_max x y))]))
+      Unit)
+  """).get,
+
+  "nat_max_assoc" ->
+  parser.deserialize("""
+    (letrec nat_max (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (nat_max x y))]))
+      Unit)
+  """).get,
+
+  "nat_max_idem" ->
+  parser.deserialize("""
+    (letrec nat_max (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [idem] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (nat_max x y))]))
+      Unit)
+  """).get,
+
+  "nat_max_sel" ->
+  parser.deserialize("""
+    (letrec nat_max (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [sel] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (nat_max x y))]))
+      Unit)
+  """).get,
+
+  "nat_max_leftid" ->
+  parser.deserialize("""
+    (letrec nat_max (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (nat_max x y))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_max Z x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_max")),
+
+  "nat_max_rightid" ->
+  parser.deserialize("""
+    (letrec nat_max (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases (Tuple x y)
+        [(Tuple Z y) y]
+        [(Tuple x Z) x]
+        [(Tuple (S x) (S y)) (S (nat_max x y))]))
+      Unit)
+  """).get.withCustomProperty(
+    parser.deserialize("(nat_max x Z)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("nat_max")),
+
+  "bv_add_comm" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        Unit))
+  """).get,
+
+  "bv_add_assoc" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [assoc] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        Unit))
+  """).get,
+
+  "bv_add_leftid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_add BZ x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_add")),
+
+  "bv_add_rightid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_add BZ x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_add")),
+
+  "bv_mult_comm" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        (letrec bv_mult (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_mult x y))]
+              [(Pair (B1 x) y) (bv_add y (B0 (bv_mult x y)))]))
+          Unit)))
+  """).get,
+
+  "bv_mult_assoc" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        (letrec bv_mult (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda [assoc] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_mult x y))]
+              [(Pair (B1 x) y) (bv_add y (B0 (bv_mult x y)))]))
+          Unit)))
+  """).get,
+
+  "bv_mult_leftid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        (letrec bv_mult (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_mult x y))]
+              [(Pair (B1 x) y) (bv_add y (B0 (bv_mult x y)))]))
+          Unit)))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_mult (B1 BZ) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_mult")),
+
+  "bv_mult_rightid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ (B1 BZ)]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_add (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ BZ) BZ]
+          [(Tuple BZ (B0 y)) (B0 y)]
+          [(Tuple BZ (B1 y)) (B1 y)]
+          [(Tuple (B0 x) BZ) (B0 x)]
+          [(Tuple (B1 x) BZ) (B1 x)]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_add x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_add x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_add x y)))]))
+        (letrec bv_mult (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_mult x y))]
+              [(Pair (B1 x) y) (bv_add y (B0 (bv_mult x y)))]))
+          Unit)))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_mult x (B1 BZ))").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_mult")),
+
+  "bv_addmod_comm" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        Unit))
+  """).get,
+
+  "bv_addmod_assoc" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [assoc] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        Unit))
+  """).get,
+
+  "bv_addmod_leftid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_addmod BZ x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_addmod")),
+
+  "bv_addmod_rightid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_addmod BZ x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_addmod")),
+
+  "bv_multmod_comm" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        (letrec bv_multmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_multmod x y))]
+              [(Pair (B1 x) y) (bv_addmod y (B0 (bv_multmod x y)))]))
+          Unit)))
+  """).get,
+
+  "bv_multmod_assoc" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        (letrec bv_multmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda [assoc] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_multmod x y))]
+              [(Pair (B1 x) y) (bv_addmod y (B0 (bv_multmod x y)))]))
+          Unit)))
+  """).get,
+
+  "bv_multmod_leftid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        (letrec bv_multmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_multmod x y))]
+              [(Pair (B1 x) y) (bv_addmod y (B0 (bv_multmod x y)))]))
+          Unit)))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_multmod (B1 BZ) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_multmod")),
+
+  "bv_multmod_rightid" ->
+  parser.deserialize("""
+    (letrec bv_succ (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (cases x
+        [BZ BZ]
+        [(B0 x) (B1 x)]
+        [(B1 x) (B0 (bv_succ x))]))
+      (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
+          [(Tuple (B0 x) (B1 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B0 y)) (B1 (bv_addmod x y))]
+          [(Tuple (B1 x) (B1 y)) (B0 (bv_succ (bv_addmod x y)))]))
+        (letrec bv_multmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+          (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ}))
+            (cases (Pair x y)
+              [(Pair _ BZ) BZ]
+              [(Pair BZ _) BZ]
+              [(Pair (B0 x) y) (B0 (bv_multmod x y))]
+              [(Pair (B1 x) y) (bv_addmod y (B0 (bv_multmod x y)))]))
+          Unit)))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_multmod x (B1 BZ))").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_multmod")),
+
+  "bv_min_comm" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_min (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_min x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_min x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_min x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_min x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_min_assoc" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_min (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [assoc] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_min x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_min x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_min x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_min x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_min_idem" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_min (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [idem] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_min x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_min x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_min x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_min x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_min_sel" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_min (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [sel] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ _) BZ]
+          [(Tuple _ BZ) BZ]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_min x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_min x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_min x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_min x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_max_comm" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_max (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ y) y]
+          [(Tuple x BZ) x]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_max x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_max x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_max x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_max x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_max_assoc" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_max (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [assoc] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ y) y]
+          [(Tuple x BZ) x]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_max x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_max x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_max x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_max x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_max_idem" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_max (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [idem] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ y) y]
+          [(Tuple x BZ) x]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_max x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_max x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_max x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_max x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_max_sel" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_max (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda [sel] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ y) y]
+          [(Tuple x BZ) x]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_max x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_max x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_max x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_max x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get,
+
+  "bv_max_leftid" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_max (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ y) y]
+          [(Tuple x BZ) x]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_max x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_max x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_max x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_max x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_max BZ x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_max")),
+
+  "bv_max_rightid" ->
+  parser.deserialize("""
+    (letrec bv_eq (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) {True False})
+      (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        [(Tuple BZ BZ) True]
+        [(Tuple (B0 x) (B0 y)) (bv_eq x y)]
+        [(Tuple (B1 x) (B1 y)) (bv_eq x y)]
+        [_ False]))
+      (letrec bv_max (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+          [(Tuple BZ y) y]
+          [(Tuple x BZ) x]
+          [(Tuple (B0 x) (B0 y)) (B0 (bv_max x y))]
+          [(Tuple (B1 x) (B1 y)) (B1 (bv_max x y))]
+          [(Tuple (B0 x) (B1 y))
+            (if (bv_eq (bv_max x y) y)
+              (B1 y)
+              (B0 x))]
+          [(Tuple (B1 x) (B0 y))
+            (if (bv_eq (bv_max x y) x)
+              (B1 x)
+              (B0 y))]))
+        Unit))
+  """).get.withCustomProperty(
+    parser.deserialize("(bv_max x BZ)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("bv_max")),
+)
