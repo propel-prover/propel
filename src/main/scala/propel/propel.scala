@@ -1153,4 +1153,427 @@ val builtInBenchmarks = Map(
     parser.deserialize("x").get,
     Set(Symbol("x")),
     Symbol("bv_max")),
+
+  "maybe_functor_id" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type maybe {Nothing (Just nat)})
+
+    (def fmap (fun (fun nat nat) maybe maybe)
+      (lambda (f (fun nat nat)) (x maybe)
+        (cases x
+          [Nothing Nothing]
+          [(Just x) (Just (f x))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) y) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("fmap")),
+
+  "maybe_functor_composition" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type maybe {Nothing (Just nat)})
+
+    (def fmap (fun (fun nat nat) maybe maybe)
+      (lambda (f (fun nat nat)) (x maybe)
+        (cases x
+          [Nothing Nothing]
+          [(Just x) (Just (f x))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) (f (g y))) x)").get,
+    parser.deserialize("(fmap f (fmap g x))").get,
+    Set(Symbol("f"), Symbol("g"), Symbol("x")),
+    Symbol("fmap")),
+
+  "maybe_semigroup_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type maybe {Nothing (Just nat)})
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def <> (fun maybe maybe maybe)
+      (lambda [assoc] (x maybe) (y maybe)
+        (cases (Pair x y)
+          [(Pair Nothing y) y]
+          [(Pair x Nothing) x]
+          [(Pair (Just x) (Just y)) (Just (nat_add x y))])))
+  """).get,
+
+  "maybe_monad_leftid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type maybe {Nothing (Just nat)})
+
+    (def return (lambda (x nat) (Just x)))
+
+    (def >>= (fun maybe (fun nat maybe) maybe)
+      (lambda (x maybe) (f (fun nat maybe))
+        (cases x
+          [Nothing Nothing]
+          [(Just x) (f x)])))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (return x) f)").get,
+    parser.deserialize("(f x)").get,
+    Set(Symbol("f"), Symbol("x")),
+    Symbol(">>=")),
+
+  "maybe_monad_rightid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type maybe {Nothing (Just nat)})
+
+    (def return (lambda (x nat) (Just x)))
+
+    (def >>= (fun maybe (fun nat maybe) maybe)
+      (lambda (x maybe) (f (fun nat maybe))
+        (cases x
+          [Nothing Nothing]
+          [(Just x) (f x)])))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= m return)").get,
+    parser.deserialize("m").get,
+    Set(Symbol("m")),
+    Symbol(">>=")),
+
+  "maybe_monad_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type maybe {Nothing (Just nat)})
+
+    (def return (lambda (x nat) (Just x)))
+
+    (def >>= (fun maybe (fun nat maybe) maybe)
+      (lambda (x maybe) (f (fun nat maybe))
+        (cases x
+          [Nothing Nothing]
+          [(Just x) (f x)])))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (>>= m f) g)").get,
+    parser.deserialize("(>>= m (lambda (x nat) (>>= (f x) g)))").get,
+    Set(Symbol("m"), Symbol("f"), Symbol("g")),
+    Symbol(">>=")),
+
+  "list_functor_id" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type list {Nil (Cons nat list)})
+
+    (def fmap (fun (fun nat nat) list list)
+      (lambda (f (fun nat nat)) (x list)
+        (cases x
+          [Nil Nil]
+          [(Cons x xs) (Cons (f x) (fmap f xs))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) y) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("fmap")),
+
+  "list_functor_composition" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type list {Nil (Cons nat list)})
+
+    (def fmap (fun (fun nat nat) list list)
+      (lambda (f (fun nat nat)) (x list)
+        (cases x
+          [Nil Nil]
+          [(Cons x xs) (Cons (f x) (fmap f xs))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) (f (g y))) x)").get,
+    parser.deserialize("(fmap f (fmap g x))").get,
+    Set(Symbol("f"), Symbol("g"), Symbol("x")),
+    Symbol("fmap")),
+
+  "list_semigroup_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type list {Nil (Cons nat list)})
+
+    (def <> (fun list list list)
+      (lambda [assoc] (x list) (y list)
+        (cases x
+          [Nil y]
+          [(Cons x xs) (Cons x (<> xs y))])))
+  """).get,
+
+  "list_monad_leftid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type list {Nil (Cons nat list)})
+
+    (def return (lambda (x nat) (Cons x Nil)))
+
+    (def <> (fun list list list)
+      (lambda (x list) (y list)
+        (cases x
+          [Nil y]
+          [(Cons x xs) (Cons x (<> xs y))])))
+
+    (def >>= (fun list (fun nat list) list)
+      (lambda (x list) (f (fun nat list))
+        (cases x
+          [Nil Nil]
+          [(Cons x xs) (<> (f x) (>>= xs f))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (return x) f)").get,
+    parser.deserialize("(f x)").get,
+    Set(Symbol("f"), Symbol("x")),
+    Symbol(">>=")),
+
+  "list_monad_rightid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type list {Nil (Cons nat list)})
+
+    (def return (lambda (x nat) (Cons x Nil)))
+
+    (def <> (fun list list list)
+      (lambda (x list) (y list)
+        (cases x
+          [Nil y]
+          [(Cons x xs) (Cons x (<> xs y))])))
+
+    (def >>= (fun list (fun nat list) list)
+      (lambda (x list) (f (fun nat list))
+        (cases x
+          [Nil Nil]
+          [(Cons x xs) (<> (f x) (>>= xs f))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= m return)").get,
+    parser.deserialize("m").get,
+    Set(Symbol("m")),
+    Symbol(">>=")),
+
+  "list_monad_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type list {Nil (Cons nat list)})
+
+    (def return (lambda (x nat) (Cons x Nil)))
+
+    (def <> (fun list list list)
+      (lambda (x list) (y list)
+        (cases x
+          [Nil y]
+          [(Cons x xs) (Cons x (<> xs y))])))
+
+    (def >>= (fun list (fun nat list) list)
+      (lambda (x list) (f (fun nat list))
+        (cases x
+          [Nil Nil]
+          [(Cons x xs) (<> (f x) (>>= xs f))])))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (>>= m f) g)").get,
+    parser.deserialize("(>>= m (lambda (x nat) (>>= (f x) g)))").get,
+    Set(Symbol("m"), Symbol("f"), Symbol("g")),
+    Symbol(">>=")),
+
+  "function_functor_id" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type function (fun nat nat))
+
+    (def fmap (fun (fun nat nat) function function)
+      (lambda (f (fun nat nat)) (x function)
+        (lambda (v nat) (f (x v)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) y) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("fmap")),
+
+  "function_functor_composition" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type function (fun nat nat))
+
+    (def fmap (fun (fun nat nat) function function)
+      (lambda (f (fun nat nat)) (x function)
+        (lambda (v nat) (f (x v)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) (f (g y))) x)").get,
+    parser.deserialize("(fmap f (fmap g x))").get,
+    Set(Symbol("f"), Symbol("g"), Symbol("x")),
+    Symbol("fmap")),
+
+  "function_semigroup_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type function (fun nat nat))
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def <> (fun function function function)
+      (lambda [assoc] (x function) (y function)
+        (lambda (v nat) (nat_add (x v) (y v)))))
+  """).get,
+
+  "function_monad_leftid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type function (fun nat nat))
+
+    (def return (lambda (x nat) (lambda (v nat) x)))
+
+    (def >>= (fun function (fun nat function) function)
+      (lambda (x function) (f (fun nat function))
+        (lambda (v nat) (f (x v) v))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (return x) f)").get,
+    parser.deserialize("(f x)").get,
+    Set(Symbol("f"), Symbol("x")),
+    Symbol(">>=")),
+
+  "function_monad_rightid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type function (fun nat nat))
+
+    (def return (lambda (x nat) (lambda (v nat) x)))
+
+    (def >>= (fun function (fun nat function) function)
+      (lambda (x function) (f (fun nat function))
+        (lambda (v nat) (f (x v) v))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= m return)").get,
+    parser.deserialize("m").get,
+    Set(Symbol("m")),
+    Symbol(">>=")),
+
+  "function_monad_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type function (fun nat nat))
+
+    (def return (lambda (x nat) (lambda (v nat) x)))
+
+    (def >>= (fun function (fun nat function) function)
+      (lambda (x function) (f (fun nat function))
+        (lambda (v nat) (f (x v) v))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (>>= m f) g)").get,
+    parser.deserialize("(>>= m (lambda (x nat) (>>= (f x) g)))").get,
+    Set(Symbol("m"), Symbol("f"), Symbol("g")),
+    Symbol(">>=")),
+
+  "pair_functor_id" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type pair {(Pair nat nat)})
+
+    (def fmap (fun (fun nat nat) pair pair)
+      (lambda (f (fun nat nat)) (x pair)
+        (let (Pair a b) x (Pair a (f b)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) y) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("fmap")),
+
+  "pair_functor_composition" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type pair {(Pair nat nat)})
+
+    (def fmap (fun (fun nat nat) pair pair)
+      (lambda (f (fun nat nat)) (x pair)
+        (let (Pair a b) x (Pair a (f b)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) (f (g y))) x)").get,
+    parser.deserialize("(fmap f (fmap g x))").get,
+    Set(Symbol("f"), Symbol("g"), Symbol("x")),
+    Symbol("fmap")),
+
+  "pair_semigroup_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type pair {(Pair nat nat)})
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def <> (fun pair pair pair)
+      (lambda [assoc] (x pair) (y pair)
+        (let (Pair (Pair xa xb) (Pair ya yb)) (Pair x y) (Pair (nat_add xa ya) (nat_add xb yb)))))
+  """).get,
+
+  "pair_monad_leftid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type pair {(Pair nat nat)})
+
+    (def return (lambda (x nat) (Pair Z x)))
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def >>= (fun pair (fun nat pair) pair)
+      (lambda (x pair) (f (fun nat pair))
+        (let (Pair a b) x
+          (let (Pair u v) (f b)
+            (Pair (nat_add a u) v)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (return x) f)").get,
+    parser.deserialize("(f x)").get,
+    Set(Symbol("f"), Symbol("x")),
+    Symbol(">>=")),
+
+  "pair_monad_rightid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type pair {(Pair nat nat)})
+
+    (def return (lambda (x nat) (Pair Z x)))
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def >>= (fun pair (fun nat pair) pair)
+      (lambda (x pair) (f (fun nat pair))
+        (let (Pair a b) x
+          (let (Pair u v) (f b)
+            (Pair (nat_add a u) v)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= m return)").get,
+    parser.deserialize("m").get,
+    Set(Symbol("m")),
+    Symbol(">>=")),
+
+  "pair_monad_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type pair {(Pair nat nat)})
+
+    (def return (lambda (x nat) (Pair Z x)))
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def >>= (fun pair (fun nat pair) pair)
+      (lambda (x pair) (f (fun nat pair))
+        (let (Pair a b) x
+          (let (Pair u v) (f b)
+            (Pair (nat_add a u) v)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (>>= m f) g)").get,
+    parser.deserialize("(>>= m (lambda (x nat) (>>= (f x) g)))").get,
+    Set(Symbol("m"), Symbol("f"), Symbol("g")),
+    Symbol(">>=")),
 )
