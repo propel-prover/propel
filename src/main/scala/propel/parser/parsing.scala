@@ -9,6 +9,9 @@ import SExpr.*
 import scala.util.{Failure, Success, Try}
 
 def deserialize(string: String): Try[Term] =
+  deserializeWithExpr(string, Data(Constructor(Symbol("Unit")), List.empty))
+
+def deserializeWithExpr(string: String, exprToEval: Term): Try[Term] =
   def makeIdentifier(atom: Atom) =
     if atom.quote == Quote.None then
       atom.identifier match
@@ -198,7 +201,7 @@ def deserialize(string: String): Try[Term] =
     if exprs.isEmpty then
       throw ParserException("Input empty")
 
-    val (term, _) = exprs.foldRight[(Term, Boolean)](Data(Constructor(Symbol("Unit")), List.empty) -> true) {
+    val (term, _) = exprs.foldRight[(Term, Boolean)](exprToEval -> true) {
       case (Expr(Atom("type", Quote.None) :: exprs, Bracket.Paren), term -> _) =>
         exprs match
           case List(Atom(arg, _), tpe) =>
@@ -225,7 +228,7 @@ def deserialize(string: String): Try[Term] =
 
     term
   }
-end deserialize
+end deserializeWithExpr
 
 def serialize(term: Term): String =
   def makeIdentifier(ident: Symbol, noUpperCase: Boolean) = ident.name match

@@ -1,7 +1,7 @@
 package propel
 
 import scala.io.Source
-import scala.util.{Success, Using}
+import scala.util.{Success, Using, Failure}
 import java.io.IOException
 import scala.scalajs.js.annotation._
 
@@ -21,6 +21,7 @@ import scala.scalajs.js.annotation._
     var ignoreNegContradiction = false
     var ignorePosNegContradiction = false
     var ignoreCyclicContradiction = false
+    var runMain = false
     var keepRewritesBits = 8
     var propertiesOrder = List(
       Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
@@ -43,6 +44,8 @@ import scala.scalajs.js.annotation._
               error = Some("No input specified on the command line")
           case "-i" | "--stdin" =>
             content = Some(Source.stdin.mkString)
+          case "--runMain" =>
+            runMain = true
           case "-b" | "--built-in" =>
             if args.hasNext then
               try content = Some(builtInBenchmarks(args.next()))
@@ -104,14 +107,14 @@ import scala.scalajs.js.annotation._
     (error, content, deduction, reduction, discoverAlgebraicProperties,
      disableEqualities, disableInequalities,
      ignorePosContradiction, ignoreNegContradiction,
-     ignorePosNegContradiction, ignoreCyclicContradiction,
+     ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
      keepRewritesBits, propertiesOrder)
 
   parsedArguments match
-    case (Some(error), _, _, _, _, _, _, _, _, _, _, _, _) =>
+    case (Some(error), _, _, _, _, _, _, _, _, _, _, _, _, _) =>
       println(s"Error: $error")
 
-    case (_, None, _, _, _, _, _, _, _, _, _, _, _) =>
+    case (_, None, _, _, _, _, _, _, _, _, _, _, _, _) =>
       println("Usage: propel [ARGUMENT]...")
       println("Verifies the algebraic and relational properties of functions specified in Propel's input format.")
       println()
@@ -119,6 +122,7 @@ import scala.scalajs.js.annotation._
       println("  -c CONTENT, --content CONTENT    use the input specified on the command line")
       println("  -f FILE, --file FILE             read the input from the specified file")
       println("  -i, --stdin                      read the input from standard input")
+      println("  --runMain                        print the value that the main function evaluates to")
       println("  -b NAME, --built-in NAME         built-in benchmark")
       println()
       println("Specifying the following arguments is optional.")
@@ -137,13 +141,13 @@ import scala.scalajs.js.annotation._
     case (_, Some(content), deduction, reduction, discoverAlgebraicProperties,
           disableEqualities, disableInequalities,
           ignorePosContradiction, ignoreNegContradiction,
-          ignorePosNegContradiction, ignoreCyclicContradiction,
+          ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
           keepRewritesBits, propertiesOrder) =>
       parseAndCheckSourceCode(
         content, deduction, reduction, discoverAlgebraicProperties,
         disableEqualities, disableInequalities,
         ignorePosContradiction, ignoreNegContradiction,
-        ignorePosNegContradiction, ignoreCyclicContradiction,
+        ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
         keepRewritesBits, propertiesOrder)
 
 @JSExportTopLevel("parseAndCheckSourceCode")
@@ -153,38 +157,46 @@ def parseAndCheckSourceCode(
     disableEqualities: Boolean, disableInequalities: Boolean,
     ignorePosContradiction: Boolean, ignoreNegContradiction: Boolean,
     ignorePosNegContradiction: Boolean, ignoreCyclicContradiction: Boolean,
-    keepRewritesBits: Int, propertiesOrder: List[ast.Property]) =
+    runMain: Boolean, keepRewritesBits: Int, propertiesOrder: List[ast.Property]) =
+  val exprToEval = if runMain
+                   then ast.Var(Symbol("main"))
+                   else ast.Data(ast.Constructor(Symbol("Unit")), List.empty)
   val expr = code match
-    case v: String => parser.deserialize(v)
+    case v: String => parser.deserializeWithExpr(v, exprToEval)
     case v: ast.Term => Success(v)
-  expr.fold(
-    exception =>
-      println(s"Error: ${exception.getMessage}"),
+  if runMain
+  then expr match
+        case Success(e) => println(printing.show(evaluator.Concrete.eval(e)))
+        case Failure(e) => println(e)
+  else
+    expr.fold(
+      exception =>
+        println(s"Error: ${exception.getMessage}"),
 
-    expr =>
-      evaluator.Equalities.debugDisableEqualities = disableEqualities
-      evaluator.Equalities.debugDisableInequalities = disableInequalities
-      evaluator.Equalities.debugIgnorePosContradiction = ignorePosContradiction
-      evaluator.Equalities.debugIgnoreNegContradiction = ignoreNegContradiction
-      evaluator.Equalities.debugIgnorePosNegContradiction = ignorePosNegContradiction
-      evaluator.Equalities.debugIgnoreCyclicContradiction = ignoreCyclicContradiction
-      evaluator.properties.debugMaxKeepRewriteNumberBits = keepRewritesBits
-      evaluator.properties.debugPropertiesOrder = propertiesOrder
+      expr =>
+        evaluator.Equalities.debugDisableEqualities = disableEqualities
+        evaluator.Equalities.debugDisableInequalities = disableInequalities
+        evaluator.Equalities.debugIgnorePosContradiction = ignorePosContradiction
+        evaluator.Equalities.debugIgnoreNegContradiction = ignoreNegContradiction
+        evaluator.Equalities.debugIgnorePosNegContradiction = ignorePosNegContradiction
+        evaluator.Equalities.debugIgnoreCyclicContradiction = ignoreCyclicContradiction
+        evaluator.properties.debugMaxKeepRewriteNumberBits = keepRewritesBits
+        evaluator.properties.debugPropertiesOrder = propertiesOrder
 
-      val term = evaluator.properties.check(expr,
-        discoverAlgebraicProperties = discoverAlgebraicProperties,
-        printDeductionDebugInfo = deduction,
-        printReductionDebugInfo = reduction)
+        val term = evaluator.properties.check(expr,
+          discoverAlgebraicProperties = discoverAlgebraicProperties,
+          printDeductionDebugInfo = deduction,
+          printReductionDebugInfo = reduction)
 
-      if deduction || reduction then
-        println()
+        if deduction || reduction then
+          println()
 
-      val errors = printing.showErrors(term)
-      if errors.isEmpty then
-        println("✔ Check successful.")
-      else
-        println(errors)
-        println("✘ Check failed.")
+        val errors = printing.showErrors(term)
+        if errors.isEmpty then
+          println("✔ Check successful.")
+        else
+          println(errors)
+          println("✘ Check failed.")
   )
 
 extension (expr: ast.Term)
