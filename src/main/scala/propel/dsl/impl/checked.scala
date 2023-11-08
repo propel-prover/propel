@@ -47,7 +47,8 @@ object Checked:
         case _ =>
           typeAbs(expr, typeVars)
 
-      val checked = evaluator.properties.check(recursiveExpr, assumedUncheckedConjectures = externalProperties)
+      evaluator.Equalities.debugDisableInequalities = true
+      val checked = evaluator.properties.check(recursiveExpr, assumedUncheckedConjectures = externalProperties, printDeductionDebugInfo = true, printReductionDebugInfo = true)
       reportErrors(checked)
       checked
     end checkProperties

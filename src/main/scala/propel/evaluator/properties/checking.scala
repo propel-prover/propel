@@ -13,7 +13,7 @@ var debugPropertiesOrder = List(
 
 def check(
     expr: Term,
-    discoverAlgebraicProperties: Boolean = true,
+    discoverAlgebraicProperties: Boolean = false,
     assumedUncheckedConjectures: List[Normalization] = List.empty,
     assumedUncheckedNestedConjectures: List[Normalization] = List.empty,
     printDeductionDebugInfo: Boolean = false,
@@ -607,7 +607,7 @@ def check(
         provenProperties foreach { property => println(indent(4, property.show)) }
 
       val hasRelationPropertyShape = equivalent(tpe0, tpe1) && (resultType forall { conforms(_, boolType) })
-      val hasFunctionPropertyShape = equivalent(tpe0, tpe1) && (resultType forall { conforms(_, tpe0) })
+      val hasFunctionPropertyShape = equivalent(tpe0, tpe1) // && (resultType forall { conforms(_, tpe0) })
 
       val optimisticProperties =
         if hasRelationPropertyShape then
