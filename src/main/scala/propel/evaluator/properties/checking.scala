@@ -8,7 +8,7 @@ import typer.*
 import util.*
 
 var debugPropertiesOrder = List(
-  Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
+  Reflexive, Irreflexive, Antisymmetric, AntisymmetricEq, Symmetric, Connected, Transitive,
   Commutative, Selection, Idempotent, Associative)
 
 def check(
@@ -611,7 +611,7 @@ def check(
 
       val optimisticProperties =
         if hasRelationPropertyShape then
-          debugPropertiesOrder collect { case prop @ (Reflexive | Irreflexive | Antisymmetric | Symmetric | Connected | Transitive) => prop }
+          debugPropertiesOrder collect { case prop @ (Reflexive | Irreflexive | Antisymmetric | AntisymmetricEq | Symmetric | Connected | Transitive) => prop }
         else if hasFunctionPropertyShape then
           debugPropertiesOrder collect { case prop @ (Commutative | Selection | Idempotent | Associative) => prop }
         else

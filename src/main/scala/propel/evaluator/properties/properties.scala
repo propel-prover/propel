@@ -105,14 +105,20 @@ object antisymmetry
 end antisymmetry
 
 object antisymmetryEq
-    extends PropertyChecking with PropertyChecking.RelationTrueResult
+    extends PropertyChecking with PropertyChecking.FunctionEqualResult
     with PropertyChecking.Simple with PropertyChecking.Compound:
+
   def prepare(ident0: Symbol, ident1: Symbol, expr: Term) =
     val ab = subst(expr, Map(ident0 -> varA, ident1 -> varB))
     val ba = subst(expr, Map(ident0 -> varB, ident1 -> varA))
-    and(ab, ba) -> Equalities.empty
+    Data(equalDataConstructor,
+         List(Cases(ab,
+           List(Match(Constructor.False, List.empty) -> varA,
+                Match(Constructor.True, List.empty) -> Cases(ba,
+                   List(Match(Constructor.False, List.empty) -> varA,
+                        Match(Constructor.True, List.empty) -> varB)))),
+              varA)) -> Equalities.empty
 
-  // same as antisymmetry
   def deriveCompound(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case (App(_, App(properties0, expr0, arg0a), arg0b) -> Data(Constructor.True, List()),
           App(_, App(properties1, expr1, arg1a), arg1b) -> Data(Constructor.True, List()))
@@ -121,17 +127,17 @@ object antisymmetryEq
            equalities.equal(expr0, expr1) == Equality.Equal &&
            equalities.equal(arg0a, arg1b) == Equality.Equal &&
            equalities.equal(arg0b, arg1a) == Equality.Equal &&
-           canApply(ensureDecreasing, equalities, Antisymmetric)(expr0)(varA, arg0a, varB, arg0b) &&
-           canApply(ensureDecreasing, equalities, Antisymmetric)(expr1)(varB, arg1a, varA, arg1b) =>
+           canApply(ensureDecreasing, equalities, AntisymmetricEq)(expr0)(varA, arg0a, varB, arg0b) &&
+           canApply(ensureDecreasing, equalities, AntisymmetricEq)(expr1)(varB, arg1a, varA, arg1b) =>
       Equalities.pos(List(arg0a -> arg0b)).toList
 
-  // same as antisymmetry
   def deriveSimple(ensureDecreasing: (Property, Term) => Option[DecreasingArguments])(equalities: Equalities) =
     case App(props, App(properties, expr, arg0), arg1) -> Data(Constructor.True, List())
-        if properties.contains(Antisymmetric) &&
-           canApply(ensureDecreasing, equalities, Antisymmetric)(expr)(varA, arg0, varB, arg1) =>
+        if properties.contains(AntisymmetricEq) &&
+           canApply(ensureDecreasing, equalities, AntisymmetricEq)(expr)(varA, arg0, varB, arg1) =>
       Equalities.pos(List(arg0 -> arg1)).toList ++
       Equalities.make(List(App(props, App(properties, expr, arg1), arg0) -> Data(Constructor.False, List())), List(List(arg0 -> arg1))).toList
+
 end antisymmetryEq
 
 

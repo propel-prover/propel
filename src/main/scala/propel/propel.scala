@@ -24,7 +24,7 @@ import scala.scalajs.js.annotation._
     var runMain = false
     var keepRewritesBits = 8
     var propertiesOrder = List(
-      Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
+      Reflexive, Irreflexive, Antisymmetric, AntisymmetricEq, Symmetric, Connected, Transitive,
       Commutative, Selection, Idempotent, Associative)
 
     if arguments.size > 0 && arguments.head != "-h" && arguments.head != "--help" then
