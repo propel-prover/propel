@@ -47,8 +47,7 @@ object Checked:
         case _ =>
           typeAbs(expr, typeVars)
 
-      evaluator.Equalities.debugDisableInequalities = true
-      val checked = evaluator.properties.check(recursiveExpr, assumedUncheckedConjectures = externalProperties, printDeductionDebugInfo = true, printReductionDebugInfo = true)
+      val checked = evaluator.properties.check(recursiveExpr, assumedUncheckedConjectures = externalProperties)
       reportErrors(checked)
       checked
     end checkProperties
@@ -864,7 +863,7 @@ object Checked:
     properties(bounds.low)
 
   def isProperty(using Quotes)(tpe: quotes.reflect.TypeRepr) =
-    quotes.reflect.TypeRepr.of[Comm & Assoc & Idem & Sel & Refl & Irefl & Sym & Antisym & Asym & Conn & Trans] <:< tpe
+    quotes.reflect.TypeRepr.of[Comm & Assoc & Idem & Sel & Refl & Irefl & Sym & Antisym & AntisymEq & Asym & Conn & Trans] <:< tpe
 
   def properties(using Quotes)(tpe: quotes.reflect.TypeRepr): (Properties, ListMap[quotes.reflect.Symbol, Properties]) =
     import quotes.reflect.*
@@ -914,6 +913,7 @@ object Checked:
       TypeRepr.of[Irefl] -> Irreflexive,
       TypeRepr.of[Sym] -> Symmetric,
       TypeRepr.of[Antisym] -> Antisymmetric,
+      TypeRepr.of[AntisymEq] -> AntisymmetricEq,
       TypeRepr.of[Asym] -> Asymmetric,
       TypeRepr.of[Conn] -> Connected,
       TypeRepr.of[Trans] -> Transitive)
@@ -934,6 +934,7 @@ object Checked:
       case Irreflexive => TypeRepr.of[Irefl]
       case Symmetric => TypeRepr.of[Sym]
       case Antisymmetric => TypeRepr.of[Antisym]
+      case AntisymmetricEq => TypeRepr.of[AntisymEq]
       case Asymmetric => TypeRepr.of[Asym]
       case Connected => TypeRepr.of[Conn]
       case Transitive => TypeRepr.of[Trans]

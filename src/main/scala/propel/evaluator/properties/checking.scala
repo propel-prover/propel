@@ -13,7 +13,7 @@ var debugPropertiesOrder = List(
 
 def check(
     expr: Term,
-    discoverAlgebraicProperties: Boolean = false,
+    discoverAlgebraicProperties: Boolean = true,
     assumedUncheckedConjectures: List[Normalization] = List.empty,
     assumedUncheckedNestedConjectures: List[Normalization] = List.empty,
     printDeductionDebugInfo: Boolean = false,

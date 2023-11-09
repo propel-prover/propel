@@ -13,6 +13,7 @@ sealed trait Refl extends Property
 sealed trait Irefl extends Property
 sealed trait Sym extends Property
 sealed trait Antisym extends Property
+sealed trait AntisymEq extends Property
 sealed trait Asym extends Property
 sealed trait Conn extends Property
 sealed trait Trans extends Property

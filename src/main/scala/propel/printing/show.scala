@@ -13,6 +13,7 @@ extension (property: Property) def show: String = property match
   case Irreflexive => "irefl"
   case Symmetric => "sym"
   case Antisymmetric => "antisym"
+  case AntisymmetricEq => "antisym-eq"
   case Asymmetric => "asym"
   case Connected => "conn"
   case Transitive => "trans"

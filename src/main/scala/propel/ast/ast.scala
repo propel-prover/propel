@@ -18,6 +18,7 @@ enum Property:
   case Irreflexive
   case Symmetric
   case Antisymmetric
+  case AntisymmetricEq
   case Asymmetric
   case Connected
   case Transitive

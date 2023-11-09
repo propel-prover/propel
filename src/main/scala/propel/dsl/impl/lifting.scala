@@ -21,6 +21,7 @@ given PropertyToExpr: ToExpr[Property] with
     case Irreflexive => '{ Irreflexive }
     case Symmetric => '{ Symmetric }
     case Antisymmetric => '{ Antisymmetric }
+    case AntisymmetricEq => '{ AntisymmetricEq }
     case Asymmetric => '{ Asymmetric }
     case Connected => '{ Connected }
     case Transitive => '{ Transitive }
