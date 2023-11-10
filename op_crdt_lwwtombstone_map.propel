@@ -1,0 +1,162 @@
+;;; Implementation of a buggy op-based map CRDT with LWW Semantics
+;;; Based on this tweet from Martin Kleppmann: https://twitter.com/martinkl/status/1327025979454263297
+;;; So checking this file should result in an error
+
+(type bool {True False})
+
+(type nat {Z (S nat)})
+
+(def nat-eq? (fun nat nat bool)
+  (lambda [refl,sym,trans,sym,antisym-eq] (x nat) (y nat)
+    (cases (Pair x y)
+      [(Pair Z Z) True]
+      [(Pair (S x) (S y)) (nat-eq? x y)]
+      [_ False])))
+
+
+(def nat-leq? (fun nat nat bool)
+  (lambda [refl,trans,antisym-eq,conn] (x nat) (y nat)
+    (cases (Pair x y)
+      [(Pair Z _) True]
+      [(Pair _ Z) False]
+      [(Pair (S x) (S y)) (nat-leq? x y)])))
+
+(def nat-geq? (fun nat nat bool)
+  (lambda [refl,trans,antisym-eq,conn] (x nat) (y nat)
+    (cases (Pair x y)
+      [(Pair _ Z) True]
+      [(Pair Z _) False]
+      [(Pair (S x) (S y)) (nat-geq? x y)])))
+
+(def max (fun nat nat nat)
+  (lambda [comm,idem,assoc,sel] (x nat) (y nat)
+    (if (nat-leq? x y) y x)))
+
+
+; the map will only ever map one key to a single timestamp-value pair
+; this is clear in the specs in two places:
+;   1. on request to read a value for a key, an arbitrary value is picked from the set of
+;      values as long as there is a timestamp associated with it for that key. Therefore since
+;      reading a value should be deterministic then values must have at most one timestamp-value
+;      pair for each key.
+;   2. a `set` operation will always remove all previous timestamp-value pairs before inserting
+;      a single pair. And a `delete` operation will always remove all timestamp-value pairs.
+;      at the starting case there are no timestamp-value pairs. A proof by induction then
+;      is enough to prove that there will always be at most a single timestamp-value pair
+;      for each key
+
+(type MapValue {(Empty nat)       ; Empty timestamp
+                (Value nat nat)}) ; Value timestamp value
+
+(type Map (fun nat MapValue))
+
+(type Op {(Assign nat nat nat) ; Assign key timestamp value
+          (Delete nat nat)     ; Delete key timestamp
+         })
+
+
+(def apply-entry (fun Op Op Map Map)
+     (lambda [comm] (op1 Op) (op2 Op) (map Map)
+
+       (let apply_single (lambda (op Op) (key nat) (value MapValue)
+         (cases (Pair op value)
+
+                [(Pair (Assign dest-key new-time new-value) (Empty old-time))
+                 (if (nat-eq? dest-key key)
+                     (if (nat-eq? new-time old-time)
+                         (Empty old-time)
+                         (if (nat-geq? new-time old-time)
+                             (Value new-time new-value)
+                             (Empty old-time)))
+                     value)]
+
+                [(Pair (Assign dest-key new-time new-value) (Value old-time old-value))
+                 (if (nat-eq? dest-key key)
+                     (if (nat-eq? new-time old-time)
+                         (Value new-time (max new-value old-value))
+                         (if (nat-geq? new-time old-time)
+                             (Value new-time new-value)
+                             (Value old-time old-value)))
+                     value)]
+
+                [(Pair (Delete dest-key new-time) (Empty old-time))
+                 (if (nat-eq? dest-key key)
+                     (Empty (max new-time old-time))
+                     value)]
+
+                [(Pair (Delete dest-key new-time) (Value old-time old-value))
+                 (if (nat-eq? dest-key key)
+                     (if (nat-geq? new-time old-time)
+                         (Empty new-time)
+                         (Value old-time old-value))
+                     value)]))
+
+         (lambda (key nat)
+           (apply_single op1 key (apply_single op2 key (map key)))))))
+
+;; RESULTS
+;
+; for i in {0..10}; do time .native/target/scala-3.3.0/propel -f ~/Desktop/kleppmann_crdt.propel -r -d --no-prop- discovery --no-ineq > /dev/null; done
+; real    0m34.031s
+; real    0m37.182s
+; real    0m37.122s
+; real    0m37.238s
+; real    0m37.467s
+; real    0m38.287s
+; real    0m37.835s
+; real    0m37.110s
+; real    0m37.594s
+; real    0m37.212s
+; real    0m37.465s
+;
+;   average 37.140s
+;
+; for i in {0..10}; do time .native/target/scala-3.3.0/propel -f ~/Desktop/kleppmann_crdt.propel -r -d --no-prop- discovery > /dev/null; done
+; real    0m32.800s
+; real    0m37.549s
+; real    0m36.710s
+; real    0m36.741s
+; real    0m36.665s
+; real    0m36.815s
+; real    0m36.412s
+; real    0m36.919s
+; real    0m37.494s
+; real    0m36.604s
+; real    0m37.236s
+;
+;   average 36.540s
+
+;;;; THIS WORKS!
+; (type MVOp {(Assign nat nat) ; Assign key timestamp value
+;             (Delete nat)     ; Delete key timestamp
+;            })
+;
+; (def apply-entry (fun MVOp MVOp MapValue MapValue)
+;      (lambda [comm] (op1 MVOp) (op2 MVOp) (value MapValue)
+;
+;        (let apply_single (lambda (op MVOp) (value MapValue)
+;          (cases (Pair op value)
+;
+;                 [(Pair (Assign new-time new-value) (Empty old-time))
+;                  (if (nat-eq? new-time old-time)
+;                      (Empty old-time)
+;                      (if (nat-geq? new-time old-time)
+;                          (Value new-time new-value)
+;                          (Empty old-time)))]
+;
+;                 [(Pair (Assign new-time new-value) (Value old-time old-value))
+;                  (if (nat-eq? new-time old-time)
+;                      (Value new-time (max new-value old-value))
+;                      (if (nat-geq? new-time old-time)
+;                          (Value new-time new-value)
+;                          (Value old-time old-value)))]
+;
+;                 [(Pair (Delete new-time) (Empty old-time))
+;                  (Empty (max new-time old-time))]
+;
+;                 [(Pair (Delete new-time) (Value old-time old-value))
+;                  (if (nat-geq? new-time old-time)
+;                      (Empty new-time)
+;                      (Value old-time old-value))]))
+;
+;          (apply_single op1 (apply_single op2 value)))))

@@ -310,6 +310,11 @@ def check(
 
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
+      def takeIfDiscoverPropertiesEnabled[T](l: List[T]): List[T] =
+        if discoverAlgebraicProperties
+        then l
+        else l.slice(0, 10)
+
       val (facts, conjectures) =
         val updatedTerm = assignPropertiesToCalls(term, additionalProperties, Map.empty)
 
@@ -324,13 +329,13 @@ def check(
 
           val generalizedConjectures =
             if evaluationResult.wrapped.reductions.sizeIs > 1 then
-              Conjecture.generalizedConjectures(
+              takeIfDiscoverPropertiesEnabled(Conjecture.generalizedConjectures(
                 abstractionProperties.get,
                 env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
                 updatedTerm,
                 call,
                 identTypes,
-                evaluationResult)
+                evaluationResult))
             else
               List.empty
 
@@ -359,7 +364,7 @@ def check(
 
         (facts,
          generalizedConjectures.flatten ++
-         Conjecture.distributivityConjectures(properties, updatedTerm))
+         takeIfDiscoverPropertiesEnabled(Conjecture.distributivityConjectures(properties, updatedTerm)))
 
       val normalizeFacts =
         facts map { fact =>
