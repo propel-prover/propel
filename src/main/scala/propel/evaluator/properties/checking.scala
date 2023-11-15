@@ -17,7 +17,8 @@ def check(
     assumedUncheckedConjectures: List[Normalization] = List.empty,
     assumedUncheckedNestedConjectures: List[Normalization] = List.empty,
     printDeductionDebugInfo: Boolean = false,
-    printReductionDebugInfo: Boolean = false): Term =
+    printReductionDebugInfo: Boolean = false,
+    maxNumberOfLemmas: Int = -1): Term =
   var debugInfoPrinted = false
 
   def indent(indentation: Int, string: String) =
@@ -310,10 +311,8 @@ def check(
 
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
-      def takeIfDiscoverPropertiesEnabled[T](l: List[T]): List[T] =
-        if discoverAlgebraicProperties
-        then l
-        else l.slice(0, 10)
+      def takeLemmas[T](l : => List[T]): List[T] =
+        if maxNumberOfLemmas < 0 then l else l.slice(0, maxNumberOfLemmas)
 
       val (facts, conjectures) =
         val updatedTerm = assignPropertiesToCalls(term, additionalProperties, Map.empty)
@@ -329,13 +328,13 @@ def check(
 
           val generalizedConjectures =
             if evaluationResult.wrapped.reductions.sizeIs > 1 then
-              takeIfDiscoverPropertiesEnabled(Conjecture.generalizedConjectures(
+              Conjecture.generalizedConjectures(
                 abstractionProperties.get,
                 env.get(_) exists { _.info(Abstraction) exists { abstractions contains _ } },
                 updatedTerm,
                 call,
                 identTypes,
-                evaluationResult))
+                evaluationResult)
             else
               List.empty
 
@@ -362,9 +361,8 @@ def check(
 
         val facts = basicFacts.flatten
 
-        (facts,
-         generalizedConjectures.flatten ++
-         takeIfDiscoverPropertiesEnabled(Conjecture.distributivityConjectures(properties, updatedTerm)))
+        (facts, takeLemmas(
+           generalizedConjectures.flatten ++ Conjecture.distributivityConjectures(properties, updatedTerm)))
 
       val normalizeFacts =
         facts map { fact =>
