@@ -1600,4 +1600,642 @@ val builtInBenchmarks = Map(
     parser.deserialize("(>>= m (lambda (x nat) (>>= (f x) g)))").get,
     Set(Symbol("m"), Symbol("f"), Symbol("g")),
     Symbol(">>=")),
+
+  "tip_bin_plus_assoc" ->
+  parser.deserialize("""
+    (letrec bin_s (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+      (lambda (x (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+        [One (ZeroAnd One)]
+        [(ZeroAnd xs) (OneAnd xs)]
+        [(OneAnd ys) (ZeroAnd (bin_s ys))]))
+      (letrec tip_bin_plus (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+        (lambda [assoc] (x (rec X {(ZeroAnd X) (OneAnd X) One})) (y (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+          [One (bin_s y)]
+          [(ZeroAnd z) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd ys) (ZeroAnd (tip_bin_plus z ys))]
+            [(OneAnd xs) (OneAnd (tip_bin_plus z xs))])]
+          [(OneAnd x2) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd zs) (OneAnd (tip_bin_plus x2 zs))]
+            [(OneAnd ys2) (ZeroAnd (bin_s (tip_bin_plus x2 ys2)))])]))
+        Unit))
+  """).get,
+
+  "tip_bin_plus_comm" ->
+  parser.deserialize("""
+    (letrec bin_s (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+      (lambda (x (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+        [One (ZeroAnd One)]
+        [(ZeroAnd xs) (OneAnd xs)]
+        [(OneAnd ys) (ZeroAnd (bin_s ys))]))
+      (letrec tip_bin_plus (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+        (lambda [comm] (x (rec X {(ZeroAnd X) (OneAnd X) One})) (y (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+          [One (bin_s y)]
+          [(ZeroAnd z) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd ys) (ZeroAnd (tip_bin_plus z ys))]
+            [(OneAnd xs) (OneAnd (tip_bin_plus z xs))])]
+          [(OneAnd x2) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd zs) (OneAnd (tip_bin_plus x2 zs))]
+            [(OneAnd ys2) (ZeroAnd (bin_s (tip_bin_plus x2 ys2)))])]))
+        Unit))
+  """).get,
+
+  "tip_bin_times_assoc" ->
+  parser.deserialize("""
+    (letrec bin_s (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+      (lambda (x (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+        [One (ZeroAnd One)]
+        [(ZeroAnd xs) (OneAnd xs)]
+        [(OneAnd ys) (ZeroAnd (bin_s ys))]))
+      (letrec tip_bin_plus (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+        (lambda (x (rec X {(ZeroAnd X) (OneAnd X) One})) (y (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+          [One (bin_s y)]
+          [(ZeroAnd z) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd ys) (ZeroAnd (tip_bin_plus z ys))]
+            [(OneAnd xs) (OneAnd (tip_bin_plus z xs))])]
+          [(OneAnd x2) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd zs) (OneAnd (tip_bin_plus x2 zs))]
+            [(OneAnd ys2) (ZeroAnd (bin_s (tip_bin_plus x2 ys2)))])]))
+        (letrec tip_bin_times (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+          (lambda [assoc] (x (rec X {(ZeroAnd X) (OneAnd X) One})) (y (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+            [One y]
+            [(ZeroAnd xs1) (ZeroAnd (tip_bin_times xs1 y))]
+            [(OneAnd xs12) (tip_bin_plus (ZeroAnd (tip_bin_times xs12 y)) y)]))
+          Unit)))
+  """).get,
+
+  "tip_bin_times_comm" ->
+  parser.deserialize("""
+    (letrec bin_s (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+      (lambda (x (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+        [One (ZeroAnd One)]
+        [(ZeroAnd xs) (OneAnd xs)]
+        [(OneAnd ys) (ZeroAnd (bin_s ys))]))
+      (letrec tip_bin_plus (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+        (lambda (x (rec X {(ZeroAnd X) (OneAnd X) One})) (y (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+          [One (bin_s y)]
+          [(ZeroAnd z) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd ys) (ZeroAnd (tip_bin_plus z ys))]
+            [(OneAnd xs) (OneAnd (tip_bin_plus z xs))])]
+          [(OneAnd x2) (cases y
+            [One (bin_s x)]
+            [(ZeroAnd zs) (OneAnd (tip_bin_plus x2 zs))]
+            [(OneAnd ys2) (ZeroAnd (bin_s (tip_bin_plus x2 ys2)))])]))
+        (letrec tip_bin_times (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
+          (lambda [comm] (x (rec X {(ZeroAnd X) (OneAnd X) One})) (y (rec X {(ZeroAnd X) (OneAnd X) One})) (cases x
+            [One y]
+            [(ZeroAnd xs1) (ZeroAnd (tip_bin_times xs1 y))]
+            [(OneAnd xs12) (tip_bin_plus (ZeroAnd (tip_bin_times xs12 y)) y)]))
+          Unit)))
+  """).get,
+
+  "tip_int_plus_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_sub (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))})
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (let fail
+            (cases y
+              [Z (P x)]
+              [(S z) (cases x
+                [Z (N z)]
+                [(S x2) (tip_sub x2 z)])])
+            (cases x
+              [Z (cases y
+                [Z (P Z)]
+                [(S x3) fail])]
+              [(S x4) fail])))
+        (let tip_int_plus
+          (lambda [assoc] (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (y {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (cases x
+            [(P m) (cases y
+              [(P n) (P (tip_nat_plus m n))]
+              [(N o) (tip_sub m (tip_nat_plus (S Z) o))])]
+            [(N m2) (cases y
+              [(P n2) (tip_sub n2 (tip_nat_plus (S Z) m2))]
+              [(N n3) (N (tip_nat_plus (tip_nat_plus (S Z) m2) n3))])]))
+          Unit)))
+  """).get,
+
+  "tip_int_plus_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_sub (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))})
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (let fail
+            (cases y
+              [Z (P x)]
+              [(S z) (cases x
+                [Z (N z)]
+                [(S x2) (tip_sub x2 z)])])
+            (cases x
+              [Z (cases y
+                [Z (P Z)]
+                [(S x3) fail])]
+              [(S x4) fail])))
+        (let tip_int_plus
+          (lambda [comm] (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (y {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (cases x
+            [(P m) (cases y
+              [(P n) (P (tip_nat_plus m n))]
+              [(N o) (tip_sub m (tip_nat_plus (S Z) o))])]
+            [(N m2) (cases y
+              [(P n2) (tip_sub n2 (tip_nat_plus (S Z) m2))]
+              [(N n3) (N (tip_nat_plus (tip_nat_plus (S Z) m2) n3))])]))
+          Unit)))
+  """).get,
+
+  "tip_int_times_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_nat_times (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (tip_nat_plus y (tip_nat_times z y))]))
+       (let tip_to_integer
+         (lambda (x {Pos Neg}) (y (rec X {(S X) Z})) (cases x
+           [Pos (P y)]
+           [Neg (cases y
+             [Z (P Z)]
+             [(S z) (N z)])]))
+         (let tip_sign
+           (lambda (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (cases x
+             [(P y) Pos]
+             [(N z) Neg]))
+           (let tip_opposite_sign
+             (lambda (x {Pos Neg}) (cases x
+               [Pos Neg]
+               [Neg Pos]))
+             (let tip_times_sign
+               (lambda (x {Pos Neg}) (y {Pos Neg}) (cases x
+                 [Pos y]
+                 [Neg (tip_opposite_sign y)]))
+               (let tip_abs
+                 (lambda (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (cases x
+                   [(P n) n]
+                   [(N m) (tip_nat_plus (S Z) m)]))
+                (let tip_int_times
+                  (lambda [assoc] (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (y {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))})
+                    (tip_to_integer
+                      (tip_times_sign (tip_sign x) (tip_sign y))
+                      (tip_nat_times (tip_abs x) (tip_abs y))))
+                  Unit))))))))
+  """).get,
+
+  "tip_int_times_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_nat_times (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (tip_nat_plus y (tip_nat_times z y))]))
+       (let tip_to_integer
+         (lambda (x {Pos Neg}) (y (rec X {(S X) Z})) (cases x
+           [Pos (P y)]
+           [Neg (cases y
+             [Z (P Z)]
+             [(S z) (N z)])]))
+         (let tip_sign
+           (lambda (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (cases x
+             [(P y) Pos]
+             [(N z) Neg]))
+           (let tip_opposite_sign
+             (lambda (x {Pos Neg}) (cases x
+               [Pos Neg]
+               [Neg Pos]))
+             (let tip_times_sign
+               (lambda (x {Pos Neg}) (y {Pos Neg}) (cases x
+                 [Pos y]
+                 [Neg (tip_opposite_sign y)]))
+               (let tip_abs
+                 (lambda (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (cases x
+                   [(P n) n]
+                   [(N m) (tip_nat_plus (S Z) m)]))
+                (let tip_int_times
+                  (lambda [comm] (x {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))}) (y {(P (rec X {(S X) Z})) (N (rec X {(S X) Z}))})
+                    (tip_to_integer
+                      (tip_times_sign (tip_sign x) (tip_sign y))
+                      (tip_nat_times (tip_abs x) (tip_abs y))))
+                  Unit))))))))
+  """).get,
+
+  "tip_list_append_assoc" ->
+  parser.deserialize("""
+    (letrec tip_list_append (forall T (fun (rec X {(Cons T X) Nil}) (rec X {(Cons T X) Nil}) (rec X {(Cons T X) Nil})))
+      (lambda T (lambda [assoc] (x (rec X {(Cons T X) Nil})) (y (rec X {(Cons T X) Nil})) (cases x
+        [Nil y]
+        [(Cons z xs) (Cons z ((tip_list_append [T]) xs y))])))
+      Unit)
+  """).get,
+
+  "tip_nat_geq_antisym" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_geq
+        (lambda [antisym] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (tip_nat_leq y x))
+        Unit))
+  """).get,
+
+  "tip_nat_geq_refl" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_geq
+        (lambda [refl] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (tip_nat_leq y x))
+        Unit))
+  """).get,
+
+  "tip_nat_geq_trans" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_geq
+        (lambda [trans] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (tip_nat_leq y x))
+        Unit))
+  """).get,
+
+  "tip_nat_gt_asym" ->
+  parser.deserialize("""
+    (letrec tip_nat_lt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases y
+        [Z False]
+        [(S z) (cases x
+          [Z True]
+          [(S n) (tip_nat_lt n z)])]))
+      (let tip_nat_gt
+        (lambda [irefl] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (tip_nat_lt y x))
+        Unit))
+  """).get,
+
+  "tip_nat_gt_irefl" ->
+  parser.deserialize("""
+    (letrec tip_nat_lt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases y
+        [Z False]
+        [(S z) (cases x
+          [Z True]
+          [(S n) (tip_nat_lt n z)])]))
+      (let tip_nat_gt
+        (lambda [asym] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (tip_nat_lt y x))
+        Unit))
+  """).get,
+
+  "tip_nat_gt_trans" ->
+  parser.deserialize("""
+    (letrec tip_nat_lt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases y
+        [Z False]
+        [(S z) (cases x
+          [Z True]
+          [(S n) (tip_nat_lt n z)])]))
+      (let tip_nat_gt
+        (lambda [trans] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (tip_nat_lt y x))
+        Unit))
+  """).get,
+
+  "tip_nat_leq_antisym" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda [antisym] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      Unit)
+  """).get,
+
+  "tip_nat_leq_refl" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda [refl] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      Unit)
+  """).get,
+
+  "tip_nat_leq_trans" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda [trans] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      Unit)
+  """).get,
+
+  "tip_nat_lt_asym" ->
+  parser.deserialize("""
+    (letrec tip_nat_lt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda [asym] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases y
+        [Z False]
+        [(S z) (cases x
+          [Z True]
+          [(S n) (tip_nat_lt n z)])]))
+        Unit)
+  """).get,
+
+  "tip_nat_lt_irefl" ->
+  parser.deserialize("""
+    (letrec tip_nat_lt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda [irefl] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases y
+        [Z False]
+        [(S z) (cases x
+          [Z True]
+          [(S n) (tip_nat_lt n z)])]))
+        Unit)
+  """).get,
+
+  "tip_nat_lt_trans" ->
+  parser.deserialize("""
+    (letrec tip_nat_lt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda [trans] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases y
+        [Z False]
+        [(S z) (cases x
+          [Z True]
+          [(S n) (tip_nat_lt n z)])]))
+        Unit)
+  """).get,
+
+  "tip_nat_max_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_max
+        (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (if (tip_nat_leq x y) y x))
+        Unit))
+  """).get,
+
+  "tip_nat_max_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_max
+        (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (if (tip_nat_leq x y) y x))
+        Unit))
+  """).get,
+
+  "tip_nat_max_idem" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_max
+        (lambda [idem] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (if (tip_nat_leq x y) y x))
+        Unit))
+  """).get,
+
+  "tip_nat_min_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_min
+        (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (if (tip_nat_leq x y) x y))
+        Unit))
+  """).get,
+
+  "tip_nat_min_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_min
+        (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (if (tip_nat_leq x y) x y))
+        Unit))
+  """).get,
+
+  "tip_nat_min_idem" ->
+  parser.deserialize("""
+    (letrec tip_nat_leq (fun (rec X {(S X) Z}) (rec X {(S X) Z}) {True False})
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z True]
+        [(S z) (cases y
+          [Z False]
+          [(S x2) (tip_nat_leq z x2)])]))
+      (let tip_nat_min
+        (lambda [idem] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+          (if (tip_nat_leq x y) x y))
+        Unit))
+  """).get,
+
+  "tip_nat_plus_acc_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus_acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (tip_nat_plus_acc z (S y))]))
+      Unit)
+  """).get,
+
+  "tip_nat_plus_acc_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus_acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (tip_nat_plus_acc z (S y))]))
+      Unit)
+  """).get,
+
+  "tip_nat_plus_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      Unit)
+  """).get,
+
+  "tip_nat_plus_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      Unit)
+  """).get,
+
+  "tip_nat_times_acc_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus_acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (tip_nat_plus_acc z (S y))]))
+      (letrec tip_nat_times_acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (cases y
+            [Z Z]
+            [(S x2) (tip_nat_plus_acc x (tip_nat_plus_acc x2 (tip_nat_times_acc z x2)))])]))
+        Unit))
+  """).get,
+
+  "tip_nat_times_acc_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus_acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (tip_nat_plus_acc z (S y))]))
+      (letrec tip_nat_times_acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (cases y
+            [Z Z]
+            [(S x2) (tip_nat_plus_acc x (tip_nat_plus_acc x2 (tip_nat_times_acc z x2)))])]))
+        Unit))
+  """).get,
+
+  "tip_nat_times_alt_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_nat_times_alt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (cases y
+            [Z Z]
+            [(S x2) (tip_nat_plus (tip_nat_plus (tip_nat_plus (S Z) (tip_nat_times_alt z x2)) z) x2)])]))
+        Unit))
+  """).get,
+
+  "tip_nat_times_alt_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_nat_times_alt (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (cases y
+            [Z Z]
+            [(S x2) (tip_nat_plus (tip_nat_plus (tip_nat_plus (S Z) (tip_nat_times_alt z x2)) z) x2)])]))
+        Unit))
+  """).get,
+
+  "tip_nat_times_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_nat_times (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (tip_nat_plus y (tip_nat_times z y))]))
+        Unit))
+  """).get,
+
+  "tip_nat_times_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_nat_times (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+          [Z Z]
+          [(S z) (tip_nat_plus y (tip_nat_times z y))]))
+        Unit))
+  """).get,
+
+  "tip_nat_times_weird_assoc" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_add3acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (z (rec X {(S X) Z})) (cases x
+          [Z (cases y
+            [Z z]
+            [(S x2) (tip_add3acc Z x2 (S z))])]
+          [(S x3) (tip_add3acc x3 (S y) z)]))
+        (letrec nat_times_weird (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+          (lambda [assoc] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+            [Z Z]
+            [(S z) (cases y
+              [Z Z]
+              [(S x2) (tip_nat_plus (S Z) (tip_add3acc z x2 (nat_times_weird z x2)))])]))
+          Unit)))
+  """).get,
+
+  "tip_nat_times_weird_comm" ->
+  parser.deserialize("""
+    (letrec tip_nat_plus (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+      (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+        [Z y]
+        [(S z) (S (tip_nat_plus z y))]))
+      (letrec tip_add3acc (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+        (lambda (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (z (rec X {(S X) Z})) (cases x
+          [Z (cases y
+            [Z z]
+            [(S x2) (tip_add3acc Z x2 (S z))])]
+          [(S x3) (tip_add3acc x3 (S y) z)]))
+        (letrec nat_times_weird (fun (rec X {(S X) Z}) (rec X {(S X) Z}) (rec X {(S X) Z}))
+          (lambda [comm] (x (rec X {(S X) Z})) (y (rec X {(S X) Z})) (cases x
+            [Z Z]
+            [(S z) (cases y
+              [Z Z]
+              [(S x2) (tip_nat_plus (S Z) (tip_add3acc z x2 (nat_times_weird z x2)))])]))
+          Unit)))
+  """).get,
 )
