@@ -18,7 +18,8 @@ def check(
     assumedUncheckedNestedConjectures: List[Normalization] = List.empty,
     printDeductionDebugInfo: Boolean = false,
     printReductionDebugInfo: Boolean = false,
-    maxNumberOfLemmas: Int = -1): Term =
+    maxNumberOfLemmas: Int = -1,
+    maxNumberOfFacts: Int = -1): Term =
   var debugInfoPrinted = false
 
   def indent(indentation: Int, string: String) =
@@ -311,9 +312,6 @@ def check(
 
       val result = Symbolic.eval(UniqueNames.convert(expr1, names))
 
-      def takeLemmas[T](l : => List[T]): List[T] =
-        if maxNumberOfLemmas < 0 then l else l.slice(0, maxNumberOfLemmas)
-
       val (facts, conjectures) =
         val updatedTerm = assignPropertiesToCalls(term, additionalProperties, Map.empty)
 
@@ -361,7 +359,7 @@ def check(
 
         val facts = basicFacts.flatten
 
-        (facts, takeLemmas(
+        (takeIfNotNeg(maxNumberOfFacts, facts), takeIfNotNeg(maxNumberOfLemmas,
            generalizedConjectures.flatten ++ Conjecture.distributivityConjectures(properties, updatedTerm)))
 
       val normalizeFacts =

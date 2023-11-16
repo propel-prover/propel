@@ -22,6 +22,7 @@ import scala.scalajs.js.annotation._
     var ignorePosNegContradiction = false
     var ignoreCyclicContradiction = false
     var maxNumberOfLemmas = -1
+    var maxNumberOfFacts = -1
     var runMain = false
     var keepRewritesBits = 8
     var propertiesOrder = List(
@@ -109,6 +110,13 @@ import scala.scalajs.js.annotation._
               catch case exception: NumberFormatException => error = Some(exception.getMessage.nn)
             else
             error = Some("No number given")
+          case "--max-facts" =>
+            if args.hasNext then
+              try
+                maxNumberOfFacts = args.next().toInt
+              catch case exception: NumberFormatException => error = Some(exception.getMessage.nn)
+            else
+            error = Some("No number given")
           case arg =>
             error = Some(s"Unknown option: $arg")
 
@@ -116,13 +124,13 @@ import scala.scalajs.js.annotation._
      disableEqualities, disableInequalities,
      ignorePosContradiction, ignoreNegContradiction,
      ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
-     keepRewritesBits, propertiesOrder, maxNumberOfLemmas)
+     keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts)
 
   parsedArguments match
-    case (Some(error), _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
+    case (Some(error), _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
       println(s"Error: $error")
 
-    case (_, None, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
+    case (_, None, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
       println("Usage: propel [ARGUMENT]...")
       println("Verifies the algebraic and relational properties of functions specified in Propel's input format.")
       println()
@@ -144,6 +152,7 @@ import scala.scalajs.js.annotation._
       println("      --ignore-contra-eq-ineq      ignore contradiction across in/equalities")
       println("      --ignore-contra-cycle        ignore contradiction through cycles")
       println("      --max-lemmas NUMBER          generate a limited number of lemmas")
+      println("      --max-facts NUMBER           generate a limited number of facts")
       println("      --keep-rewrites NUMBER       number of top-scored rewrites to keep")
       println("      --prop-order PROPERTIES      comma-separated list of properties")
 
@@ -151,13 +160,13 @@ import scala.scalajs.js.annotation._
           disableEqualities, disableInequalities,
           ignorePosContradiction, ignoreNegContradiction,
           ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
-          keepRewritesBits, propertiesOrder, maxNumberOfLemmas) =>
+          keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts) =>
       parseAndCheckSourceCode(
         content, deduction, reduction, discoverAlgebraicProperties,
         disableEqualities, disableInequalities,
         ignorePosContradiction, ignoreNegContradiction,
         ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
-        keepRewritesBits, propertiesOrder, maxNumberOfLemmas)
+        keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts)
 
 @JSExportTopLevel("parseAndCheckSourceCode")
 def parseAndCheckSourceCode(
@@ -167,7 +176,7 @@ def parseAndCheckSourceCode(
     ignorePosContradiction: Boolean, ignoreNegContradiction: Boolean,
     ignorePosNegContradiction: Boolean, ignoreCyclicContradiction: Boolean,
     runMain: Boolean, keepRewritesBits: Int, propertiesOrder: List[ast.Property],
-    maxNumberOfLemmas: Int) =
+    maxNumberOfLemmas: Int, maxNumberOfFacts: Int) =
   val exprToEval = if runMain
                    then ast.Var(Symbol("main"))
                    else ast.Data(ast.Constructor(Symbol("Unit")), List.empty)
@@ -197,7 +206,8 @@ def parseAndCheckSourceCode(
           discoverAlgebraicProperties = discoverAlgebraicProperties,
           printDeductionDebugInfo = deduction,
           printReductionDebugInfo = reduction,
-          maxNumberOfLemmas = maxNumberOfLemmas)
+          maxNumberOfLemmas = maxNumberOfLemmas,
+          maxNumberOfFacts = maxNumberOfFacts)
 
         if deduction || reduction then
           println()

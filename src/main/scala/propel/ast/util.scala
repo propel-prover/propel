@@ -42,3 +42,7 @@ def equivalent(expr0: Term, expr1: Term): Boolean =
     case _ =>
       false
 end equivalent
+
+
+def takeIfNotNeg[T](n: Int, l: => List[T]): List[T] =
+  if n < 0 then l else l.slice(0, n)
