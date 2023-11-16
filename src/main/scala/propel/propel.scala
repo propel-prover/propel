@@ -208,6 +208,7 @@ def parseAndCheckSourceCode(
         else
           println(errors)
           println("✘ Check failed.")
+          System.exit(-1)
   )
 
 extension (expr: ast.Term)
