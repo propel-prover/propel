@@ -1610,6 +1610,108 @@ val builtInBenchmarks = Map(
     Set(Symbol("m"), Symbol("f"), Symbol("g")),
     Symbol(">>=")),
 
+  "state_functor_id" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type state (fun nat {(Return nat nat)}))
+
+    (def fmap (fun (fun nat nat) state state)
+      (lambda (f (fun nat nat)) (m state)
+        (lambda (r nat)
+          (let (Return x s) (m r) (Return (f x) s)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) y) x)").get,
+    parser.deserialize("x").get,
+    Set(Symbol("x")),
+    Symbol("fmap")),
+
+  "state_functor_composition" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type state (fun nat {(Return nat nat)}))
+
+    (def fmap (fun (fun nat nat) state state)
+      (lambda (f (fun nat nat)) (m state)
+        (lambda (r nat)
+          (let (Return x s) (m r) (Return (f x) s)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(fmap (lambda (y nat) (f (g y))) x)").get,
+    parser.deserialize("(fmap f (fmap g x))").get,
+    Set(Symbol("f"), Symbol("g"), Symbol("x")),
+    Symbol("fmap")),
+
+  "state_semigroup_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type state (fun nat {(Return nat nat)}))
+
+    (def nat_add (fun nat nat nat)
+      (lambda (x nat) (y nat) (cases x
+        [Z y]
+        [(S x) (S (nat_add x y))])))
+
+    (def <> (fun state state state)
+      (lambda [assoc] (m state) (n state)
+        (lambda (r nat)
+          (let (Return x t) (m r)
+            (let (Return y s) (n t)
+              (Return (nat_add x y) s))))))
+  """).get,
+
+  "state_monad_leftid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type state (fun nat {(Return nat nat)}))
+
+    (def return (lambda (x nat)
+      (lambda (s nat) (Return x s))))
+
+    (def >>= (fun state (fun nat state) state)
+      (lambda (m state) (f (fun nat state))
+        (lambda (r nat)
+          (let (Return x s) (m r) ((f x) s)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (return x) f)").get,
+    parser.deserialize("(f x)").get,
+    Set(Symbol("f"), Symbol("x")),
+    Symbol(">>=")),
+
+  "state_monad_rightid" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type state (fun nat {(Return nat nat)}))
+
+    (def return (lambda (x nat)
+      (lambda (s nat) (Return x s))))
+
+    (def >>= (fun state (fun nat state) state)
+      (lambda (m state) (f (fun nat state))
+        (lambda (r nat)
+          (let (Return x s) (m r) ((f x) s)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= m return)").get,
+    parser.deserialize("m").get,
+    Set(Symbol("m")),
+    Symbol(">>=")),
+
+  "state_monad_assoc" ->
+  parser.deserialize("""
+    (type nat {Z (S nat)})
+    (type state (fun nat {(Return nat nat)}))
+
+    (def return (lambda (x nat)
+      (lambda (s nat) (Return x s))))
+
+    (def >>= (fun state (fun nat state) state)
+      (lambda (m state) (f (fun nat state))
+        (lambda (r nat)
+          (let (Return x s) (m r) ((f x) s)))))
+  """).get.withCustomProperty(
+    parser.deserialize("(>>= (>>= m f) g)").get,
+    parser.deserialize("(>>= m (lambda (x nat) (>>= (f x) g)))").get,
+    Set(Symbol("m"), Symbol("f"), Symbol("g")),
+    Symbol(">>=")),
+
   "tip_bin_plus_assoc" ->
   parser.deserialize("""
     (letrec bin_s (fun (rec X {(ZeroAnd X) (OneAnd X) One}) (rec X {(ZeroAnd X) (OneAnd X) One}))
