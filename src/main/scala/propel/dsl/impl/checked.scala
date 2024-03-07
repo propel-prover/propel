@@ -441,6 +441,24 @@ object Checked:
         val expr = (varProps: VarProps) => argTypes.foldLeft(funExpr(varProps)) { TypeApp(_, _) }
         (funTerm.appliedToTypeTrees(args), expr, funTypeVars ++ argTypeVars.flatten, funPropVars, funExternal)
 
+      case Block(List(defDef @ DefDef(name, List(TermParamClause(params)), tpt, Some(rhs))), closure @ Closure(meth, tpe))
+          if defDef.symbol == meth.symbol =>
+        val paramSymbols = params map { _.symbol }
+        val (rhsTerm, rhsExpr, rhsTypeVars, rhsPropVars, rhsExternal) = processPropExpr(rhs, bound ++ paramSymbols, externalTerms)
+
+        val (paramDefinitions, paramTypeVars) = (params map { param =>
+          val (tpe, typeVars) = makeType(param.tpt.tpe, param.pos)
+          (scala.Symbol(param.name) -> tpe, typeVars)
+        }).unzip
+
+        val resultExpr = (varProps: VarProps) =>
+          paramDefinitions.foldRight(rhsExpr(varProps)) { case ((ident, tpe), expr) => Abs(Set.empty, ident, tpe, expr) }
+
+        val resultTerm =
+          Block.copy(term)(List(DefDef.copy(defDef)(name, List(TermParamClause(params)), tpt, Some(rhsTerm))), Closure.copy(closure)(meth, tpe))
+
+        (resultTerm, resultExpr, rhsTypeVars ++ paramTypeVars.flatten, rhsPropVars, rhsExternal)
+
       case Block(stats, expr) =>
         val (statsResult, statsTypeVars, statsPropVars, statsExternal, statsBound) =
           stats.foldLeft(List.empty[(Definition, VarProps => ast.Term)], Set.empty[scala.Symbol], ListMap.empty[Symbol, Properties], ListSet.empty[Term], bound) {
