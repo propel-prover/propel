@@ -848,6 +848,9 @@ def check(
         else
           resultExpr
 
+    case App(_, App(_, Var(Symbol("prop-for")), _), _) if term.info(CustomProperties).isDefined =>
+      term
+
     case App(properties, expr, arg) =>
       val checkedArg = check(arg, env, dependencies)
       val checkedExpr = check(expr, env, dependencies)
@@ -871,7 +874,7 @@ def check(
         cases map { (pattern, expr) => pattern -> check(expr, env ++ typedBindings(pattern), dependencies) }).typedTerm
 
   if typedExpr.termType.isDefined then
-    check(typedExpr, assumedUncheckedConjecturesEnvironment, List.empty)
+    check(interpretAndAddAllCustomProperties(typedExpr), assumedUncheckedConjecturesEnvironment, List.empty)
   else
     typedExpr
 end check

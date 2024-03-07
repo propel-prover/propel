@@ -4,7 +4,7 @@ package dsl.impl
 import ast.{Type => _, Term => _, Property => _, dsl => _, *}
 import typer.*
 
-import dsl.scala.*
+import dsl.scala.{=:= => _, *}
 
 import scala.collection.immutable.{ListMap, ListSet}
 import scala.collection.mutable
@@ -24,7 +24,8 @@ object Checked:
     import quotes.reflect.*
 
     val Inlined(_, List(), Typed(fTerm, _)) = f.asTerm: @unchecked
-    val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](fTerm, Symbol.spliceOwner, Set.empty, mutable.Map.empty, recursive)
+    val (result, recursiveSymbol, expr, typeVars, propVars, external, _) =
+      processPropDef[T](fTerm, Symbol.spliceOwner, Set.empty, mutable.Map.empty, None, recursive)
     val externalProperties = external.toList flatMap auxiliaryProperties
 
     def reportErrors(expr: ast.Term) =
@@ -560,13 +561,15 @@ object Checked:
       owner: quotes.reflect.Symbol,
       bound: Set[quotes.reflect.Symbol],
       externalTerms: mutable.Map[scala.Symbol, ast.Term],
+      recursiveSymbol: Option[quotes.reflect.Symbol],
       recursive: Boolean)
     : (quotes.reflect.Term,
        Option[quotes.reflect.Symbol],
        Map[quotes.reflect.Symbol, Properties] => ast.Term,
        Set[scala.Symbol],
        ListMap[quotes.reflect.Symbol, Properties],
-       ListSet[quotes.reflect.Term]) =
+       ListSet[quotes.reflect.Term],
+       List[Map[quotes.reflect.Symbol, Properties] => ast.Term]) =
     import quotes.reflect.*
 
     type VarProps = Map[quotes.reflect.Symbol, Properties]
@@ -587,18 +590,61 @@ object Checked:
 
     term match
       case Inlined(call, List(), body) =>
-        val (result, recursiveSymbol, expr, typeVars, propVars, external) = processPropDef[T](body, owner, bound, externalTerms, recursive)
-        (Inlined.copy(term)(call, List(), result), recursiveSymbol, expr, typeVars, propVars, external)
+        val (result, symbol, expr, typeVars, propVars, external, customProperties) =
+          processPropDef[T](body, owner, bound, externalTerms, recursiveSymbol, recursive)
+        (Inlined.copy(term)(call, List(), result), symbol, expr, typeVars, propVars, external, customProperties)
 
       case Block(List(), expr) =>
-        processPropDef[T](expr, owner, bound, externalTerms, recursive)
+        processPropDef[T](expr, owner, bound, externalTerms, recursiveSymbol, recursive)
+
+      case Apply(Apply(props, List(Typed(Repeated(exprs, _), _))), List(body))
+          if props.symbol == Symbol.requiredMethod("propel.dsl.scala.props") =>
+
+        val (result, symbol, expr, typeVars, propVars, external, customProperties) =
+          processPropDef[T](body, owner, bound, externalTerms, recursiveSymbol, recursive)
+
+        recursiveSymbol.fold(term, symbol, expr, typeVars, propVars, external, customProperties) { recursiveSymbol =>
+          val (properties, propertiesTypeVars, propertiesExternal) = (exprs map {
+            case Block(List(defDef @ DefDef(_, List(TermParamClause(params)), _, Some(Apply(Apply(equals, List(lhs)), List(rhs))))), Closure(meth, _))
+                if equals.symbol == Symbol.requiredMethod("propel.dsl.scala.=:=") && defDef.symbol == meth.symbol =>
+              val paramSymbols = params map { _.symbol }
+              val paramNames = params map { param => scala.Symbol(param.name) }
+
+              val (_, lhsExpr, _, _, lhsExternal) = processPropExpr(lhs, bound ++ paramSymbols, externalTerms)
+              val (_, rhsExpr, _, _, rhsExternal) = processPropExpr(rhs, bound ++ paramSymbols, externalTerms)
+
+              val (paramDefinitions, paramTypeVars) = (params map { param =>
+                val (tpe, typeVars) = makeType(param.tpt.tpe, param.pos)
+                (scala.Symbol(param.name) -> tpe, typeVars)
+              }).unzip
+
+              val properties = (varProps: VarProps) =>
+                val body = App(Set.empty, App(Set.empty, Var(scala.Symbol("==")), lhsExpr(varProps)), rhsExpr(varProps))
+                  .withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+
+                val quantifiedBody =
+                  paramDefinitions.foldRight(body) { case ((ident, tpe), expr) => Abs(Set.empty, ident, tpe, expr) }
+
+                App(Set.empty, App(Set.empty, Var(scala.Symbol("prop-for")), Var(scala.Symbol(recursiveSymbol.name))), quantifiedBody)
+                  .withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+
+              (properties, paramTypeVars.flatten, lhsExternal ++ rhsExternal)
+
+            case expr =>
+              report.errorAndAbort("Unexpected property definition. Properties must have the shape (x₀: T₀, ..., xₙ: Tₙ) => e =:= e′", expr.pos)
+          }).unzip3
+
+          (result, symbol, expr, typeVars ++ propertiesTypeVars.flatten, propVars, external ++ propertiesExternal.flatten, properties ++ customProperties)
+        }
 
       case Block(List(defDef @ DefDef(name, List(TermParamClause(params)), tpt, Some(rhs))), Closure(meth, _))
           if defDef.symbol == meth.symbol =>
         val paramSymbols = params map { _.symbol }
+        val recursiveSymbol = Option.when(recursive) { params.head.symbol }
 
         def makeLambda[R: Type] =
-          val (lambdaBody, _, exprBody, typeVars, propVars, external) = processPropDef[R](rhs, defDef.symbol, bound ++ paramSymbols, externalTerms, recursive = false)
+          val (lambdaBody, _, exprBody, typeVars, propVars, external, customProperties) =
+            processPropDef[R](rhs, defDef.symbol, bound ++ paramSymbols, externalTerms, recursiveSymbol, recursive = false)
           val lambda = Lambda(
             owner,
             MethodType(params map { _.name })(_ => params map { _.tpt.tpe }, _ => TypeRepr.of[R]),
@@ -609,21 +655,32 @@ object Checked:
             val (tpe, vars) = makeType(param.tpt.tpe, param.pos)
             { (varProps: VarProps) => Abs(Set.empty, scala.Symbol(param.name), tpe, expr(varProps)) } -> (typeVars ++ vars)
           }
-          (lambda, expr, vars, propVars, external)
+          (lambda, expr, vars, propVars, external, customProperties)
 
         if recursive then
-          val (result, _, expr, typeVars, propVars, external) = processPropDef[T](rhs, defDef.symbol, bound ++ paramSymbols, externalTerms, recursive = false)
-          (result, Some(params.head.symbol), expr, typeVars, propVars, external)
+          val (result, _, expr, typeVars, propVars, external, customProperties) =
+            processPropDef[T](rhs, defDef.symbol, bound ++ paramSymbols, externalTerms, recursiveSymbol, recursive = false)
+          val exprWithCustomProperties = (varProps: VarProps) =>
+            if recursiveSymbol.isDefined && customProperties.nonEmpty then
+              val ident = scala.Symbol(recursiveSymbol.get.name)
+              val properties =
+                customProperties.foldRight[ast.Term](Var(ident)) { (customProperty, expr) =>
+                  Cases(customProperty(varProps), List(ast.Bind(scala.Symbol("_")) -> expr))
+                }
+              Cases(expr(varProps), List(ast.Bind(ident) -> properties))
+            else
+              expr(varProps)
+          (result, recursiveSymbol, exprWithCustomProperties, typeVars, propVars, external, customProperties)
         else
           functionType[T] match
             case Some(_, '[ t ]) =>
-              val (lambda, expr, typeVars, propVars, external) = makeLambda[t]
-              (lambda, None, expr, typeVars, propVars, external)
+              val (lambda, expr, typeVars, propVars, external, customProperties) = makeLambda[t]
+              (lambda, None, expr, typeVars, propVars, external, customProperties)
 
             case _ =>
               Type.of[T] match
                 case '[ p := (a, b) =>: r ] =>
-                  val (lambda, lambdaExpr, typeVars, lambdaPropVars, external) = makeLambda[r]
+                  val (lambda, lambdaExpr, typeVars, lambdaPropVars, external, customProperties) = makeLambda[r]
                   val Inlined(_, List(), result) = '{
                     new Unchecked.AnnotatedFunction[Unchecked.PropertyAnnotation[Nothing, (a, b)], r]:
                       def apply(v1: a, v2: b): r = ${ Expr.betaReduce('{ ${lambda.asExprOf[(a, b) => r]}(v1, v2) }) }
@@ -633,19 +690,19 @@ object Checked:
                     val additonalProps = (varProps.view filterKeys { propVars contains _ }).values.flatten
                     val Abs(_, ident, tpe, expr) = lambdaExpr(varProps): @unchecked
                     Abs(props ++ additonalProps, ident, tpe, expr)
-                  (result, None, expr, typeVars, lambdaPropVars ++ propVars, external)
+                  (result, None, expr, typeVars, lambdaPropVars ++ propVars, external, customProperties)
 
                 case _ =>
                   maybeFail[T](term.pos, recursive)
                   val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
-                  (result, None, expr, typeVars, propVars, external)
+                  (result, None, expr, typeVars, propVars, external, List.empty)
 
       case _ =>
         Type.of[T] match
           case '[ Nothing ] =>
             maybeFail[T](term.pos, recursive)
             val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
-            (result, None, expr, typeVars, propVars, external)
+            (result, None, expr, typeVars, propVars, external, List.empty)
 
           case '[ p := (a, b) =>: r ] =>
             val names = bound map { _.name }
@@ -658,20 +715,21 @@ object Checked:
                 val paramTerms = args map { case arg: Term => arg }
                 Select.unique(term, "apply").appliedToArgs(paramTerms))
 
-            val (result, _, expr, typeVars, propVars, external) = processPropDef[T](etaExpandedTerm, owner, bound, externalTerms, recursive = false)
+            val (result, _, expr, typeVars, propVars, external, customProperties) =
+              processPropDef[T](etaExpandedTerm, owner, bound, externalTerms, recursiveSymbol, recursive = false)
             result match
               case Block(List(ClassDef(_, _, _, _, List(DefDef(_, _, _, Some(rhs))))), _) => rhs.changeOwner(owner).asExpr match
                 case '{ ($result: (p := (a, b) =>: r)).apply($a, $b) } =>
-                  (result.asTerm, None, expr, typeVars, propVars, external)
+                  (result.asTerm, None, expr, typeVars, propVars, external, customProperties)
                 case _ =>
-                  (result, None, expr, typeVars, propVars, external)
+                  (result, None, expr, typeVars, propVars, external, customProperties)
               case _ =>
-                (result, None, expr, typeVars, propVars, external)
+                (result, None, expr, typeVars, propVars, external, customProperties)
 
           case _ =>
             maybeFail[T](term.pos, recursive)
             val (result, expr, typeVars, propVars, external) = processPropExpr(term, bound, externalTerms)
-            (result, None, expr, typeVars, propVars, external)
+            (result, None, expr, typeVars, propVars, external, List.empty)
   end processPropDef
 
   def makeType(using Quotes)(tpe: quotes.reflect.TypeRepr, pos: quotes.reflect.Position) =

@@ -18,7 +18,8 @@ def deserializeWithExpr(string: String, exprToEval: Term): Try[Term] =
         case "True" | "False" |
              "fun" | "forall" | "rec" |
              "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" |
-             "def" | "type" =>
+             "def" | "type" |
+             "prop-for" | "==" =>
           throw ParserException(s"Invalid identifier: ${atom.identifier}")
         case _ =>
     Symbol(atom.identifier)
@@ -217,6 +218,32 @@ def deserializeWithExpr(string: String, exprToEval: Term): Try[Term] =
             letrec(arg -> deserializeType(tpe) -> deserializeTerm(expr))(term) -> false
           case _ =>
             throw ParserException("Invalid term definition")
+      case (Expr(Atom("prop-for", Quote.None) :: exprs, Bracket.Paren), term -> _) =>
+        exprs match
+          case List(
+            Atom(arg, _),
+            Expr(
+              Atom("forall", Quote.None) +: variables :+ Expr(List(Atom("==", Quote.None), rhs, lhs), Bracket.Paren),
+              Bracket.Paren)) =>
+            val body = app()("==", deserializeTerm(rhs), deserializeTerm(lhs))
+              .withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+            val lambda = variables.foldRight(body) {
+              case (Expr(List(Atom(arg, _), tpe), Bracket.Paren), expr) =>
+                abs()(arg -> deserializeType(tpe))(expr)
+              case _ =>
+                throw ParserException("Invalid forall definition")
+            }
+            val prop = app()("prop-for", arg, lambda)
+              .withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+            let("_" -> prop)(term) -> false
+          case List(Atom(arg, _), Expr(List(Atom("==", Quote.None), rhs, lhs), Bracket.Paren)) =>
+            val body = app()("==", deserializeTerm(rhs), deserializeTerm(lhs))
+              .withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+            val prop = app()("prop-for", arg, body)
+              .withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+            let("_" -> prop)(term) -> false
+          case _ =>
+            throw ParserException("Invalid type definition")
       case (expr, term -> last) =>
         if last then
           deserializeTerm(expr) -> false
@@ -236,7 +263,8 @@ def serialize(term: Term): String =
     case "True" | "False" |
          "fun" | "forall" | "rec" |
          "lambda" | "let" | "letrec" | "lettype" | "if" | "not" | "or" | "and" | "implies" | "cases" |
-         "def" | "type" =>
+         "def" | "type" |
+         "prop-for" | "==" =>
       Atom(ident.name, Quote.Double)
     case name =>
       if noUpperCase && (name.headOption exists { _.isUpper }) || SExpr.requiresQuotes(name) then
