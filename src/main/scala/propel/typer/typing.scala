@@ -170,7 +170,15 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
           }
 
         case App(properties, expr, arg) =>
-          let(expr.withExtrinsicInfo(context.copy(expected = None)).typed) { (expr, exprType) =>
+          val customPropertySyntaxArtifact = term.info(evaluator.properties.CustomProperties).isDefined
+
+          val exprWithCustomProperty =
+            if customPropertySyntaxArtifact then
+              expr.withExtrinsicInfo(evaluator.properties.CustomProperties(List.empty))
+            else
+              expr
+
+          let(exprWithCustomProperty.withExtrinsicInfo(context.copy(expected = None)).typed) { (expr, exprType) =>
             val expectedArgType = exprType collect { case Function(arg, _) => arg }
 
             let(arg.withExtrinsicInfo(context.copy(expected = expectedArgType)).typed) { (arg, argType) =>
@@ -184,10 +192,13 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
 
               val app = App(term)(properties, expr, arg)
 
-              if result.isEmpty && exprType.nonEmpty && argType.nonEmpty then
-                app.withIlltypedApplication(exprType.get, argType.get) -> Typing(result)
+              if !customPropertySyntaxArtifact then
+                if result.isEmpty && exprType.nonEmpty && argType.nonEmpty then
+                  app.withIlltypedApplication(exprType.get, argType.get) -> Typing(result)
+                else
+                  app -> Typing(result)
               else
-                app -> Typing(result)
+                app -> Typing(Some(Sum(List.empty)))
             }
           }
 
@@ -248,10 +259,14 @@ object Typing extends Enrichment.Intrinsic[Pattern | Term, Typing]:
           }
 
         case Var(ident) =>
-          val tpe = context.vars get ident orElse { term.info(Specified) collect { case Specified(Right(tpe)) => tpe } }
-          tpe match
-            case some @ Some(tpe) => term.withExtrinsicInfo(Specified(Right(tpe))) -> Typing(some)
-            case _ => term.withUnboundVarError(ident) -> Typing(None)
+          val customPropertySyntaxArtifact = term.info(evaluator.properties.CustomProperties).isDefined
+          if !customPropertySyntaxArtifact then
+            val tpe = context.vars get ident orElse { term.info(Specified) collect { case Specified(Right(tpe)) => tpe } }
+            tpe match
+              case some @ Some(tpe) => term.withExtrinsicInfo(Specified(Right(tpe))) -> Typing(some)
+              case _ => term.withUnboundVarError(ident) -> Typing(None)
+          else
+            term.withExtrinsicInfo(Specified(Right(Sum(List.empty)))) -> Typing(Some(Sum(List.empty)))
 
         case Cases(scrutinee, cases) =>
           let(scrutinee.withExtrinsicInfo(context).typed) { (scrutinee, scrutineeType) =>

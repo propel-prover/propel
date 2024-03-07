@@ -1,6 +1,7 @@
 package propel
 package dsl.scala
 
+import annotation.compileTimeOnly
 import annotation.unchecked.uncheckedVariance
 
 
@@ -30,3 +31,10 @@ object prop:
     ${ dsl.impl.Checked.check[T]('{f: Any}, recursive = false) }
   transparent inline def rec[T](using function: dsl.impl.Function[T])(inline f: T => function.Type): T =
     ${ dsl.impl.Checked.check[T]('{f: Any}, recursive = true) }
+
+@compileTimeOnly("`props` can only be used in `prop.rec`")
+def props[T](v: Any*)(x: T): T = ???
+
+extension (a: Any)
+  @compileTimeOnly("`=:=` can only be used in `props`")
+  def =:=(b: Any): Boolean = ???

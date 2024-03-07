@@ -14,6 +14,9 @@ object Concrete:
   def eval(term: Term): Term = term match
     case Abs(_, _, _, _) =>
       term
+    case App(_, App(_, Var(Symbol("prop-for")), _), _)
+        if term.info(properties.CustomProperties).isDefined =>
+      Data(Constructor(Symbol("Unit")), List.empty)
     case App(properties, expr, arg) =>
       let(eval(arg)) { arg =>
         let(arg.syntactic) { (arg, argInfo) =>
