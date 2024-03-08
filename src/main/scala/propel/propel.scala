@@ -830,7 +830,7 @@ val builtInBenchmarks = Map(
         [(B0 x) (B1 x)]
         [(B1 x) (B0 (bv_succ x))]))
       (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
-        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
           [(Tuple BZ _) BZ]
           [(Tuple _ BZ) BZ]
           [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
@@ -855,7 +855,7 @@ val builtInBenchmarks = Map(
         [(B0 x) (B1 x)]
         [(B1 x) (B0 (bv_succ x))]))
       (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
-        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
           [(Tuple BZ _) BZ]
           [(Tuple _ BZ) BZ]
           [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
@@ -880,7 +880,7 @@ val builtInBenchmarks = Map(
         [(B0 x) (B1 x)]
         [(B1 x) (B0 (bv_succ x))]))
       (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
-        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
           [(Tuple BZ _) BZ]
           [(Tuple _ BZ) BZ]
           [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
@@ -909,7 +909,7 @@ val builtInBenchmarks = Map(
         [(B0 x) (B1 x)]
         [(B1 x) (B0 (bv_succ x))]))
       (letrec bv_addmod (fun (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}) (rec X {(B0 X) (B1 X) BZ}))
-        (lambda [comm] (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
+        (lambda (x (rec X {(B0 X) (B1 X) BZ})) (y (rec X {(B0 X) (B1 X) BZ})) (cases (Tuple x y)
           [(Tuple BZ _) BZ]
           [(Tuple _ BZ) BZ]
           [(Tuple (B0 x) (B0 y)) (B0 (bv_addmod x y))]
@@ -2004,7 +2004,7 @@ val builtInBenchmarks = Map(
           [Z True]
           [(S n) (tip_nat_lt n z)])]))
       (let tip_nat_gt
-        (lambda [irefl] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+        (lambda [asym] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
           (tip_nat_lt y x))
         Unit))
   """).get,
@@ -2018,7 +2018,7 @@ val builtInBenchmarks = Map(
           [Z True]
           [(S n) (tip_nat_lt n z)])]))
       (let tip_nat_gt
-        (lambda [asym] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
+        (lambda [irefl] (x (rec X {(S X) Z})) (y (rec X {(S X) Z}))
           (tip_nat_lt y x))
         Unit))
   """).get,
