@@ -152,7 +152,7 @@ object Checked:
       tpe -> resultType match
         case Function(a0, Function(b0, r0)) ->
              AppliedType(tycon0, List(AppliedType(tycon1, List(props, AppliedType(tycon2, List(a1, b1)))), r1))
-            if argIndex == 0 && resultType <:< TypeRepr.of[Any := (Nothing, Nothing) =>: _] =>
+            if argIndex == 0 && resultType <:< TypeRepr.of[Any := (Nothing, Nothing) =>: ?] =>
           val updatedProps =
             (tpe.info(Abstraction) flatMap { abstractionProperties.get(_) }).fold(props) { derived =>
               val (specifiedProperties, _) = properties(props)
@@ -216,19 +216,19 @@ object Checked:
 
     type VarProps = Map[quotes.reflect.Symbol, Properties]
 
-    val propertyFunction = TypeRepr.of[Any := (Nothing, Nothing) =>: _]
+    val propertyFunction = TypeRepr.of[Any := (Nothing, Nothing) =>: ?]
     val boolean = TypeRepr.of[Boolean]
-    val list = TypeRepr.of[List[_]]
-    val cons = Constructor(scala.Symbol(productName(TypeRepr.of[::[_]])))
+    val list = TypeRepr.of[List[?]]
+    val cons = Constructor(scala.Symbol(productName(TypeRepr.of[::[?]])))
 
     def isStableOuterReference(term: Term): Boolean =
       val symbol = term.symbol
       val stable =
         !(bound contains term.symbol) &&
         symbol.isTerm &&
-        ((!(symbol.flags is quotes.reflect.Flags.Mutable) &&
-          !(symbol.flags is quotes.reflect.Flags.Method)) ||
-         (symbol.flags is quotes.reflect.Flags.StableRealizable))
+        ((!(symbol.flags `is` quotes.reflect.Flags.Mutable) &&
+          !(symbol.flags `is` quotes.reflect.Flags.Method)) ||
+         (symbol.flags `is` quotes.reflect.Flags.StableRealizable))
       term match
         case Ident(_) => stable
         case Select(qualifier, _) => stable && isStableOuterReference(qualifier)
@@ -767,7 +767,7 @@ object Checked:
 
           case AppliedType(_, List(AppliedType(_, List(props, AppliedType(_, List(a, b)))), r))
               if algebraicBaseType.isEmpty &&
-                 basis <:< TypeRepr.of[Any := (Nothing, Nothing) =>: _] =>
+                 basis <:< TypeRepr.of[Any := (Nothing, Nothing) =>: ?] =>
             val (aTypes, aNames, aMake) = makeType(a, types, None)
             val (bTypes, bNames, bMake) = makeType(b, types, None)
             val (rTypes, rNames, rMake) = makeType(r, types, None)

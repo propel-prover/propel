@@ -235,7 +235,7 @@ object Normalization:
       checkFree: Map[Symbol, List[Term]] => Boolean,
       freeExpr: Map[Symbol, Term],
       decreasingArguments: Option[DecreasingArguments])
-    : PropertyChecking.FunctionEqualResult with PropertyChecking.Normal =
+    : PropertyChecking.FunctionEqualResult & PropertyChecking.Normal =
       val freeSubsts = substs(freeExpr)
       new FunctionEqualResult(freeSubsts) with Normal(freeSubsts, expr, checkAbstraction, checkFree, decreasingArguments) { }
 

@@ -4,5 +4,5 @@ package dsl.impl
 import dsl.scala.*
 
 object Unchecked:
-  trait PropertyAnnotation[+P, -A <: (_, _)] extends (P := A)
-  trait AnnotatedFunction[+A <: _ := _, R] extends (A =>: R)
+  trait PropertyAnnotation[+P, -A <: (?, ?)] extends (P := A)
+  trait AnnotatedFunction[+A <: ? := ?, R] extends (A =>: R)

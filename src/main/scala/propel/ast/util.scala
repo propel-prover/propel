@@ -9,7 +9,7 @@ def equivalent(tpe0: Type, tpe1: Type): Boolean =
 
 def equivalent(expr0: Term, expr1: Term): Boolean =
   def substs(pattern0: Pattern, pattern1: Pattern): Option[Map[Symbol, Var]] = pattern0 -> pattern1 match
-    case Match(_, args0) -> Match(_, args1) => args0 zip args1 mapIfDefined substs map { _.flatten.toMap }
+    case Match(_, args0) -> Match(_, args1) => args0 zip args1 `mapIfDefined` substs map { _.flatten.toMap }
     case Bind(ident0) -> Bind(ident1) => if ident0 == ident1 then Some(Map.empty) else Some(Map(ident1 -> Var(ident0)))
     case _ => None
 

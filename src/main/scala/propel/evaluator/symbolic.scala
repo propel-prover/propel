@@ -12,7 +12,7 @@ object Symbolic:
       if pos forall { (expr, pattern) => this.pos.get(expr) contains pattern } then
         Some(this)
       else
-        this.pos unify pos collect { case pos if !refutablePosNeg(pos, this.neg) => Constraints(pos, this.neg) }
+        this.pos `unify` pos collect { case pos if !refutablePosNeg(pos, this.neg) => Constraints(pos, this.neg) }
 
     def withNegConstraints(neg: PatternConstraints)(using UniqueNaming): Option[(Constraints, PatternConstraints)] =
       withNegConstraints(Set(neg))
@@ -105,7 +105,7 @@ object Symbolic:
 
 
   extension (results: Results)
-    private inline def map(f: List[Term] => Term): Result = Result(results.reductions map { _ map f })
+    private inline def map(f: List[Term] => Term): Result = Result(results.reductions map { _ `map` f })
 
   extension (reductions: Reductions)
     private inline def map(f: List[Term] => Term): Reduction = Reduction(f(reductions.exprs), reductions.constraints, reductions.equalities)

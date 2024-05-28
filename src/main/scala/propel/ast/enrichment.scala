@@ -14,7 +14,7 @@ object Enrichable:
 
   extension [Enriched <: Enrichable[Enriched]](self: Enriched)
     def info[E](enrichment: Enrichment.Base[?, E]): Option[E] =
-      self.enrichments.iterator collectFirstDefined enrichment.asEnrichment
+      self.enrichments.iterator `collectFirstDefined` enrichment.asEnrichment
 
     def withInfo(enriched: Enrichable.Any): Enriched =
       let(Enrichments.filter(self, enriched.enrichments)) { enrichments =>
@@ -49,7 +49,7 @@ object Enrichable:
             enriched.withEnrichments(enrichment :: enriched.enrichments) -> enrichment
           }
 
-    def withExtrinsicInfo[E <: Enrichment[F], F <: Enrichment.Extrinsic[_ >: Enriched, E] & Singleton: ValueOf]
+    def withExtrinsicInfo[E <: Enrichment[F], F <: Enrichment.Extrinsic[? >: Enriched, E] & Singleton: ValueOf]
         (enrichment: E): Enriched =
       let(self.withoutInfo(valueOf[F])) { self =>
         self.withEnrichments(enrichment :: self.enrichments)

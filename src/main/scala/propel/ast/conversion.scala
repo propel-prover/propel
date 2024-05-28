@@ -36,7 +36,7 @@ object UniqueNames:
     val names = used.asScala.keySet
     def freshIdent: String =
       val name = Naming.freshIdent(base, names)
-      if used.put(name, ()) == null then name else freshIdent
+      if (used.put(name, ()): Unit | Null) == null then name else freshIdent
     freshIdent
 
   private def freshIdent(base: Symbol, used: ConcurrentHashMap[String, Unit]): Symbol =

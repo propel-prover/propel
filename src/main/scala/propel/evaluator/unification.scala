@@ -32,7 +32,7 @@ object Unification:
     def refutable(other: Constraints): Boolean = Unification.refutable(constraints, other)
     @targetName("refutableConstraints")
     def refutable(other: IterableOnce[(Term, Pattern)]): Boolean =
-      (((other.iterator map { Map(_) }) ++ Iterator(constraints)).reduceLeftIfDefinedOrElse(Map.empty) { _ unify _ }).isEmpty
+      (((other.iterator map { Map(_) }) ++ Iterator(constraints)).reduceLeftIfDefinedOrElse(Map.empty) { _ `unify` _ }).isEmpty
 
   def unify(pattern: Pattern, expr: Term): Unification =
     def unify(pattern: Pattern, expr: Term): Option[(TermSubstitutions, Constraints)] =
@@ -41,9 +41,9 @@ object Unification:
           Option.when(patternCtor == exprCtor)(Map.empty, Map.empty)
         case Match(patternCtor, patternArgs) -> Data(exprCtor, exprArgs) =>
           Option.when(patternCtor == exprCtor && patternArgs.sizeCompare(exprArgs) == 0) {
-            patternArgs zip exprArgs mapIfDefined unify flatMap { unified =>
+            patternArgs zip exprArgs `mapIfDefined` unify flatMap { unified =>
               val (substss, constraintss) = unified.unzip
-              constraintss.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map { (substss.mergeLeft, _) }
+              constraintss.reduceLeftIfDefinedOrElse(Constraints.empty) { _ `unify` _ } map { (substss.mergeLeft, _) }
             }
           }.flatten
         case Bind(ident) -> expr =>
@@ -103,8 +103,8 @@ object Unification:
         Option.when(ctor0 == ctor1 && args0.sizeCompare(args1) == 0) {
           args0 zip args1 mapIfDefined { unify(_, _) } flatMap { unified =>
             val (args, constraintss0, constraintss1) = unified.unzip3
-            constraintss0.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } flatMap { constraints0 =>
-              constraintss1.reduceLeftIfDefinedOrElse(Constraints.empty) { _ unify _ } map {
+            constraintss0.reduceLeftIfDefinedOrElse(Constraints.empty) { _ `unify` _ } flatMap { constraints0 =>
+              constraintss1.reduceLeftIfDefinedOrElse(Constraints.empty) { _ `unify` _ } map {
                 (Match(ctor0, args), constraints0, _)
               }
             }

@@ -1,12 +1,12 @@
 import scala.scalanative.build._
 
-ThisBuild / scalaVersion := "3.3.0"
+ThisBuild / scalaVersion := "3.4.2"
 
 ThisBuild / scalacOptions ++= Seq("-feature", "-deprecation", "-unchecked", "-Yexplicit-nulls")
 
 ThisBuild / nativeConfig ~= { _.withLTO(LTO.thin).withMode(Mode.releaseFast) }
 
-ThisBuild / libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.16" % Test
+ThisBuild / libraryDependencies += "org.scalatest" %%% "scalatest" % "3.2.18" % Test
 
 ThisBuild / Test / logBuffered := false
 
@@ -18,12 +18,14 @@ lazy val propelCrossProject = crossProject(JSPlatform, JVMPlatform, NativePlatfo
   .jsConfigure(_.withId("propelJS"))
   .jvmConfigure(_.withId("propelJVM"))
   .nativeConfigure(_.withId("propelNative"))
+  .jsSettings(
+    scalacOptions ~= { _ filterNot { _ == "-Yexplicit-nulls" } })
   .jvmSettings(
     libraryDependencies += "org.scala-js" %% "scalajs-stubs" % "1.1.0" % "provided")
   .nativeSettings(
     libraryDependencies += "org.scala-js" %% "scalajs-stubs" % "1.1.0" % "provided",
-    Compile / mainClass := Some("propel.check"),
-    Compile / nativeLink / artifactPath ~= { file => file.getParentFile / file.getName.replace("propelcrossproject-out", "propel") })
+    nativeConfig ~= { _.withBaseName("propel") },
+    Compile / mainClass := Some("propel.check"))
 
 lazy val propelJS = propelCrossProject.js
 lazy val propelJVM = propelCrossProject.jvm

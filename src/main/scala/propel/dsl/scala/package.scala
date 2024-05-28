@@ -19,11 +19,11 @@ sealed trait Conn extends Property
 sealed trait Trans extends Property
 
 
-trait :=[+P, -A <: (_, _)]:
+trait :=[+P, -A <: (?, ?)]:
   this: dsl.impl.Unchecked.PropertyAnnotation[P, A] =>
   type Arguments >: A
 
-trait =>:[+A <: _ := _, R] extends ((dsl.impl.Argument[A, 1] @uncheckedVariance, dsl.impl.Argument[A, 2] @uncheckedVariance) => R):
+trait =>:[+A <: ? := ?, R] extends ((dsl.impl.Argument[A, 1] @uncheckedVariance, dsl.impl.Argument[A, 2] @uncheckedVariance) => R):
   this: dsl.impl.Unchecked.AnnotatedFunction[A, R] =>
 
 object prop:

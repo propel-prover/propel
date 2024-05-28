@@ -229,7 +229,7 @@ object Conjecture:
                 def unifyStructs(struct0: Struct, struct1: Struct): Option[Struct] = struct0 -> struct1 match
                   case Struct.Node(ctor0, args0, dependent0, independent0) ->
                        Struct.Node(ctor1, args1, dependent1, independent1) if ctor0 == ctor1 =>
-                    args0 zip args1 mapIfDefined unifyStructs map { args =>
+                    args0 zip args1 `mapIfDefined` unifyStructs map { args =>
                       Struct.Node(ctor0, args, args forall { _.dependent }, args forall { _.independent })
                     }
                   case _ =>
