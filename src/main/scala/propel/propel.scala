@@ -6,28 +6,49 @@ import java.io.IOException
 import scala.scalajs.js.annotation._
 
 
+object defaults:
+  import ast.Property.*
+
+  val error = Option.empty[String]
+  val content = Option.empty[String | ast.Term]
+  val deduction = false
+  val reduction = false
+  val discoverAlgebraicProperties = true
+  val disableEqualities = false
+  val disableInequalities = false
+  val ignorePosContradiction = false
+  val ignoreNegContradiction = false
+  val ignorePosNegContradiction = false
+  val ignoreCyclicContradiction = false
+  val maxNumberOfLemmas = -1
+  val maxNumberOfFacts = -1
+  val runMain = false
+  val keepRewritesBits = 8
+  val propertiesOrder = List(
+    Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
+    Commutative, Selection, Idempotent, Associative)
+
+
 @main def check(arguments: String*) =
   def parsedArguments =
     import ast.Property.*
 
-    var error = Option.empty[String]
-    var content = Option.empty[String | ast.Term]
-    var deduction = false
-    var reduction = false
-    var discoverAlgebraicProperties = true
-    var disableEqualities = false
-    var disableInequalities = false
-    var ignorePosContradiction = false
-    var ignoreNegContradiction = false
-    var ignorePosNegContradiction = false
-    var ignoreCyclicContradiction = false
-    var maxNumberOfLemmas = -1
-    var maxNumberOfFacts = -1
-    var runMain = false
-    var keepRewritesBits = 8
-    var propertiesOrder = List(
-      Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
-      Commutative, Selection, Idempotent, Associative)
+    var error = defaults.error
+    var content = defaults.content
+    var deduction = defaults.deduction
+    var reduction = defaults.reduction
+    var discoverAlgebraicProperties = defaults.discoverAlgebraicProperties
+    var disableEqualities = defaults.disableEqualities
+    var disableInequalities = defaults.disableInequalities
+    var ignorePosContradiction = defaults.ignorePosContradiction
+    var ignoreNegContradiction = defaults.ignoreNegContradiction
+    var ignorePosNegContradiction = defaults.ignorePosNegContradiction
+    var ignoreCyclicContradiction = defaults.ignoreCyclicContradiction
+    var maxNumberOfLemmas = defaults.maxNumberOfLemmas
+    var maxNumberOfFacts = defaults.maxNumberOfFacts
+    var runMain = defaults.runMain
+    var keepRewritesBits = defaults.keepRewritesBits
+    var propertiesOrder = defaults.propertiesOrder
 
     if arguments.size > 0 && arguments.head != "-h" && arguments.head != "--help" then
       val args = arguments.iterator
@@ -168,15 +189,24 @@ import scala.scalajs.js.annotation._
         ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
         keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts)
 
+
 @JSExportTopLevel("parseAndCheckSourceCode")
 def parseAndCheckSourceCode(
     code: String | ast.Term,
-    deduction: Boolean, reduction: Boolean, discoverAlgebraicProperties: Boolean,
-    disableEqualities: Boolean, disableInequalities: Boolean,
-    ignorePosContradiction: Boolean, ignoreNegContradiction: Boolean,
-    ignorePosNegContradiction: Boolean, ignoreCyclicContradiction: Boolean,
-    runMain: Boolean, keepRewritesBits: Int, propertiesOrder: List[ast.Property],
-    maxNumberOfLemmas: Int, maxNumberOfFacts: Int) =
+    deduction: Boolean = defaults.deduction,
+    reduction: Boolean = defaults.reduction,
+    discoverAlgebraicProperties: Boolean = defaults.discoverAlgebraicProperties,
+    disableEqualities: Boolean = defaults.disableEqualities,
+    disableInequalities: Boolean = defaults.disableInequalities,
+    ignorePosContradiction: Boolean = defaults.ignorePosContradiction,
+    ignoreNegContradiction: Boolean = defaults.ignoreNegContradiction,
+    ignorePosNegContradiction: Boolean = defaults.ignorePosNegContradiction,
+    ignoreCyclicContradiction: Boolean = defaults.ignoreCyclicContradiction,
+    runMain: Boolean = defaults.runMain,
+    keepRewritesBits: Int = defaults.keepRewritesBits,
+    propertiesOrder: List[ast.Property] = defaults.propertiesOrder,
+    maxNumberOfLemmas: Int = defaults.maxNumberOfLemmas,
+    maxNumberOfFacts: Int = defaults.maxNumberOfFacts) =
   val exprToEval = if runMain
                    then ast.Var(Symbol("main"))
                    else ast.Data(ast.Constructor(Symbol("Unit")), List.empty)
@@ -217,8 +247,8 @@ def parseAndCheckSourceCode(
           println("✔ Check successful.")
         else
           println(errors)
-          println("✘ Check failed.")
-  )
+          println("✘ Check failed."))
+
 
 extension (expr: ast.Term)
   def withCustomProperty(pattern: ast.Term, result: ast.Term, variables: Set[Symbol], abstraction: Symbol) =
