@@ -4,6 +4,8 @@ package evaluator
 import ast.*
 import typer.*
 import util.*
+import egraph.*
+import egraph.mutable.*
 
 enum Equality:
   case Equal
@@ -32,73 +34,27 @@ object Equality:
       case Indeterminate => Indeterminate
 end Equality
 
-case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
-  override val hashCode = scala.util.hashing.MurmurHash3.productHash(this)
-  override def equals(other: Any) = other match
-    case other: Equalities => eq(other) || hashCode == other.hashCode && pos == other.pos && neg == other.neg && other.canEqual(this)
-    case _ => false
+object EGraphEqualities:
+  import propel.evaluator.egraph.mutable.{EGraph, EGraphOps}
+  var ops: EGraphOps[EGraph.EGraph] = EGraph.DisequalityEdges.EGraphsOps
+  given EGraphOps[EGraph.EGraph] = EGraphEqualities.ops
 
-  def equal(expr0: Term, expr1: Term): Equality =
-    def equal(expr0: Term, expr1: Term): (Equality, List[(Term, Term)]) =
-      pos.getOrElse(expr0, expr0) -> pos.getOrElse(expr1, expr1) match
-        case _ if equivalent(expr0, expr1) =>
-          Equality.Equal -> List.empty
-        case terms @ App(_, expr0, arg0) -> App(_, expr1, arg1) =>
-          equal(expr0, expr1) match
-            case Equality.Equal -> _ => equal(arg0, arg1)
-            case _ -> _ => Equality.Indeterminate -> List.empty
-        case terms @ TypeApp(expr0, tpe0) -> TypeApp(expr1, tpe1) if equivalent(tpe0, tpe1) =>
-          val equality -> exprs = equal(expr0, expr1)
-          equality -> (terms :: exprs)
-        case terms @ Data(ctor0, args0) -> Data(ctor1, args1) =>
-          if ctor0 == ctor1 && args0.sizeCompare(args1) == 0 then
-            if args0.isEmpty then
-              Equality.Equal -> List(terms)
-            else
-              val (equality, exprs) = equal(args0.head, args1.head)
-              (args0.tail zip args1.tail).foldLeft(equality -> (terms :: exprs)) {
-                case (Equality.Unequal -> _, _) =>
-                  Equality.Unequal -> List.empty
-                case (equality0 -> exprs0, arg0 -> arg1) =>
-                  val equality1 -> exprs1 = equal(arg0, arg1)
-                  Equality.min(equality0, equality1) -> (exprs0 ++ exprs1)
-              }
-          else
-            Equality.Unequal -> List.empty
-        case terms @ Var(ident0) -> Var(ident1) if ident0 == ident1 =>
-          Equality.Equal -> List(terms)
-        case Var(ident0) -> (expr1 @ Data(ctor1, args1)) if contains(expr1, ident0) =>
-          Equality.Unequal -> List.empty
-        case (expr0 @ Data(ctor0, args0)) -> Var(ident1) if contains(expr0, ident1) =>
-          Equality.Unequal -> List.empty
-        case terms =>
-          Equality.Indeterminate -> List(terms)
+  object EGraphStats:
+    var Global: Seq[EGraphStats] = Seq()
 
-    equal(expr0, expr1) match
-      case (Equality.Unequal, _) =>
-        Equality.Unequal
-      case (equality, exprs) =>
-        val unequal = neg exists {
-          _ forall { (neg0, neg1) =>
-            exprs exists { (expr0, expr1) =>
-              equal(neg0, expr0) match
-                case (Equality.Equal, _) =>
-                  val equality -> _ = equal(neg1, expr1)
-                  equality == Equality.Equal
-                case _ =>
-                  equal(neg0, expr1) match
-                    case (Equality.Equal, _) =>
-                      val equality -> _ = equal(neg1, expr0)
-                      equality == Equality.Equal
-                    case _ =>
-                      false
-            }
-          }
-        }
-        if unequal then Equality.Unequal else equality
-  end equal
+    case class EGraphStats(eclasses: Double, enodes: Double)
 
-  def contains(expr: Term, ident: Symbol): Boolean = expr match
+    def fromEqualities(eq: Equalities): EGraphStats =
+      val rebuilded = eq.rebuild
+      EGraphStats(rebuilded.eclasses, rebuilded.enodes)
+
+    def sum(stats: Iterable[EGraphStats]): EGraphStats =
+      stats.foldLeft(EGraphStats(0, 0)) {
+        case (EGraphStats(eclasses, enodes), next) =>
+          EGraphStats(eclasses + next.eclasses, enodes + next.enodes)
+      }
+
+  private def contains(expr: Term, ident: Symbol): Boolean = expr match
     case Abs(_, _, _, expr) => contains(expr, ident)
     case App(_, expr, arg) => contains(expr, ident) || contains(arg, ident)
     case TypeAbs(_, expr) => contains(expr, ident)
@@ -107,12 +63,87 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     case expr @ Var(_) => expr.ident == ident
     case Cases(scrutinee, cases) => contains(scrutinee, ident) || (cases exists { (_, expr) => contains(expr, ident) })
 
+import EGraphEqualities.given
+
+// TODO map operations executed on propel's Equalities into an e-graph
+//      DONE
+case class EGraphEqualities(
+  egraph: EGraph.EGraph = EGraph.empty,
+  terms: scala.collection.mutable.Map[Term, EClass] = scala.collection.mutable.Map()
+):
+  override def clone(): EGraphEqualities =
+    EGraphEqualities(egraph = EGraph.clone(this.egraph), terms = terms.clone())
+
+  def withEqualities(pos: Map[Term, Term]): EGraphEqualities =
+    this.withEqualitiesAndUnequalities(pos, Set())
+
+  def withUnequalities(neg: Set[Map[Term, Term]]): EGraphEqualities =
+    this.withEqualitiesAndUnequalities(Map(), neg)
+
+  def withEqualitiesAndUnequalities(pos: Map[Term, Term], neg: Set[Map[Term, Term]]): EGraphEqualities =
+    val equalities = this.clone()
+    pos.foreach((lhs, rhs) =>
+      equalities.egraph.union(equalities.getOrAddTerm(lhs), equalities.getOrAddTerm(rhs))
+    )
+    neg.collect { case neg if neg.size == 1 => neg.head }.foreach((lhs, rhs) =>
+      equalities.egraph.disunion(equalities.getOrAddTerm(lhs), equalities.getOrAddTerm(rhs))
+    )
+    equalities
+
+  def equal(x: Term, y: Term): Equality =
+    val xc = this.getOrAddTerm(x)
+    val yc = this.getOrAddTerm(y)
+    this.egraph.rebuild()
+    if this.egraph.equal(xc, yc) then Equality.Equal
+    else if this.egraph.unequal(xc, yc) then Equality.Unequal
+    else Equality.Indeterminate
+
+  lazy val language: Language.PropelLanguage = new Language.PropelLanguage:
+    override def parseClass(term: Term)(using generator: EClassGenerator): EClass =
+      if !terms.contains(term) then
+        val termClass: EClass = terms.getOrElseUpdate(term, super.parseClass(term))
+        saturateSemantics(term, termClass)
+        termClass
+      else
+        terms(term)
+
+  private def getOrAddTerm(term: Term): EClass =
+    this.language.parseClass(term)(using this.egraph.add)
+
+  private def saturateSemantics(t1: Term, t1Class: EClass): Unit =
+    this.terms.foreach((t2, t2Class) => (t1, t2) match
+      case (TypeApp(f1, tpe1), TypeApp(f2, tpe2)) =>
+        if !Equalities.debugDisableInequalities then
+          if equivalent(tpe1, tpe2) && this.equal(f1, f2) == Equality.Equal
+          then this.egraph.disunion(t1Class, t2Class)
+      case (Data(c1, args1), Data(c2, args2)) =>
+        if !Equalities.debugDisableInequalities then
+          if c1 != c2 || args1.sizeCompare(args2) != 0 || args1.zip(args2).map(this.equal).contains(Equality.Unequal)
+          then this.egraph.disunion(t1Class, t2Class)
+      case (Var(id1), t2@Data(c2, args2)) if !Equalities.debugDisableInequalities && EGraphEqualities.contains(t2, id1) =>
+        this.egraph.disunion(t1Class, t2Class)
+      case (t1@Data(c1, args1), Var(id2)) if !Equalities.debugDisableInequalities && EGraphEqualities.contains(t1, id2) =>
+        this.egraph.disunion(t1Class, t2Class)
+      case _ =>
+    )
+
+case class Equalities private(underlying: EGraphEqualities, pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
+  override val hashCode = scala.util.hashing.MurmurHash3.productHash((pos, neg))
+  def eclasses: Int = this.underlying.egraph.eclasses.size
+  def enodes: Int = this.underlying.egraph.eclasses.foldLeft(0)(_ + _._2.size)
+  def rebuild: Equalities = { this.underlying.egraph.rebuild(); this }
+
+  override def equals(other: Any) = other match
+    case other: Equalities => eq(other) || hashCode == other.hashCode && pos == other.pos && neg == other.neg && other.canEqual(this)
+    case _ => false
+
+  def equal(x: Term, y: Term): Equality = this.underlying.equal(x, y)
+
   def contradictionIndeducible: Boolean =
     def isInductive(expr: Term): Boolean = expr match
       case Var(_) => true
       case Data(_, args) => args forall isInductive
       case _ => false
-
     (pos forall { (expr0, expr1) => isInductive(expr0) && isInductive(expr1) }) &&
     (neg forall { _ forall { (expr0, expr1) => isInductive(expr0) && isInductive(expr1) } })
   end contradictionIndeducible
@@ -126,12 +157,15 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def withEqualities(pos: (Term, Term)): Option[Equalities] =
     withEqualities(Iterator(pos))
 
+  // TODO relay operations to the underlying EGraphEqualities
   def withEqualities(pos: IterableOnce[(Term, Term)]): Option[Equalities] =
     val iterator = pos.iterator
     if iterator.nonEmpty then
-      normalize(this.pos, homogenize(iterator)) flatMap { pos =>
-        Equalities(pos filterNot { _ == _ }, this.neg).propagatePos flatMap { _.propagateNeg.consolidateNeg }
-      }
+      normalize(this.pos, homogenize(iterator)).flatMap(pos =>
+        val newPos = pos filterNot { _ == _ }
+        Equalities(underlying.withEqualities(newPos), newPos, this.neg).propagatePos flatMap { _.propagateNeg.consolidateNeg }
+      )
+      .filterNot(eq => { eq.underlying.egraph.rebuild(); eq.underlying.egraph.hasContradiction })
     else
       Some(this)
 
@@ -139,14 +173,13 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
     withoutEqualities(Iterator(pos))
 
   def withoutEqualities(pos: IterableOnce[(Term, Term)]): Equalities =
-    Equalities(
-      pos.iterator.foldLeft(this.pos) {
-        case (pos, (expr0, expr1)) if expr1 < expr0 =>
-          if pos.get(expr1) contains expr0 then pos - expr1 else pos
-        case (pos, (expr0, expr1)) =>
-          if pos.get(expr0) contains expr1 then pos - expr0 else pos
-      },
-      this.neg)
+    val newPos = pos.iterator.foldLeft(this.pos) {
+      case (pos, (expr0, expr1)) if expr1 < expr0 =>
+        if pos.get(expr1) contains expr0 then pos - expr1 else pos
+      case (pos, (expr0, expr1)) =>
+        if pos.get(expr0) contains expr1 then pos - expr0 else pos
+    }
+    Equalities(EGraphEqualities().withEqualitiesAndUnequalities(newPos, this.neg), newPos, this.neg)
 
   def withUnequalities(neg: PatternConstraints): Option[Equalities] =
     withUnequalities(List(neg.iterator map { _ -> _.asTerm }))
@@ -154,8 +187,13 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   def withUnequalities(neg: IterableOnce[IterableOnce[(Term, Term)]]): Option[Equalities] =
     val iterator = neg.iterator
     if iterator.nonEmpty then
-      Equalities(this.pos, (iterator flatMap { neg => normalize(Map.empty, homogenize(neg.iterator)) }).toSet)
-        .propagateNeg.consolidateNeg map { case Equalities(pos, neg) => Equalities(pos, this.neg ++ neg) }
+      val newNeg = (iterator flatMap { neg => normalize(Map.empty, homogenize(neg.iterator)) }).toSet
+      Equalities(this.underlying, this.pos, newNeg)
+        .propagateNeg.consolidateNeg.map {
+          case Equalities(underlying, pos, neg) =>
+            Equalities(underlying.withUnequalities(neg), pos, this.neg ++ neg)
+        }
+        .filterNot(eq => { eq.underlying.egraph.rebuild(); eq.underlying.egraph.hasContradiction })
     else
       Some(this)
 
@@ -195,9 +233,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       }
 
     val expandedAll = expand(propagateAll)
-
     val expandedSingleLevelVariations = expand(propagateSingleLevelVariations)
-
     (expandedAll ++ pos, expandedSingleLevelVariations -- expandedAll.keys -- pos.keys)
   end posExpanded
 
@@ -235,14 +271,12 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
     propagatedList flatMap { propagatedList =>
       val equivalentList = process(propagatedList)
-
       def iterator = propagatedList.iterator ++ equivalentList.iterator
-
       if Map.from(iterator) != pos then
         normalize(Map.empty, iterator) flatMap { normalizedPos =>
           val propagatedPos = normalizedPos filterNot { _ == _ }
           if propagatedPos != pos then
-            Equalities(propagatedPos, neg).propagatePos
+            Equalities(this.underlying, propagatedPos, neg).propagatePos
           else
             Some(this)
         }
@@ -268,10 +302,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
 
     if (propagatedList map { _.toMap }) != neg then
       val propagatedNeg = propagatedList flatMap { neg => normalize(Map.empty, neg.iterator) }
-      if propagatedNeg != neg then
-        Equalities(pos, propagatedNeg).propagateNeg
-      else
-        this
+      if propagatedNeg != neg then Equalities(this.underlying, pos, propagatedNeg).propagateNeg else this
     else
       this
   end propagateNeg
@@ -281,7 +312,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
       if !(substituted contains expr) then
         val (propagatedExpr, propagatedSubstituted, propagatedBound) = pos.get(expr) match
           case Some(propagatedExpr) =>
-            val syntactic @ (syntacticPropagatedExpr, syntacticInfo) = propagatedExpr.syntactic
+            val syntactic@(syntacticPropagatedExpr, syntacticInfo) = propagatedExpr.syntactic
             val (convertedExpr, info) =
               if syntacticInfo.freeVars.keys exists { boundAnywhere contains _.name } then
                 UniqueNames.convert(expr, boundAnywhere) unwrap { _.syntactic }
@@ -369,7 +400,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
   end propagateSingleLevelVariations
 
   private def consolidateNeg: Option[Equalities] =
-    val checkNeg = Equalities(Map.empty, Set.empty)
+    val checkNeg = Equalities.empty
     val posConsistent = Equalities.debugIgnorePosContradiction || (pos forall { checkNeg.equal(_, _) != Equality.Unequal })
     val negConsistent = Equalities.debugIgnoreNegContradiction || Equalities.debugIgnorePosNegContradiction || (neg forall { _.nonEmpty })
     Option.when(posConsistent && negConsistent) {
@@ -379,7 +410,7 @@ case class Equalities private (pos: Map[Term, Term], neg: Set[Map[Term, Term]]):
           negClean filter { _.nonEmpty }
         else
           negClean
-      Equalities(pos, negCleanDebug)
+      Equalities(this.underlying, pos, negCleanDebug)
     }
 
   private def homogenize(equalities: Iterator[(Term, Term)]) =
@@ -427,15 +458,18 @@ end Equalities
 object Equalities:
   var debugDisableEqualities = false
   var debugDisableInequalities = false
-  var debugIgnorePosContradiction = false
-  var debugIgnoreNegContradiction = false
-  var debugIgnorePosNegContradiction = false
-  var debugIgnoreCyclicContradiction = false
 
-  private def apply(pos: Map[Term, Term], neg: Set[Map[Term, Term]]): Equalities =
-    new Equalities(if debugDisableEqualities then Map.empty else pos, if debugDisableInequalities then Set.empty else neg)
+  // TODO: change so that propel's contradictions are ignored in favor of e-graph contradictions
+  //       DONE
+  var debugIgnorePosContradiction = true
+  var debugIgnoreNegContradiction = true
+  var debugIgnorePosNegContradiction = true
+  var debugIgnoreCyclicContradiction = true
+
+  private def apply(underlying: EGraphEqualities, pos: Map[Term, Term], neg: Set[Map[Term, Term]]): Equalities =
+    new Equalities(underlying, if debugDisableEqualities then Map.empty else pos, if debugDisableInequalities then Set.empty else neg)
   def empty =
-    Equalities(Map.empty, Set.empty)
+    Equalities(EGraphEqualities(), Map.empty, Set.empty)
   def make(pos: IterableOnce[(Term, Term)], neg: IterableOnce[IterableOnce[(Term, Term)]]) =
     empty.withEqualities(pos) flatMap { _.withUnequalities(neg) }
   def pos(pos: IterableOnce[(Term, Term)]) =

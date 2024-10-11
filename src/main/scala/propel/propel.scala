@@ -4,7 +4,7 @@ import scala.io.Source
 import scala.util.{Success, Using, Failure}
 import java.io.IOException
 import scala.scalajs.js.annotation._
-
+import evaluator.egraph.mutable.*
 
 object defaults:
   import ast.Property.*
@@ -27,7 +27,7 @@ object defaults:
   val propertiesOrder = List(
     Reflexive, Irreflexive, Antisymmetric, Symmetric, Connected, Transitive,
     Commutative, Selection, Idempotent, Associative)
-
+  val egraphVariant: EGraphOps[EGraph.EGraph] = EGraph.DisequalityEdges.EGraphsOps
 
 @main def check(arguments: String*) =
   def parsedArguments =
@@ -49,6 +49,7 @@ object defaults:
     var runMain = defaults.runMain
     var keepRewritesBits = defaults.keepRewritesBits
     var propertiesOrder = defaults.propertiesOrder
+    var egraphVariant = defaults.egraphVariant
 
     if arguments.size > 0 && arguments.head != "-h" && arguments.head != "--help" then
       val args = arguments.iterator
@@ -138,6 +139,17 @@ object defaults:
               catch case exception: NumberFormatException => error = Some(exception.getMessage.nn)
             else
             error = Some("No number given")
+          // TODO change so that you can specify the egraph variant as a command line argument
+          //      DONE
+          case "--variant" =>
+            if args.hasNext then
+              args.next() match
+                case "de" => egraphVariant = EGraph.DisequalityEdges.EGraphsOps
+                case "ee" => egraphVariant = EGraph.EqualityEmbedding.EGraphsOps
+                case "nee" => egraphVariant = EGraph.DisequalityEmbedding.EGraphsOps
+                case _ => error = Some("Specify an egraph variant in {de; ee; nee}.")
+            else
+              error = Some("No egraph variant given.")
           case arg =>
             error = Some(s"Unknown option: $arg")
 
@@ -145,13 +157,14 @@ object defaults:
      disableEqualities, disableInequalities,
      ignorePosContradiction, ignoreNegContradiction,
      ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
-     keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts)
+     keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts,
+     egraphVariant)
 
   parsedArguments match
-    case (Some(error), _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
+    case (Some(error), _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
       println(s"Error: $error")
 
-    case (_, None, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
+    case (_, None, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
       println("Usage: propel [ARGUMENT]...")
       println("Verifies the algebraic and relational properties of functions specified in Propel's input format.")
       println()
@@ -176,18 +189,21 @@ object defaults:
       println("      --max-facts NUMBER           generate a limited number of facts")
       println("      --keep-rewrites NUMBER       number of top-scored rewrites to keep")
       println("      --prop-order PROPERTIES      comma-separated list of properties")
+      println("      --egraph-variant NAME        e-graph variant: either de, ee or nee. Defaults to de.")
 
     case (_, Some(content), deduction, reduction, discoverAlgebraicProperties,
           disableEqualities, disableInequalities,
           ignorePosContradiction, ignoreNegContradiction,
           ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
-          keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts) =>
+          keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts,
+          egraphVariant) =>
       parseAndCheckSourceCode(
         content, deduction, reduction, discoverAlgebraicProperties,
         disableEqualities, disableInequalities,
         ignorePosContradiction, ignoreNegContradiction,
         ignorePosNegContradiction, ignoreCyclicContradiction, runMain,
-        keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts)
+        keepRewritesBits, propertiesOrder, maxNumberOfLemmas, maxNumberOfFacts,
+        egraphVariant)
 
 
 @JSExportTopLevel("parseAndCheckSourceCode")
@@ -206,7 +222,8 @@ def parseAndCheckSourceCode(
     keepRewritesBits: Int = defaults.keepRewritesBits,
     propertiesOrder: List[ast.Property] = defaults.propertiesOrder,
     maxNumberOfLemmas: Int = defaults.maxNumberOfLemmas,
-    maxNumberOfFacts: Int = defaults.maxNumberOfFacts) =
+    maxNumberOfFacts: Int = defaults.maxNumberOfFacts,
+    egraphVariant: EGraphOps[EGraph.EGraph] = defaults.egraphVariant) =
   val exprToEval = if runMain
                    then ast.Var(Symbol("main"))
                    else ast.Data(ast.Constructor(Symbol("Unit")), List.empty)
@@ -223,6 +240,7 @@ def parseAndCheckSourceCode(
         println(s"Error: ${exception.getMessage}"),
 
       expr =>
+        evaluator.EGraphEqualities.ops = egraphVariant
         evaluator.Equalities.debugDisableEqualities = disableEqualities
         evaluator.Equalities.debugDisableInequalities = disableInequalities
         evaluator.Equalities.debugIgnorePosContradiction = ignorePosContradiction
@@ -249,6 +267,11 @@ def parseAndCheckSourceCode(
           println(errors)
           println("✘ Check failed."))
 
+        // TODO: output the e-graph stats to the console, so that they can be read by other programs
+        //       DONE
+        import propel.evaluator.EGraphEqualities.EGraphStats
+        val sum = EGraphStats.sum(EGraphStats.Global)
+        println(s"sum;${EGraphStats.Global.size};${sum.eclasses};${sum.enodes}")
 
 extension (expr: ast.Term)
   def withCustomProperty(pattern: ast.Term, result: ast.Term, variables: Set[Symbol], abstraction: Symbol) =

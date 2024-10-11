@@ -542,7 +542,10 @@ object Symbolic:
                 makeResult(reductions) -> reductionsControl
     end eval
 
-    Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
+    // TODO: change so that consumed equalities are added to the egraph statistics
+    //       DONE
+    import EGraphEqualities.EGraphStats
+    val result = Result(init.reductions flatMap { case Reduction(expr, constraints, equalities) =>
       constraintsFromEqualities(constraints, equalities, constsCache) match
         case (Some(constraints, equalities)) =>
           val normalized = normalize(expr, equalities, config, exprCache)
@@ -573,5 +576,7 @@ object Symbolic:
         case _ =>
           List.empty
     })
+    result.reductions.foreach(r => EGraphStats.Global = EGraphStats.Global :+ EGraphStats.fromEqualities(r.equalities))
+    result
   end eval
 end Symbolic
