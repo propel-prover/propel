@@ -1,6 +1,9 @@
 bin/
 target/
 
+.DS_Store
+.backup
+.native
 .idea/
 .idea_modules/
 .settings/
