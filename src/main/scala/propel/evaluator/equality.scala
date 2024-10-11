@@ -41,7 +41,6 @@ object EGraphEqualities:
 
   object EGraphStats:
     var Global: Seq[EGraphStats] = Seq()
-
     case class EGraphStats(eclasses: Double, enodes: Double)
 
     def fromEqualities(eq: Equalities): EGraphStats =
