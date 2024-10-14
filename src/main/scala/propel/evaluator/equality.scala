@@ -456,13 +456,10 @@ end Equalities
 object Equalities:
   var debugDisableEqualities = false
   var debugDisableInequalities = false
-
-  // TODO: change so that propel's contradictions are ignored in favor of e-graph contradictions
-  //       DONE
-  var debugIgnorePosContradiction = true
-  var debugIgnoreNegContradiction = true
-  var debugIgnorePosNegContradiction = true
-  var debugIgnoreCyclicContradiction = true
+  var debugIgnorePosContradiction = false
+  var debugIgnoreNegContradiction = false
+  var debugIgnorePosNegContradiction = false
+  var debugIgnoreCyclicContradiction = false
 
   private def apply(underlying: EGraphEqualities, pos: Map[Term, Term], neg: Set[Map[Term, Term]]): Equalities =
     new Equalities(underlying, if debugDisableEqualities then Map.empty else pos, if debugDisableInequalities then Set.empty else neg)

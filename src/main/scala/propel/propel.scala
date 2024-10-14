@@ -16,10 +16,13 @@ object defaults:
   val discoverAlgebraicProperties = true
   val disableEqualities = false
   val disableInequalities = false
-  val ignorePosContradiction = false
-  val ignoreNegContradiction = false
-  val ignorePosNegContradiction = false
-  val ignoreCyclicContradiction = false
+  // TODO: change so that propel's contradictions are ignored in favor of e-graph contradictions
+  //       DONE
+  val ignorePosContradiction = true
+  val ignoreNegContradiction = true
+  val ignorePosNegContradiction = true
+  val ignoreCyclicContradiction = true
+
   val maxNumberOfLemmas = -1
   val maxNumberOfFacts = -1
   val runMain = false
