@@ -35,7 +35,6 @@ object Equality:
 end Equality
 
 object EGraphEqualities:
-  import propel.evaluator.egraph.mutable.{EGraph, EGraphOps}
   var ops: EGraphOps[EGraph.EGraph] = EGraph.DisequalityEdges.EGraphsOps
   given EGraphOps[EGraph.EGraph] = EGraphEqualities.ops
 
