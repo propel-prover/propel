@@ -192,7 +192,7 @@ object defaults:
       println("      --max-facts NUMBER           generate a limited number of facts")
       println("      --keep-rewrites NUMBER       number of top-scored rewrites to keep")
       println("      --prop-order PROPERTIES      comma-separated list of properties")
-      println("      --egraph-variant NAME        e-graph variant: either de, ee or nee. Defaults to de.")
+      println("      --variant VARIANT            e-graph variant: either de, ee or nee. Defaults to de.")
 
     case (_, Some(content), deduction, reduction, discoverAlgebraicProperties,
           disableEqualities, disableInequalities,
