@@ -36,6 +36,8 @@ object EGraph:
   object DisequalityEmbedding:
     given EGraphsOps: EGraphOps[EGraph] = new EGraph.DisequalityEmbeddingOps {}
 
+  object SaturatingDisequalityEmbedding:
+    given EGraphsOps: EGraphOps[EGraph] = new EGraph.SaturatingDisequalityEmbeddingOps {}
 
   /** The mutable data of an [[EClass]]. */
   private case class EClassData():
@@ -139,7 +141,7 @@ object EGraph:
        *         its e-class if already known (i.e., if the e-node was
        *         already added in the past).
        */
-      private def lookup(x: ENode): (ENode, Option[EClass]) =
+      protected def lookup(x: ENode): (ENode, Option[EClass]) =
         val x0 = self.canonicalize(x)
         (x0, self.enodes.get(x0).map(self.classes))
     }
@@ -195,7 +197,7 @@ object EGraph:
     extension (self: BasicEGraph){
       override def add(x: ENode): EClass =
         val xc = super.add(self)(x)
-        if !EqualityEmbeddingOps.this.isEmbedding(x) then
+        /* Changed */ if !EqualityEmbeddingOps.this.isEmbedding(x) then
           self.underlying.union(self.Equal(xc, xc), self.True)
         xc
       override def union(xc: EClass, yc: EClass): EClass =
@@ -204,7 +206,7 @@ object EGraph:
         if xc0 == yc0 then return xc0
 
         val xyc = self.underlying.union(xc0, yc0)
-        if !EqualityEmbeddingOps.this.isEmbedding(xc.canonical) then
+        /* Changed */ if !EqualityEmbeddingOps.this.isEmbedding(xc.canonical) then
           self.underlying.union(self.Equal(xc0, yc0), self.True)
           self.underlying.union(self.Equal(yc0, xc0), self.True)
 
@@ -230,37 +232,97 @@ object EGraph:
 
   /** Basic operations for egraphs with disequality embedding. */
   private trait DisequalityEmbeddingOps extends CommonEGraphOps:
-    private val TrueOp: Operator = Operator("@⊤")
     private val UnequalOp: Operator = Operator("@≠")
-    private val EmbeddingOps: Set[Operator] = Set(TrueOp, UnequalOp)
-    private val True: ENode = ENode(TrueOp)
     private def Unequal(xc: EClass, yc: EClass): ENode = ENode(UnequalOp, Seq(xc, yc))
-
-    private def isEmbedding(x: ENode): Boolean = EmbeddingOps(x.op)
 
     extension (self: BasicEGraph) {
       override def disunion(xc: EClass, yc: EClass): Unit =
-        self.underlying.union(self.Unequal(xc, yc), self.True)
-        self.underlying.union(self.Unequal(yc, xc), self.True)
+        self.add(Unequal(xc, yc))
       override def unequal(xc: EClass, yc: EClass): Boolean =
-        self.find(self.Unequal(xc, yc)) == self.find(self.True)
+        self.lookup(Unequal(xc, yc))._2.isDefined || self.lookup(Unequal(yc, xc))._2.isDefined
       override def hasContradiction: Boolean = self.contradictory
       override def rebuild(): Unit =
         val hasBeenRebuilt: Boolean = self.worklist.nonEmpty
         super.rebuild(self)()
         if hasBeenRebuilt then
           self.contradictory |= self.enodes.exists((x, xcId) =>
-            x.op == UnequalOp && self.equal(x.refs(0), x.refs(1)) && // if ne(x, x)
-            self.equal(self.classes(xcId), True)                               
+            x.op == UnequalOp && self.equal(x.refs(0), x.refs(1)) // if ne(x, x)
           )
-      private def True: EClass = self.add(DisequalityEmbeddingOps.this.True)
-      private def Unequal(xc: EClass, yc: EClass): EClass = self.add(DisequalityEmbeddingOps.this.Unequal(xc, yc))
+    }
+
+  /**
+   * Basic operations for egraphs with disequality embedding.
+   * This version applies saturation to disequality embedding in order to be more robust
+   * to user inputs, assuming the user may apply embeddings directly.
+   */
+  private trait SaturatingDisequalityEmbeddingOps extends CommonEGraphOps:
+    private val FalseOp: Operator = Operator("@⊥")
+    private val TrueOp: Operator = Operator("@⊤")
+    private val UnequalOp: Operator = Operator("@≠")
+    private val EmbeddingOps: Set[Operator] = Set(FalseOp, TrueOp, UnequalOp)
+
+    private val True: ENode = ENode(TrueOp)
+    private val False: ENode = ENode(FalseOp)
+    private def Unequal(xc: EClass, yc: EClass): ENode = ENode(UnequalOp, Seq(xc, yc))
+
+    extension (self: BasicEGraph) {
+      override def add(x: ENode): EClass =
+        self.lookup(x) match
+          case (_, Some(xc)) => xc
+          case (x0, _) =>
+            val xc0 = self.find(EClass(x0))
+            x0.refs.foreach(refc =>
+              self.classes.update(refc.id, refc)
+              self.datas.getOrElseUpdate(refc.id, EClassData()).uses.addOne(x0 -> xc0)
+              self.enodes.update(refc.canonical, refc.id)
+            )
+            self.classes.update(xc0.id, xc0)
+            self.datas.update(xc0.id, EClassData())
+            self.enodes.update(x0, xc0.id)
+            /* Changed */ if x.op == UnequalOp then self.enodes.update(Unequal(x.refs(1), x.refs(0)), xc0.id)
+            xc0
+      override def union(xc: EClass, yc: EClass): EClass =
+        val xc0 = self.find(xc)
+        val yc0 = self.find(yc)
+        if xc0 == yc0 then return xc0
+
+        val xyc = self.underlying.union(xc0, yc0)
+
+        /* Changed */
+        val falseClass = self.find(self.add(False))
+        if self.equal(xyc, falseClass) then
+          self.enodes.foreach((x, xcId) =>
+            if x.op == UnequalOp then
+              val neClass = self.find(self.classes(xcId))
+              if neClass == falseClass then self.union(x.refs(0), x.refs(1))
+          )
+
+        val xycData = self.datas.getOrElseUpdate(xyc.id, EClassData())
+        val other = if xyc.id == xc0.id then yc0 else xc0
+        val otherData = self.datas.getOrElse(other.id, EClassData())
+        xycData.uses.addAll(otherData.uses)
+        self.datas.remove(other.id)
+        self.worklist.add(xyc.id)
+        xyc
+      override def disunion(xc: EClass, yc: EClass): Unit =
+        self.worklist.add(self.add(Unequal(xc, yc)).id)
+      override def unequal(xc: EClass, yc: EClass): Boolean =
+        self.lookup(Unequal(xc, yc))._2.isDefined
+      override def hasContradiction: Boolean = self.contradictory
+      override def rebuild(): Unit =
+        val hasBeenRebuilt: Boolean = self.worklist.nonEmpty
+        super.rebuild(self)()
+        if hasBeenRebuilt then
+          self.contradictory |= self.enodes.exists((x, xcId) =>
+            x.op == UnequalOp && self.equal(x.refs(0), x.refs(1)) // if ne(x, x)
+          )
     }
 
 // sbt "runMain propel.evaluator.egraph.mutable.X" where X is one of the following mains
 @main def testDisequalityEdges(): Unit = testEGraph(using EGraph.DisequalityEdges.EGraphsOps)
 @main def testEqualityEmbedding(): Unit = testEGraph(using EGraph.EqualityEmbedding.EGraphsOps)
 @main def testDisequalityEmbedding(): Unit = testEGraph(using EGraph.DisequalityEmbedding.EGraphsOps)
+@main def testSaturatingDisequalityEmbedding(): Unit = testEGraph(using EGraph.SaturatingDisequalityEmbedding.EGraphsOps)
 
 def testEGraph(using EGraphOps[EGraph.EGraph]): Unit =
   /** Define your own simple language */

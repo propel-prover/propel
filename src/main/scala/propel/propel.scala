@@ -150,7 +150,8 @@ object defaults:
                 case "de" => egraphVariant = EGraph.DisequalityEdges.EGraphsOps
                 case "ee" => egraphVariant = EGraph.EqualityEmbedding.EGraphsOps
                 case "nee" => egraphVariant = EGraph.DisequalityEmbedding.EGraphsOps
-                case _ => error = Some("Specify an egraph variant in {de; ee; nee}.")
+                case "nee-sat" => egraphVariant = EGraph.SaturatingDisequalityEmbedding.EGraphsOps
+                case _ => error = Some("Specify an egraph variant in {de; ee; nee; nee-sat}.")
             else
               error = Some("No egraph variant given.")
           case arg =>
@@ -192,7 +193,7 @@ object defaults:
       println("      --max-facts NUMBER           generate a limited number of facts")
       println("      --keep-rewrites NUMBER       number of top-scored rewrites to keep")
       println("      --prop-order PROPERTIES      comma-separated list of properties")
-      println("      --variant VARIANT            e-graph variant: either de, ee or nee. Defaults to de.")
+      println("      --variant VARIANT            e-graph variant: either de, ee, nee, or nee-sat. Defaults to de.")
 
     case (_, Some(content), deduction, reduction, discoverAlgebraicProperties,
           disableEqualities, disableInequalities,
